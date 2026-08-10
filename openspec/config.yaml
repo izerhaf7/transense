@@ -1,32 +1,30 @@
-schema: spec-driven
+  schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+  context: |
+    Transense adalah PWA phone-only untuk penyandang Tuli pengguna TransJakarta di Jakarta: mengatasi informasi perjalanan yang audio-only/tidak andal agar mereka mendapat informasi visual dan haptic yang setara. Stack: frontend React + Vite PWA dalam monorepo, backend FastAPI + WebSocket, SQLite lokal dengan pembersihan otomatis data >7 hari, dan Cloud STT API dengan cloud inference. Demo dideploy ke satu platform cloud gratis. Semua data dan integrasi TransJakarta boleh dummy/seed/simulasi untuk iterasi ini. Target device demo wajib Android karena Vibration API tidak berfungsi di iOS/Safari. Deadline demo/submission: 14 Agustus 2026, dengan waktu tersisa sekitar 4 hari dan resource tim mahasiswa terbatas.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  rules:
+    proposal:
+      - "Selalu sertakan section Non-goals dengan minimal 3 item eksplisit."
+      - "Jangan implementasikan ulang fitur profil netra, profil mobilitas/kursi roda, Buddy Up!, atau wearable/IoT band; semuanya sudah dihapus permanen dari scope, lihat docs/brief.md."
+      - "Pertahankan fokus iterasi pada profil Tuli dan pilot TransJakarta; jangan memperluas ke profil disabilitas lain tanpa keputusan baru."
+      - "Jika proposal menyentuh transkrip atau feed notifikasi keterlambatan/insiden, nyatakan retensi 7 hari dan pembersihan otomatis; transkrip tertentu hanya boleh melewati batas dengan flag simpan."
+      - "Bedakan dengan jelas fitur fungsional demo dari mockup, placeholder, atau simulasi data/API."
+    design:
+      - "Jika desain menyentuh routing, geolocation, atau tracking posisi user, tandai eksplisit mana yang mock/simulasi untuk demo dan mana yang perlu di-upgrade ke implementasi real nanti."
+      - "Pertahankan output audio-blind: teks besar, kontras tinggi, kilat tepi layar, dan pola getar berbeda untuk jenis notifikasi; validasi perilaku getar pada Android."
+      - "Jangan mengasumsikan API TransJakarta tersedia; gunakan kontrak data yang memungkinkan dummy feed diganti integrasi resmi nanti."
+    tasks:
+      - "Pecah task menjadi unit maksimal 2 jam kerja, mengingat sisa waktu sekitar 4 hari."
+      - "Prioritaskan jalur demo fungsional di Android; tunda nice-to-have dan integrasi produksi yang tidak dibutuhkan submission."
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+  operations:
+    apply:
+      guidance:
+        - "Uji alur utama pada device Android nyata; jangan menganggap Vibration API bekerja di iOS/Safari."
+        - "Gunakan dummy/seed/simulasi untuk data TransJakarta, tracking, insiden, dan skenario keluar-rute; jangan menunggu API resmi untuk demo."
+        - "Jaga rahasia Cloud STT API dan konfigurasi deployment melalui environment variables, bukan commit ke repository."
+        - "Sebelum menyatakan selesai, jalankan smoke test Android serta unit test untuk retensi 7 hari, parsing notifikasi, dan pola getar kritis."
+    archive:
+      guidance:
+        - "Catat batasan demo yang masih mock/simulasi dan pekerjaan upgrade yang sengaja ditunda."
