@@ -81,7 +81,8 @@ function MapboxMap({ stops, vehicles, routes }: { stops: Stop[]; vehicles: Vehic
 
         const el = document.createElement('div')
         el.className = 'vehicle-marker'
-        el.innerHTML = '<svg viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="14" fill="#FF7A1A" stroke="#fff" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🚌</text></svg>'
+        el.innerHTML = '🚍'
+        el.setAttribute('aria-label', vehicle.id)
 
         const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(
           `<strong>${vehicle.id}</strong><br>ETA: ${vehicle.eta_minutes} menit`
