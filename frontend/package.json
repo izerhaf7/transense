@@ -13,6 +13,7 @@
     "check": "npm run typecheck && npm run build"
   },
   "dependencies": {
+    "mapbox-gl": "^3.28.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

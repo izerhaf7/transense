@@ -1,6 +1,8 @@
 export interface Stop {
   id: string
   name: string
+  lng?: number
+  lat?: number
 }
 
 export interface Route {
@@ -57,8 +59,8 @@ export const VIBRATION_PATTERNS = {
 
 export const SEEDED_TRANSIT_STATE: TransitState = {
   stops: [
-    { id: 'stop-kp', name: 'Halte Karet' },
-    { id: 'stop-bun', name: 'Halte Bundaran HI' },
+    { id: 'stop-kp', name: 'Halte Karet', lng: 106.8218, lat: -6.1943 },
+    { id: 'stop-bun', name: 'Halte Bundaran HI', lng: 106.8228, lat: -6.1908 },
   ],
   routes: [{ id: 'route-1', name: 'Koridor 1', stop_ids: ['stop-kp', 'stop-bun'] }],
   trips: [{ id: 'trip-1', route_id: 'route-1', vehicle_id: 'vehicle-kp-01' }],
