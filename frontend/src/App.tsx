@@ -1202,7 +1202,7 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string) => void 
     <main className="onboarding-frame">
       <div className="onboarding-panel">
         <div className="brand-lockup" aria-label="Transense">
-          <span className="brand-lockup__mark" aria-hidden="true">TR</span>
+          <span className="brand-lockup__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
           <span className="brand-lockup__text">TRANSENSE</span>
         </div>
         <p className="eyebrow">DEMO SHELL / ANDROID READY</p>
@@ -1240,7 +1240,7 @@ function AppHeader({ title, connection }: { title: string; connection: Connectio
   return (
     <header className="app-header">
       <div className="app-header__title">
-        <span className="brand-mark" aria-hidden="true">TR</span>
+        <span className="brand-mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
         <div>
           <p className="eyebrow">TRANSENSE / DEMO</p>
           <h1>{title}</h1>
@@ -1855,9 +1855,32 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   )
 }
 
+function SplashScreen({ leaving }: { leaving: boolean }) {
+  return (
+    <main className={`splash-screen${leaving ? ' splash-screen--leaving' : ''}`} aria-label="Memuat Transense">
+      <div className="splash-screen__stage">
+        <img className="splash-screen__logo" src="/logos/Logo-Transense.png" alt="Logo Transense" />
+      </div>
+      <p className="splash-screen__brand">TRANSENSE</p>
+      <p className="splash-screen__tagline">Informasi perjalanan yang terlihat jelas.</p>
+    </main>
+  )
+}
+
 export default function App() {
   const [profile, setProfile] = useState<DemoProfile | null>(() => readProfile())
   const [screen, setScreen] = useState<Screen>(() => (readProfile() ? 'home' : 'onboarding'))
+  const [splashLeaving, setSplashLeaving] = useState(false)
+  const [splashDone, setSplashDone] = useState(false)
+
+  useEffect(() => {
+    const leaveTimer = window.setTimeout(() => setSplashLeaving(true), 1400)
+    const doneTimer = window.setTimeout(() => setSplashDone(true), 1900)
+    return () => {
+      window.clearTimeout(leaveTimer)
+      window.clearTimeout(doneTimer)
+    }
+  }, [])
 
   const handleCompleteOnboarding = (displayName: string) => {
     const nextProfile: DemoProfile = { displayName, createdAt: new Date().toISOString() }
@@ -1872,6 +1895,10 @@ export default function App() {
       setProfile(null)
       setScreen('onboarding')
     }
+  }
+
+  if (!splashDone) {
+    return <SplashScreen leaving={splashLeaving} />
   }
 
   if (!profile || screen === 'onboarding') {
