@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title desc">
+  <title id="title">Transense</title>
+  <desc id="desc">Blue TR mark on a white background.</desc>
+  <rect width="192" height="192" rx="32" fill="#FFFFFF"/>
+  <rect x="24" y="24" width="144" height="144" rx="20" fill="#0153A4"/>
+  <path d="M48 58h96v24h-34v52H82V82H48V58Z" fill="#FFFFFF"/>
+  <path d="M112 88h20l-30 46H82l30-46Z" fill="#FF7A1A"/>
+</svg>

@@ -1,0 +1,47 @@
+:root {
+  --color-background: #FFFFFF;
+  --color-text-primary: #000000;
+  --color-text-on-brand: #FFFFFF;
+  --color-surface-muted: #F4F7FA;
+  --color-brand: #0153A4;
+  --color-status-safe: #00B055;
+  --color-status-safe-foreground: #006A33;
+  --color-status-warning: #FF7A1A;
+  --color-status-warning-foreground: #994910;
+  --color-status-danger: #B83630;
+
+  --font-family-display: "Bahnschrift", "Trebuchet MS", sans-serif;
+  --font-size-body: 18px;
+  --font-size-oversized: 24px;
+  --font-size-transcript: 32px;
+  --font-size-small: 16px;
+  --font-weight-readable: 600;
+  --line-height-readable: 1.45;
+  --opacity-muted: 0.72;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --screen-padding: 16px;
+  --component-gap: 16px;
+
+  --touch-target-standard: 48px;
+  --size-feature-tile-min-height: 96px;
+  --size-profile-avatar: 64px;
+  --size-transcribe-mic: 72px;
+  --bottom-nav-height: 72px;
+
+  --radius-control: 8px;
+  --radius-card: 16px;
+  --radius-pill: 999px;
+  --border-thin: 1px;
+  --border-strong: 3px;
+  --shadow-card: 8px 8px 0 var(--color-brand);
+  --shadow-card-safe: 8px 8px 0 var(--color-status-safe);
+  --transition-quick: 160ms ease;
+  --transition-notification-flash: 800ms ease-in-out;
+  --notification-z-index: 20;
+}
