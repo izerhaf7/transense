@@ -1519,6 +1519,32 @@ function DelaysPage({ incidentRecords, onPinIncident }: { incidentRecords: Incid
   )
 }
 
+function LiveTranscript({ text }: { text: string }) {
+  const words = text.trim().split(/\s+/)
+  const [visibleWords, setVisibleWords] = useState(0)
+
+  useEffect(() => {
+    setVisibleWords(0)
+    const timer = window.setInterval(() => {
+      setVisibleWords((current) => {
+        if (current >= words.length) {
+          window.clearInterval(timer)
+          return current
+        }
+        return current + 1
+      })
+    }, 120)
+    return () => window.clearInterval(timer)
+  }, [text])
+
+  return (
+    <p className="live-transcript__text" aria-live="polite">
+      {words.slice(0, visibleWords).join(' ')}
+      <span className="live-transcript__caret" aria-hidden="true">|</span>
+    </p>
+  )
+}
+
 function TranscribePage({ transcription }: { transcription: TranscriptionController }) {
   const permissionLabel: Record<MicrophonePermission, string> = {
     unknown: 'BELUM DIPERIKSA',
@@ -1531,81 +1557,86 @@ function TranscribePage({ transcription }: { transcription: TranscriptionControl
     mock: 'MOCK DEMO',
     degraded: 'DEGRADED',
   }
-  const sessionLabel = transcription.session.status === 'active'
-    ? 'SESI AKTIF'
-    : transcription.session.status === 'requesting'
-      ? 'MEMINTA IZIN'
-      : transcription.session.status === 'denied'
-        ? 'BELUM AKTIF'
-        : 'SIAP DIMULAI'
+  const isActive = transcription.session.status === 'active'
   const canStart = transcription.session.status === 'idle' || transcription.session.status === 'denied'
 
   return (
-    <main className="page-content inner-page transcribe-page">
-      <section className="page-intro">
+    <main className="transcribe-page">
+      <section className="transcribe-intro">
         <p className="eyebrow">TRANSCRIBE / PERCAKAPAN LANGSUNG</p>
         <h2>Ubah percakapan menjadi teks</h2>
-        <p>Untuk percakapan orang-ke-orang melalui mikrofon ponsel. Fitur ini bukan untuk pengumuman PA, dan audio mentah tidak disimpan sebagai history.</p>
+        <p>Untuk percakapan orang-ke-orang melalui mikrofon ponsel. Audio mentah tidak disimpan sebagai history.</p>
       </section>
 
-      <section className="transcribe-session-card" aria-labelledby="transcribe-session-heading">
-        <div className="transcribe-session-card__topline">
+      <section className="transcribe-live" aria-labelledby="transcribe-live-heading">
+        <button
+          className={`transcribe-mic-btn${isActive ? ' transcribe-mic-btn--active' : ''}`}
+          type="button"
+          onClick={isActive ? transcription.stop : transcription.start}
+          disabled={!canStart && !isActive}
+          aria-label={isActive ? 'Hentikan transcribe' : 'Mulai transcribe'}
+        >
+          <svg className="transcribe-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
+          </svg>
+        </button>
+        <h3 id="transcribe-live-heading">{isActive ? 'Mendengarkan…' : 'Ketuk untuk mulai mendengarkan'}</h3>
+        <p className="transcribe-live__detail" role="status">
+          {isActive
+            ? transcription.session.source === 'live'
+              ? 'Sesi live aktif melalui backend transcription boundary.'
+              : transcription.session.source === 'mock'
+                ? 'Mock demo aktif. Ini bukan transkripsi Cloud STT live.'
+                : transcription.session.detail
+            : transcription.session.detail}
+        </p>
+        <div className="transcribe-live__badges">
           <span className="state-badge state-badge--safe">{permissionLabel[transcription.microphone]}</span>
           <span className={`state-badge state-badge--${transcription.session.source === 'live' ? 'safe' : transcription.session.source === 'mock' ? 'warning' : 'danger'}`}>{sourceLabel[transcription.session.source]}</span>
         </div>
-        <h3 id="transcribe-session-heading">{sessionLabel}</h3>
-        <p className="transcribe-session-card__detail" role="status">{transcription.session.detail}</p>
-        <div className="transcribe-session-card__actions">
-          <span className="transcribe-mic-mark" aria-hidden="true">●</span>
-          {transcription.session.status === 'active' ? (
-            <button className="secondary-button" type="button" onClick={transcription.stop}>Hentikan sesi</button>
-          ) : (
-            <button className="primary-button" type="button" onClick={transcription.start} disabled={!canStart}>Mulai transcribe <span aria-hidden="true">→</span></button>
-          )}
-        </div>
-        {transcription.session.status === 'denied' ? <div className="notice-box notice-box--danger" role="alert"><strong>Akses mikrofon belum diberikan</strong><span>Transcription tetap tidak aktif. Ubah izin mikrofon Android lalu coba mulai lagi.</span></div> : null}
+        {transcription.session.status === 'denied' ? <div className="notice-box notice-box--danger" role="alert"><strong>Akses mikrofon belum diberikan</strong><span>Ubah izin mikrofon Android lalu coba mulai lagi.</span></div> : null}
       </section>
 
-      <section className="transcript-card" aria-labelledby="transcript-output-heading" aria-live="polite">
-        <div className="transcript-card__header">
-          <div>
-            <p className="eyebrow">HASIL TERBACA</p>
-            <h3 id="transcript-output-heading">Transkrip percakapan</h3>
+      <div className="transcribe-stage">
+        <section className="transcript-card" aria-labelledby="transcript-output-heading">
+          <div className="transcript-card__header">
+            <div>
+              <p className="eyebrow">HASIL TERBACA</p>
+              <h3 id="transcript-output-heading">Transkrip percakapan</h3>
+            </div>
+            <span className={`state-badge state-badge--${transcription.current?.provider === 'live' ? 'safe' : transcription.current?.provider === 'mock' ? 'warning' : 'danger'}`}>
+              {transcription.current ? sourceLabel[transcription.current.provider] : sourceLabel[transcription.session.source]}
+            </span>
           </div>
-          <span className={`state-badge state-badge--${transcription.current?.provider === 'live' ? 'safe' : transcription.current?.provider === 'mock' ? 'warning' : 'danger'}`}>
-            {transcription.current ? sourceLabel[transcription.current.provider] : sourceLabel[transcription.session.source]}
-          </span>
-        </div>
-        {transcription.current ? (
-          <>
-            <p className="transcript-card__text">{transcription.current.text}</p>
-            <time dateTime={transcription.current.createdAt}>{new Date(transcription.current.createdAt).toLocaleString('id-ID')}</time>
-          </>
-        ) : (
-          <div className="transcript-card__empty"><strong>Belum ada teks</strong><span>Mulai sesi untuk menampilkan percakapan dalam teks besar. Tidak ada keadaan audio-only.</span></div>
-        )}
-      </section>
+          {transcription.current ? (
+            <LiveTranscript text={transcription.current.text} />
+          ) : (
+            <div className="transcript-card__empty"><strong>Belum ada teks</strong><span>Ketuk mikrofon untuk memulai. Hasil percakapan akan muncul satu per satu di sini.</span></div>
+          )}
+          {transcription.current ? <time dateTime={transcription.current.createdAt}>{new Date(transcription.current.createdAt).toLocaleString('id-ID')}</time> : null}
+        </section>
 
-      <section className="transcript-history" aria-labelledby="transcript-history-heading">
-        <div className="section-heading">
-          <p className="eyebrow">HISTORY / RETENSI 7 HARI</p>
-          <h3 id="transcript-history-heading">Percakapan tersimpan</h3>
-        </div>
-        <div className="source-note" role="status"><strong>STATUS HISTORY</strong><span>{transcription.historyDetail}</span><span>Hanya teks fungsional yang ditampilkan; raw audio dan ambient noise tidak masuk history.</span></div>
-        {transcription.history.length ? transcription.history.map((transcript) => (
-          <article className="transcript-history-card" key={transcript.id}>
-            <div className="transcript-history-card__topline">
-              <span className={`state-badge state-badge--${transcript.provider === 'live' ? 'safe' : 'warning'}`}>{sourceLabel[transcript.provider]}</span>
-              <time dateTime={transcript.createdAt}>{new Date(transcript.createdAt).toLocaleString('id-ID')}</time>
-            </div>
-            <p>{transcript.text}</p>
-            <div className="transcript-history-card__footer">
-              <span>{transcript.pinned ? 'Tersimpan · dikecualikan dari cleanup' : transcript.simulated ? 'Mock sesi demo · belum tentu persisten' : 'Retensi demo: 7 hari'}</span>
-              <button className="secondary-button" type="button" onClick={() => transcription.pin(transcript.id)}>{transcript.pinned ? 'Lepas simpan' : 'Simpan / pin'}</button>
-            </div>
-          </article>
-        )) : <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada history</h3><p>Hasil percakapan akan muncul di sini setelah sesi menghasilkan teks fungsional.</p></div>}
-      </section>
+        <BottomSheet>
+          <div className="section-heading">
+            <p className="eyebrow">HISTORY / RETENSI 7 HARI</p>
+            <h3>Percakapan tersimpan</h3>
+          </div>
+          <div className="source-note" role="status"><strong>STATUS HISTORY</strong><span>{transcription.historyDetail}</span><span>Hanya teks fungsional yang ditampilkan; raw audio dan ambient noise tidak masuk history.</span></div>
+          {transcription.history.length ? transcription.history.map((transcript) => (
+            <article className="transcript-history-card" key={transcript.id}>
+              <div className="transcript-history-card__topline">
+                <span className={`state-badge state-badge--${transcript.provider === 'live' ? 'safe' : 'warning'}`}>{sourceLabel[transcript.provider]}</span>
+                <time dateTime={transcript.createdAt}>{new Date(transcript.createdAt).toLocaleString('id-ID')}</time>
+              </div>
+              <p>{transcript.text}</p>
+              <div className="transcript-history-card__footer">
+                <span>{transcript.pinned ? 'Tersimpan · dikecualikan dari cleanup' : transcript.simulated ? 'Mock sesi demo · belum tentu persisten' : 'Retensi demo: 7 hari'}</span>
+                <button className="secondary-button" type="button" onClick={() => transcription.pin(transcript.id)}>{transcript.pinned ? 'Lepas simpan' : 'Simpan / pin'}</button>
+              </div>
+            </article>
+          )) : <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada history</h3><p>Hasil percakapan akan muncul di sini setelah sesi menghasilkan teks fungsional.</p></div>}
+        </BottomSheet>
+      </div>
     </main>
   )
 }
@@ -1809,7 +1840,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   const handleJourneyRestart = () => setJourneySession({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
 
   return (
-    <div className={`app-frame${screen === 'home' ? ' app-frame--home' : ''}`}>
+    <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
       {screen === 'home' ? null : <AppHeader title={title} />}
       <NotificationRenderer notification={currentNotification} onDismiss={() => {
         if (currentNotification) setDismissedNotificationIds((current) => current.includes(currentNotification.id) ? current : [...current, currentNotification.id])
