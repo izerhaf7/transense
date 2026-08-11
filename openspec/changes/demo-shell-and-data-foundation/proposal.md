@@ -4,12 +4,12 @@ Transense membutuhkan rumah aplikasi yang bisa dibuka dan direkam di Android seb
 
 ## What Changes
 
-- Membuat shell PWA React + Vite dalam monorepo dengan layout mobile portrait dan dark visual direction dari wireframe Beranda.
+- Membuat shell PWA React + Vite dalam monorepo dengan layout mobile portrait dan white-base standard visual direction dari wireframe Beranda.
 - Menyediakan onboarding sederhana, Beranda, Profil, dan tab Keterlambatan; Beranda memuat greeting, search halte/rute, status card keterlambatan rute terdekat, serta empat entry point sesuai wireframe.
 - Menyediakan backend FastAPI + WebSocket dasar dan koneksi frontend-backend.
 - Menyediakan SQLite lokal untuk data persisten dan pembersihan otomatis data yang melewati 7 hari.
 - Menetapkan kontrak dummy/seed untuk halte, rute, perjalanan, posisi armada, ETA, dan feed insiden agar dapat dipakai change journey.
-- Menyediakan simulasi data dan deployment demo: PWA di Vercel, backend FastAPI + WebSocket di Render free tier.
+- Menyediakan simulasi data dan deployment demo: PWA di Vercel, backend FastAPI + WebSocket di Google Cloud Run.
 
 ### Non-goals
 
