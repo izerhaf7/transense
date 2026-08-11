@@ -1660,19 +1660,52 @@ function TranscribePage({ transcription }: { transcription: TranscriptionControl
             <h3>Percakapan tersimpan</h3>
           </div>
           <div className="source-note" role="status"><strong>STATUS HISTORY</strong><span>{transcription.historyDetail}</span><span>Hanya teks fungsional yang ditampilkan; raw audio dan ambient noise tidak masuk history.</span></div>
-          {transcription.history.length ? transcription.history.map((transcript) => (
-            <article className="transcript-history-card" key={transcript.id}>
-              <div className="transcript-history-card__topline">
-                <span className={`state-badge state-badge--${transcript.provider === 'live' ? 'safe' : 'warning'}`}>{sourceLabel[transcript.provider]}</span>
-                <time dateTime={transcript.createdAt}>{new Date(transcript.createdAt).toLocaleString('id-ID')}</time>
+          {transcription.history.length ? (() => {
+            const today = new Date()
+            const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+
+            const grouped: { label: string; entries: TranscriptRecord[] }[] = []
+            for (const transcript of transcription.history) {
+              const createdAt = new Date(transcript.createdAt)
+              const entryDate = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate())
+              const diffDays = Math.floor((todayDate.getTime() - entryDate.getTime()) / 86400000)
+              let label: string
+              if (diffDays === 0) {
+                label = 'Hari ini'
+              } else if (diffDays === 1) {
+                label = 'Kemarin'
+              } else if (diffDays < 7) {
+                label = `${diffDays} hari lalu`
+              } else {
+                label = createdAt.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+              }
+              const lastGroup = grouped[grouped.length - 1]
+              if (lastGroup && lastGroup.label === label) {
+                lastGroup.entries.push(transcript)
+              } else {
+                grouped.push({ label, entries: [transcript] })
+              }
+            }
+
+            return grouped.map((group) => (
+              <div className="history-group" key={group.label}>
+                <p className="history-group__label">{group.label}</p>
+                {group.entries.map((transcript) => (
+                  <article className="transcript-history-card" key={transcript.id}>
+                    <div className="transcript-history-card__topline">
+                      <span className={`state-badge state-badge--${transcript.provider === 'live' ? 'safe' : 'warning'}`}>{sourceLabel[transcript.provider]}</span>
+                      <time dateTime={transcript.createdAt}>{new Date(transcript.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</time>
+                    </div>
+                    <p>{transcript.text}</p>
+                    <div className="transcript-history-card__footer">
+                      <span>{transcript.pinned ? 'Tersimpan · dikecualikan dari cleanup' : transcript.simulated ? 'Mock sesi demo · belum tentu persisten' : 'Retensi demo: 7 hari'}</span>
+                      <button className="secondary-button" type="button" onClick={() => transcription.pin(transcript.id)}>{transcript.pinned ? 'Lepas simpan' : 'Simpan / pin'}</button>
+                    </div>
+                  </article>
+                ))}
               </div>
-              <p>{transcript.text}</p>
-              <div className="transcript-history-card__footer">
-                <span>{transcript.pinned ? 'Tersimpan · dikecualikan dari cleanup' : transcript.simulated ? 'Mock sesi demo · belum tentu persisten' : 'Retensi demo: 7 hari'}</span>
-                <button className="secondary-button" type="button" onClick={() => transcription.pin(transcript.id)}>{transcript.pinned ? 'Lepas simpan' : 'Simpan / pin'}</button>
-              </div>
-            </article>
-          )) : <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada history</h3><p>Hasil percakapan akan muncul di sini setelah sesi menghasilkan teks fungsional.</p></div>}
+            ))
+          })() : <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada history</h3><p>Hasil percakapan akan muncul di sini setelah sesi menghasilkan teks fungsional.</p></div>}
         </BottomSheet>
       </div>
     </main>

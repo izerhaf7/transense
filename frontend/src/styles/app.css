@@ -1324,6 +1324,24 @@ input[aria-invalid='true'] {
   font-size: var(--brand-font-size-sm);
 }
 
+.history-group {
+  display: grid;
+  gap: var(--brand-space-sm);
+}
+
+.history-group__label {
+  margin: var(--brand-space-base) 0 0;
+  color: var(--brand-color-accent);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.history-group:first-child .history-group__label {
+  margin-top: 0;
+}
+
 .notice-box--danger {
   color: var(--brand-color-error);
   background: var(--brand-color-error-bg);
