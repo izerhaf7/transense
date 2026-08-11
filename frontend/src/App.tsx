@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import {
   areVibrationPatternsDistinct,
   cloneTransitState,
@@ -9,9 +9,9 @@ import {
   VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
+import MapboxMap from './MapboxMap'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
-type PlaceholderKey = 'antar-aku' | 'transcribe' | 'schedule'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
 type JourneyState = 'entry' | 'matching' | 'route' | 'active' | 'ended'
@@ -208,48 +208,9 @@ interface BackendConnection {
   pinIncident: (incidentId: string) => void
 }
 
-interface FeatureEntry {
-  key: PlaceholderKey | 'delays'
-  title: string
-  description: string
-  state: 'functional' | 'placeholder'
-  accent: 'brand' | 'warning' | 'safe' | 'danger'
-}
-
 const PROFILE_STORAGE_KEY = 'transense.demo-profile.v1'
 const DEFAULT_API_BASE_URL = 'http://localhost:8000'
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL).replace(/\/$/, '')
-
-const featureEntries: FeatureEntry[] = [
-  {
-    key: 'antar-aku',
-    title: 'Antar Aku',
-    description: 'Rute perjalanan terpandu dari halte ke halte.',
-    state: 'functional',
-    accent: 'brand',
-  },
-  {
-    key: 'transcribe',
-    title: 'Transcribe',
-    description: 'Teks percakapan langsung dari mikrofon ponsel.',
-    state: 'functional',
-    accent: 'safe',
-  },
-  {
-    key: 'delays',
-    title: 'Informasi Keterlambatan Jalur',
-    description: 'Buka feed status dan insiden layanan.',
-    state: 'functional',
-    accent: 'warning',
-  },
-  {
-    key: 'schedule',
-    title: 'Jadwal TransJakarta',
-    description: 'Jadwal armada dan perkiraan kedatangan.',
-    state: 'functional',
-    accent: 'danger',
-  },
-]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -1236,17 +1197,15 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string) => void 
   )
 }
 
-function AppHeader({ title, connection }: { title: string; connection: ConnectionState }) {
+function AppHeader({ title }: { title: string }) {
   return (
     <header className="app-header">
       <div className="app-header__title">
         <span className="brand-mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
         <div>
-          <p className="eyebrow">TRANSENSE / DEMO</p>
           <h1>{title}</h1>
         </div>
       </div>
-      <ConnectionStatusBadge connection={connection} />
     </header>
   )
 }
@@ -1370,26 +1329,63 @@ function StatusCard({
   )
 }
 
-function FeatureTile({ entry, onSelect }: { entry: FeatureEntry; onSelect: (entry: FeatureEntry) => void }) {
-  const stateLabel = entry.state === 'functional' ? 'BERFUNGSI' : 'PLACEHOLDER'
+function BottomSheet({ children }: { children: ReactNode }) {
+  const dragStartY = useRef(0)
+  const [collapsed, setCollapsed] = useState(true)
+  const [dragging, setDragging] = useState(false)
+  const [dragDistance, setDragDistance] = useState(0)
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragStartY.current = event.clientY
+    setDragDistance(0)
+    setDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!dragging) return
+    const distance = dragStartY.current - event.clientY
+    setDragDistance(distance)
+  }
+
+  const handlePointerUp = () => {
+    if (!dragging) return
+    setDragging(false)
+    if (dragDistance > 40) {
+      setCollapsed(false)
+    } else if (dragDistance < -40) {
+      setCollapsed(true)
+    }
+    setDragDistance(0)
+  }
+
+  const className = `bottom-sheet${collapsed ? ' bottom-sheet--collapsed' : ' bottom-sheet--expanded'}${dragging ? ' bottom-sheet--dragging' : ''}`
+  const inlineStyle = dragging ? { transform: `translateY(${-dragDistance}px)` } : undefined
+
   return (
-    <button className={`feature-tile feature-tile--${entry.state} feature-tile--${entry.accent}`} type="button" onClick={() => onSelect(entry)}>
-      <span className="feature-tile__stripe" aria-hidden="true" />
-      <span className="feature-tile__content">
-        <span className="feature-tile__topline">
-          <span className="feature-tile__state">{stateLabel}</span>
-          <span aria-hidden="true">↗</span>
-        </span>
-        <strong>{entry.title}</strong>
-        <span>{entry.description}</span>
-      </span>
-    </button>
+    <div className={className} style={inlineStyle}>
+      <button
+        className="bottom-sheet__handle"
+        type="button"
+        aria-label={collapsed ? 'Buka panel informasi' : 'Tutup panel informasi'}
+        aria-expanded={!collapsed}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span className="bottom-sheet__grip" aria-hidden="true" />
+      </button>
+      <div className="bottom-sheet__content">
+        {children}
+      </div>
+    </div>
   )
 }
 
 function HomePage({
   displayName,
-  onFeatureSelect,
   transitState,
   connection,
   simulationDetail,
@@ -1397,7 +1393,6 @@ function HomePage({
   onReset,
 }: {
   displayName: string
-  onFeatureSelect: (entry: FeatureEntry) => void
   transitState: TransitState | null
   connection: ConnectionState
   simulationDetail: string
@@ -1406,22 +1401,21 @@ function HomePage({
 }) {
   return (
     <main className="page-content home-page">
-      <section className="welcome-block" aria-labelledby="welcome-heading">
-        <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
-        <h2 id="welcome-heading">Halo, {displayName}.</h2>
-        <p>Semua informasi penting perjalananmu, dalam satu tampilan.</p>
+      <section className="welcome-card" aria-labelledby="welcome-heading">
+        <span className="welcome-card__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
+        <div className="welcome-card__body">
+          <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
+          <h2 id="welcome-heading">Halo, {displayName}!</h2>
+          <p>Semua informasi penting perjalananmu, dalam satu tampilan.</p>
+        </div>
       </section>
       <SearchEntry />
-      <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
-      <section className="feature-section" aria-labelledby="feature-heading">
-        <div className="section-heading">
-          <p className="eyebrow">AKSES CEPAT</p>
-          <h2 id="feature-heading">Pilih kebutuhanmu</h2>
-        </div>
-        <div className="feature-list">
-          {featureEntries.map((entry) => <FeatureTile key={entry.key} entry={entry} onSelect={onFeatureSelect} />)}
-        </div>
-      </section>
+      <div className="home-map-stage">
+        <MapboxMap stops={transitState?.stops ?? SEEDED_TRANSIT_STATE.stops} />
+        <BottomSheet>
+          <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
+        </BottomSheet>
+      </div>
     </main>
   )
 }
@@ -1695,7 +1689,7 @@ function AntarAkuPage({
   )
 }
 
-function ProfilePage({ profile, onReset }: { profile: DemoProfile; onReset: () => void }) {
+function ProfilePage({ profile, onReset, connection, simulationDetail }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string }) {
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
@@ -1711,23 +1705,22 @@ function ProfilePage({ profile, onReset }: { profile: DemoProfile; onReset: () =
           <p>Dibuat {new Date(profile.createdAt).toLocaleDateString('id-ID')}</p>
         </div>
       </section>
+      <section className="connection-panel" aria-labelledby="connection-panel-heading">
+        <div className="section-heading">
+          <p className="eyebrow">STATUS KONEKSI</p>
+          <h2 id="connection-panel-heading">Koneksi backend</h2>
+        </div>
+        <div className="connection-panel__badge">
+          <ConnectionStatusBadge connection={connection} />
+        </div>
+        <div className="connection-panel__details">
+          <div className="connection-panel__detail"><span>Alamat backend</span><strong>{apiBaseUrl}</strong></div>
+          <div className="connection-panel__detail"><span>Percobaan koneksi</span><strong>{connection.attempts}</strong></div>
+          <div className="connection-panel__detail"><span>Detail simulasi</span><strong>{simulationDetail}</strong></div>
+        </div>
+      </section>
       <div className="notice-box"><strong>Catatan privasi demo</strong><span>Tidak ada login produksi atau data cloud di shell ini.</span></div>
       <button className="secondary-button" type="button" onClick={onReset}>Hapus profil demo</button>
-    </main>
-  )
-}
-
-function PlaceholderPage({ title, description, onBack }: { title: string; description: string; onBack: () => void }) {
-  return (
-    <main className="page-content inner-page">
-      <section className="placeholder-page">
-        <span className="state-badge state-badge--placeholder">PLACEHOLDER</span>
-        <p className="eyebrow">FITUR BERIKUTNYA</p>
-        <h2>{title}</h2>
-        <p>{description}</p>
-        <div className="notice-box"><strong>Belum tersedia di foundation demo</strong><span>Entry point ini sengaja terlihat agar batas fungsional dan placeholder tetap jelas.</span></div>
-        <button className="secondary-button" type="button" onClick={onBack}>Kembali ke Beranda</button>
-      </section>
     </main>
   )
 }
@@ -1735,7 +1728,10 @@ function PlaceholderPage({ title, description, onBack }: { title: string; descri
 function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void }) {
   const navigationItems: Array<{ screen: Exclude<Screen, 'placeholder'>; label: string; icon: string }> = [
     { screen: 'home', label: 'Beranda', icon: '⌂' },
+    { screen: 'antar-aku', label: 'Antar Aku', icon: '→' },
+    { screen: 'transcribe', label: 'Transcribe', icon: '✎' },
     { screen: 'delays', label: 'Keterlambatan', icon: '!' },
+    { screen: 'schedule', label: 'Jadwal', icon: '▦' },
     { screen: 'profile', label: 'Profil', icon: '◉' },
   ]
 
@@ -1756,7 +1752,6 @@ function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: 
 
 function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetProfile: () => void }) {
   const [screen, setScreen] = useState<Screen>('home')
-  const [placeholder, setPlaceholder] = useState<FeatureEntry | null>(null)
   const [journeySession, setJourneySession] = useState<JourneySession>({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
@@ -1779,35 +1774,11 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     if (screen === 'schedule') return 'Jadwal & armada'
     if (screen === 'antar-aku') return 'Antar Aku'
     if (screen === 'transcribe') return 'Transcribe'
-    return placeholder?.title || 'Fitur Transense'
-  }, [placeholder, screen])
-
-  const handleFeatureSelect = (entry: FeatureEntry) => {
-    if (entry.key === 'delays') {
-      setScreen('delays')
-      setPlaceholder(null)
-      return
-    }
-
-    if (entry.key === 'schedule' || entry.key === 'antar-aku') {
-      setScreen(entry.key)
-      setPlaceholder(null)
-      return
-    }
-
-    if (entry.key === 'transcribe') {
-      setScreen('transcribe')
-      setPlaceholder(null)
-      return
-    }
-
-    setPlaceholder(entry)
-    setScreen('placeholder')
-  }
+    return 'Fitur Transense'
+  }, [screen])
 
   const handleNavigate = (nextScreen: Exclude<Screen, 'placeholder'>) => {
     setScreen(nextScreen)
-    setPlaceholder(null)
   }
 
   const handleJourneyMatch = () => {
@@ -1838,18 +1809,17 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   const handleJourneyRestart = () => setJourneySession({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
 
   return (
-    <div className="app-frame">
-      <AppHeader title={title} connection={backend.connection} />
+    <div className={`app-frame${screen === 'home' ? ' app-frame--home' : ''}`}>
+      {screen === 'home' ? null : <AppHeader title={title} />}
       <NotificationRenderer notification={currentNotification} onDismiss={() => {
         if (currentNotification) setDismissedNotificationIds((current) => current.includes(currentNotification.id) ? current : [...current, currentNotification.id])
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} onFeatureSelect={handleFeatureSelect} transitState={backend.transitState} connection={backend.connection} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} /> : null}
+      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} connection={backend.connection} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} /> : null}
       {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <TranscribePage transcription={backend.transcription} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage transitState={optionalData.state} session={journeySession} notifications={backend.notifications} onQueryChange={(destinationQuery) => setJourneySession((current) => ({ ...current, destinationQuery, message: '' }))} onMatch={handleJourneyMatch} onConfirm={() => setJourneySession((current) => ({ ...current, state: 'active', message: 'Journey aktif. Status armada dan notifikasi akan tampil di konteks ini.' }))} onEnd={() => setJourneySession((current) => ({ ...current, state: 'ended', offRoute: false, message: 'Journey berakhir di sesi demo.' }))} onRestart={handleJourneyRestart} onSimulateOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: true, message: 'Keluar rute disimulasikan secara manual untuk demo.' }))} onResolveOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: false, message: 'Status resolved: kembali ke rute demo (tanpa klaim posisi real).' }))} /> : null}
-      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} /> : null}
-      {screen === 'placeholder' && placeholder ? <PlaceholderPage title={placeholder.title} description={placeholder.description} onBack={() => handleNavigate('home')} /> : null}
+      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
   )
