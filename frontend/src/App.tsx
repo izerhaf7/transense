@@ -1437,7 +1437,7 @@ function HomePage({
       </section>
       <SearchEntry />
       <div className="home-map-stage">
-        <MapboxMap stops={transitState?.stops ?? SEEDED_TRANSIT_STATE.stops} />
+        <MapboxMap stops={transitState?.stops ?? SEEDED_TRANSIT_STATE.stops} vehicles={transitState?.vehicles ?? SEEDED_TRANSIT_STATE.vehicles} routes={transitState?.routes ?? SEEDED_TRANSIT_STATE.routes} />
         <BottomSheet>
           <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
         </BottomSheet>

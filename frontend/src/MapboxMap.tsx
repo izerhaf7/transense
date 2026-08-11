@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import type { Stop } from './journey'
+import type { Route, Stop, Vehicle } from './journey'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN?.trim() || ''
 const DEFAULT_CENTER: [number, number] = [106.8227, -6.1944]
 const DEFAULT_ZOOM = 12
 
-function MapboxMap({ stops }: { stops: Stop[] }) {
+function MapboxMap({ stops, vehicles, routes }: { stops: Stop[]; vehicles: Vehicle[]; routes: Route[] }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
 
@@ -35,13 +35,66 @@ function MapboxMap({ stops }: { stops: Stop[] }) {
         const lat = stop.lat as number
         new mapboxgl.Marker({ color: '#1677ff' })
           .setLngLat([lng, lat])
-          .setPopup(new mapboxgl.Popup({ offset: 24 }).setText(stop.name))
+          .setPopup(new mapboxgl.Popup({ offset: 24 }).setHTML(`<strong>${stop.name}</strong>`))
           .addTo(map)
         bounds.extend([lng, lat])
       }
 
-      if (locatedStops.length > 1) {
-        map.fitBounds(bounds, { padding: 48, maxZoom: DEFAULT_ZOOM })
+      for (const route of routes) {
+        const coords: [number, number][] = []
+        for (const stopId of route.stop_ids) {
+          const stop = stops.find((s) => s.id === stopId)
+          if (stop && typeof stop.lng === 'number' && typeof stop.lat === 'number') {
+            coords.push([stop.lng as number, stop.lat as number])
+          }
+        }
+        if (coords.length < 2) continue
+
+        const sourceId = `route-line-${route.id}`
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: { name: route.name },
+            geometry: { type: 'LineString', coordinates: coords },
+          },
+        })
+        map.addLayer({
+          id: `layer-${sourceId}`,
+          type: 'line',
+          source: sourceId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#B83630',
+            'line-width': 3,
+            'line-dasharray': [2, 2],
+            'line-opacity': 0.8,
+          },
+        })
+      }
+
+      for (const vehicle of vehicles) {
+        const stop = stops.find((s) => s.id === vehicle.position)
+        if (!stop || typeof stop.lng !== 'number' || typeof stop.lat !== 'number') continue
+        const lng = stop.lng as number
+        const lat = stop.lat as number
+
+        const el = document.createElement('div')
+        el.className = 'vehicle-marker'
+        el.innerHTML = '<svg viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="14" fill="#FF7A1A" stroke="#fff" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🚌</text></svg>'
+
+        const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(
+          `<strong>${vehicle.id}</strong><br>ETA: ${vehicle.eta_minutes} menit`
+        )
+        new mapboxgl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([lng + 0.0002, lat - 0.0002])
+          .setPopup(popup)
+          .addTo(map)
+        bounds.extend([lng, lat])
+      }
+
+      if (locatedStops.length > 0) {
+        map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 600 })
       }
     })
 
@@ -55,7 +108,7 @@ function MapboxMap({ stops }: { stops: Stop[] }) {
       map.remove()
       mapRef.current = null
     }
-  }, [stops])
+  }, [stops, vehicles, routes])
 
   if (!MAPBOX_TOKEN) {
     return (
@@ -67,7 +120,7 @@ function MapboxMap({ stops }: { stops: Stop[] }) {
     )
   }
 
-  return <div className="map-canvas" ref={containerRef} aria-label="Peta halte TransJakarta" />
+  return <div className="map-canvas" ref={containerRef} aria-label="Peta TransJakarta — halte dan posisi armada" />
 }
 
 export default MapboxMap
