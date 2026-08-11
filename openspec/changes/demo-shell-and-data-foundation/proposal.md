@@ -9,7 +9,7 @@ Transense membutuhkan rumah aplikasi yang bisa dibuka dan direkam di Android seb
 - Menyediakan backend FastAPI + WebSocket dasar dan koneksi frontend-backend.
 - Menyediakan SQLite lokal untuk data persisten dan pembersihan otomatis data yang melewati 7 hari.
 - Menetapkan kontrak dummy/seed untuk halte, rute, perjalanan, posisi armada, ETA, dan feed insiden agar dapat dipakai change journey.
-- Menyediakan simulasi data dan deployment ke satu platform cloud gratis untuk jalur demo.
+- Menyediakan simulasi data dan deployment demo: PWA di Vercel, backend FastAPI + WebSocket di Render free tier.
 
 ### Non-goals
 
