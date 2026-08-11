@@ -1253,6 +1253,22 @@ input[aria-invalid='true'] {
   50% { opacity: 0; }
 }
 
+.transcript-card__live {
+  display: grid;
+  align-content: start;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.transcript-card__text {
+  margin: var(--brand-space-sm) 0;
+  color: var(--brand-color-text);
+  font-size: var(--brand-font-size-transcript);
+  font-weight: var(--brand-font-weight-strong);
+  line-height: var(--brand-line-height);
+  word-break: break-word;
+}
+
 .transcript-card__empty {
   display: grid;
   gap: var(--brand-space-xs);

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { useScribe } from '@elevenlabs/react'
 import {
   areVibrationPatternsDistinct,
   cloneTransitState,
@@ -154,6 +155,7 @@ interface TranscriptionController {
   start: () => void
   stop: () => void
   pin: (transcriptId: string) => void
+  saveTranscript: (text: string) => void
 }
 
 interface NotificationRecord {
@@ -206,6 +208,7 @@ interface BackendConnection {
   resetTransit: () => void
   simulateNotification: (kind: Exclude<NotificationKind, 'off_route'>) => void
   pinIncident: (incidentId: string) => void
+  saveTranscript: (text: string) => void
 }
 
 const PROFILE_STORAGE_KEY = 'transense.demo-profile.v1'
@@ -966,6 +969,27 @@ function useBackendConnection(): BackendConnection {
       })
   }
 
+  const saveTranscript = (text: string) => {
+    const sessionId = `scribe-${Date.now()}`
+    activeTranscriptionSessionRef.current = sessionId
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'transcription.save', text, session_id: sessionId }))
+      setSimulationDetail('Transkrip disimpan ke backend.')
+    } else {
+      acceptTranscript({
+        id: `local-scribe-${sessionId}`,
+        sessionId,
+        text,
+        createdAt: new Date().toISOString(),
+        provider: 'live',
+        pinned: false,
+        simulated: false,
+      })
+      setSimulationDetail('Transkrip disimpan lokal; backend belum tersedia.')
+    }
+  }
+
   return {
     connection,
     transitState,
@@ -981,6 +1005,7 @@ function useBackendConnection(): BackendConnection {
       start: () => { void startTranscription() },
       stop: stopTranscription,
       pin: pinTranscript,
+      saveTranscript,
     },
     updateTransit: () => sendTransitMessage({ type: 'transit.update', vehicle_id: 'vehicle-kp-01' }),
     resetTransit: () => sendTransitMessage({ type: 'transit.reset' }),
@@ -1011,6 +1036,7 @@ function useBackendConnection(): BackendConnection {
         })
         .catch((error: unknown) => console.warn('Transense could not update incident pin state.', error))
     },
+    saveTranscript,
   }
 }
 
@@ -1519,46 +1545,55 @@ function DelaysPage({ incidentRecords, onPinIncident }: { incidentRecords: Incid
   )
 }
 
-function LiveTranscript({ text }: { text: string }) {
-  const words = text.trim().split(/\s+/)
-  const [visibleWords, setVisibleWords] = useState(0)
-
-  useEffect(() => {
-    setVisibleWords(0)
-    const timer = window.setInterval(() => {
-      setVisibleWords((current) => {
-        if (current >= words.length) {
-          window.clearInterval(timer)
-          return current
-        }
-        return current + 1
-      })
-    }, 120)
-    return () => window.clearInterval(timer)
-  }, [text])
-
-  return (
-    <p className="live-transcript__text" aria-live="polite">
-      {words.slice(0, visibleWords).join(' ')}
-      <span className="live-transcript__caret" aria-hidden="true">|</span>
-    </p>
-  )
-}
-
 function TranscribePage({ transcription }: { transcription: TranscriptionController }) {
-  const permissionLabel: Record<MicrophonePermission, string> = {
-    unknown: 'BELUM DIPERIKSA',
-    granted: 'MIKROFON DIIZINKAN',
-    denied: 'MIKROFON DITOLAK',
-    unsupported: 'MIKROFON TIDAK TERSEDIA',
+  const [errorMessage, setErrorMessage] = useState('')
+
+  const scribe = useScribe({
+    modelId: 'scribe_v2_realtime',
+    onCommittedTranscript: (data: { text: string }) => {
+      if (data.text.trim()) {
+        transcription.saveTranscript(data.text.trim())
+      }
+    },
+    onError: (error: Error | Event) => {
+      setErrorMessage(error instanceof Error ? error.message : 'Terjadi error pada sesi transkripsi.')
+    },
+    onDisconnect: () => {
+      setErrorMessage('')
+    },
+  })
+
+  const handleStart = async () => {
+    setErrorMessage('')
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/scribe-token`)
+      if (!response.ok) {
+        const errText = await response.text()
+        setErrorMessage(`Gagal mendapatkan token: ${errText}`)
+        return
+      }
+      const tokenData: { token: string } = await response.json()
+      await scribe.connect({
+        token: tokenData.token,
+        microphone: { echoCancellation: true, noiseSuppression: true },
+      })
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'Gagal memulai transkripsi ElevenLabs.')
+    }
   }
+
+  const handleStop = () => {
+    scribe.disconnect()
+  }
+
+  const connected = scribe.isConnected
+  const liveText = scribe.partialTranscript
+
   const sourceLabel: Record<TranscriptionSource, string> = {
     live: 'LIVE / BACKEND',
     mock: 'MOCK DEMO',
     degraded: 'DEGRADED',
   }
-  const isActive = transcription.session.status === 'active'
-  const canStart = transcription.session.status === 'idle' || transcription.session.status === 'denied'
 
   return (
     <main className="transcribe-page">
@@ -1570,31 +1605,25 @@ function TranscribePage({ transcription }: { transcription: TranscriptionControl
 
       <section className="transcribe-live" aria-labelledby="transcribe-live-heading">
         <button
-          className={`transcribe-mic-btn${isActive ? ' transcribe-mic-btn--active' : ''}`}
+          className={`transcribe-mic-btn${connected ? ' transcribe-mic-btn--active' : ''}`}
           type="button"
-          onClick={isActive ? transcription.stop : transcription.start}
-          disabled={!canStart && !isActive}
-          aria-label={isActive ? 'Hentikan transcribe' : 'Mulai transcribe'}
+          onClick={connected ? handleStop : handleStart}
+          aria-label={connected ? 'Hentikan transcribe' : 'Mulai transcribe'}
         >
           <svg className="transcribe-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
           </svg>
         </button>
-        <h3 id="transcribe-live-heading">{isActive ? 'Mendengarkan…' : 'Ketuk untuk mulai mendengarkan'}</h3>
+        <h3 id="transcribe-live-heading">{connected ? 'Mendengarkan…' : 'Ketuk untuk mulai mendengarkan'}</h3>
         <p className="transcribe-live__detail" role="status">
-          {isActive
-            ? transcription.session.source === 'live'
-              ? 'Sesi live aktif melalui backend transcription boundary.'
-              : transcription.session.source === 'mock'
-                ? 'Mock demo aktif. Ini bukan transkripsi Cloud STT live.'
-                : transcription.session.detail
-            : transcription.session.detail}
+          {connected ? 'ElevenLabs Scribe v2 — transkripsi bahasa Indonesia real-time.' : 'Ketuk mikrofon untuk mulai. Audio diproses melalui ElevenLabs Scribe.'}
         </p>
         <div className="transcribe-live__badges">
-          <span className="state-badge state-badge--safe">{permissionLabel[transcription.microphone]}</span>
-          <span className={`state-badge state-badge--${transcription.session.source === 'live' ? 'safe' : transcription.session.source === 'mock' ? 'warning' : 'danger'}`}>{sourceLabel[transcription.session.source]}</span>
+          <span className={`state-badge state-badge--${connected ? 'safe' : 'warning'}`}>{connected ? 'LIVE' : 'SIAP'}</span>
         </div>
-        {transcription.session.status === 'denied' ? <div className="notice-box notice-box--danger" role="alert"><strong>Akses mikrofon belum diberikan</strong><span>Ubah izin mikrofon Android lalu coba mulai lagi.</span></div> : null}
+        {errorMessage ? (
+          <div className="notice-box notice-box--danger" role="alert"><strong>Gagal tersambung</strong><span>{errorMessage}</span></div>
+        ) : null}
       </section>
 
       <div className="transcribe-stage">
@@ -1604,16 +1633,25 @@ function TranscribePage({ transcription }: { transcription: TranscriptionControl
               <p className="eyebrow">HASIL TERBACA</p>
               <h3 id="transcript-output-heading">Transkrip percakapan</h3>
             </div>
-            <span className={`state-badge state-badge--${transcription.current?.provider === 'live' ? 'safe' : transcription.current?.provider === 'mock' ? 'warning' : 'danger'}`}>
-              {transcription.current ? sourceLabel[transcription.current.provider] : sourceLabel[transcription.session.source]}
+            <span className={`state-badge state-badge--${connected ? 'safe' : transcription.current ? 'warning' : 'placeholder'}`}>
+              {connected ? 'LIVE' : transcription.current ? sourceLabel[transcription.current.provider] : 'KOSONG'}
             </span>
           </div>
-          {transcription.current ? (
-            <LiveTranscript text={transcription.current.text} />
+          {connected || liveText ? (
+            <div className="transcript-card__live" aria-live="polite">
+              <p className="live-transcript__text">
+                {liveText || 'Menunggu suara…'}
+                <span className="live-transcript__caret" aria-hidden="true">|</span>
+              </p>
+            </div>
+          ) : transcription.current ? (
+            <>
+              <p className="transcript-card__text">{transcription.current.text}</p>
+              <time dateTime={transcription.current.createdAt}>{new Date(transcription.current.createdAt).toLocaleString('id-ID')}</time>
+            </>
           ) : (
-            <div className="transcript-card__empty"><strong>Belum ada teks</strong><span>Ketuk mikrofon untuk memulai. Hasil percakapan akan muncul satu per satu di sini.</span></div>
+            <div className="transcript-card__empty"><strong>Belum ada teks</strong><span>Ketuk mikrofon untuk memulai. Hasil percakapan akan muncul kata per kata di sini.</span></div>
           )}
-          {transcription.current ? <time dateTime={transcription.current.createdAt}>{new Date(transcription.current.createdAt).toLocaleString('id-ID')}</time> : null}
         </section>
 
         <BottomSheet>

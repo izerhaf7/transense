@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
 from typing import Any, cast
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +15,8 @@ from .persistence import DemoStore
 from .notifications import NotificationEngine
 from .sources import load_static_schedule
 from .transit import TransitSimulator, TransitValidationError
-from .transcription import MockTranscriptionProvider, ProviderConfigurationError, TranscriptionError, create_provider, persist_transcript, transcript_history
+from .transcription import (MockTranscriptionProvider, ProviderConfigurationError, TranscriptionError,
+                            TranscriptionResult, create_provider, persist_transcript, transcript_history)
 
 
 @asynccontextmanager
@@ -120,6 +122,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="transcript record not found")
         return {"id": record_id, "pinned": pinned}
 
+    @application.get("/api/scribe-token", response_model=None)
+    async def scribe_token() -> dict[str, Any]:
+        api_key = resolved.elevenlabs_api_key
+        if not api_key:
+            raise HTTPException(status_code=503, detail="ElevenLabs API key not configured")
+        try:
+            from elevenlabs import ElevenLabs
+            client = ElevenLabs(api_key=api_key)
+            token = client.tokens.single_use.create("realtime_scribe")
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"ElevenLabs token creation failed: {error}")
+        return {"token": getattr(token, "token", str(token))}
+
     @application.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         origin = websocket.headers.get("origin")
@@ -190,6 +205,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         created_at = datetime.now(timezone.utc)
                         persist_transcript(store, result, session_id, created_at, record_id)
                         await websocket.send_json({"type": "transcription.result", "id": record_id, "session_id": session_id, "text": result.text, "created_at": created_at.isoformat().replace("+00:00", "Z"), "provider": result.provider, "mode": result.mode, "functional": True})
+                    elif message_type == "transcription.save":
+                        text = message.get("text", "").strip()
+                        session_id = message.get("session_id", "")
+                        if not text:
+                            raise TranscriptionError("text must be non-empty")
+                        if not isinstance(session_id, str) or not session_id.strip():
+                            raise TranscriptionError("session_id must be a non-empty string")
+                        store = getattr(application.state, "store", None)
+                        if store is None:
+                            raise TranscriptionError("transcript persistence is unavailable")
+                        record_id = f"transcript-{session_id}-{uuid4().hex[:8]}"
+                        created_at = datetime.now(timezone.utc)
+                        result = TranscriptionResult(text=text, provider="elevenlabs_scribe", mode="live")
+                        persist_transcript(store, result, session_id, created_at, record_id)
+                        await websocket.send_json({"type": "transcription.result", "id": record_id, "session_id": session_id, "text": text, "created_at": created_at.isoformat().replace("+00:00", "Z"), "provider": "live", "mode": "live", "functional": True})
                     else:
                         await websocket.send_json({"type": "error", "code": "unknown_message", "message": "message type is not supported"})
                 except (TransitValidationError, TypeError, AttributeError) as error:
