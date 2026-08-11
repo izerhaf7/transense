@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+*.local
+
+# Python
+__pycache__/
+*.pyc
+backend/transense.sqlite3
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Env
+.env.local
+.env.*.local
