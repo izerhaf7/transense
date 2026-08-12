@@ -77,6 +77,7 @@ class GtfsFeed:
     routes_by_short_name: dict[str, list[GtfsRoute]] = field(default_factory=dict)
     stop_ids_by_route: dict[str, list[str]] = field(default_factory=dict)
     routes_by_stop: dict[str, list[str]] = field(default_factory=dict)
+    routes_by_station: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _read_csv_from_zip(zf: zipfile.ZipFile, name: str) -> list[dict[str, str]]:
@@ -254,6 +255,13 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
             if short_name not in feed.routes_by_stop[stop_id]:
                 feed.routes_by_stop[stop_id].append(short_name)
 
+    for stop_id, stop in feed.stops.items():
+        if stop.parent_station:
+            feed.routes_by_station.setdefault(stop.parent_station, [])
+            for short_name in feed.routes_by_stop.get(stop_id, []):
+                if short_name not in feed.routes_by_station[stop.parent_station]:
+                    feed.routes_by_station[stop.parent_station].append(short_name)
+
     logger.info(
         "GTFS parsed: %d stops, %d routes, %d trips, %d shapes",
         len(feed.stops),
@@ -269,10 +277,8 @@ def _normalize(value: str) -> str:
 
 
 def stop_type_label(stop: "GtfsStop") -> str:
-    if stop.location_type == "1":
+    if stop.location_type == "1" or stop.parent_station:
         return "BRT Station"
-    if stop.parent_station:
-        return f"BRT Platform ({stop.platform_code})" if stop.platform_code else "BRT Platform"
     return "Bus Stop"
 
 

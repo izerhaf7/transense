@@ -201,19 +201,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         query = q.strip().casefold()
         if not query:
             return {"stops": [], "source": "gtfs"}
-        matches = [
-            {
+        by_name: dict[str, dict[str, object]] = {}
+        for s in feed.stops.values():
+            if query not in s.name.casefold():
+                continue
+            key = s.name.strip().casefold()
+            entry = {
                 "id": s.stop_id,
                 "name": s.name,
                 "lat": s.lat,
                 "lng": s.lng,
                 "type": stop_type_label(s),
-                "platform": s.platform_code,
             }
-            for s in feed.stops.values()
-            if query in s.name.casefold()
-        ]
-        matches.sort(key=lambda s: (s["name"], s["type"]))
+            existing = by_name.get(key)
+            if existing is None or s.location_type == "1":
+                by_name[key] = entry
+        matches = sorted(by_name.values(), key=lambda s: str(s["name"]))
         return {"stops": matches[:20], "source": "gtfs"}
 
     @application.get("/api/gtfs/routes", response_model=None)
@@ -503,7 +506,17 @@ def _find_nearest_stop(feed: "GtfsFeed", lat: float, lng: float) -> str | None:
 
 def _route_serves_stop(feed: "GtfsFeed", route_code: str, stop_id: str) -> bool:
     served = feed.routes_by_stop.get(stop_id, [])
-    return route_code in served
+    if route_code in served:
+        return True
+    station_routes = feed.routes_by_station.get(stop_id, [])
+    if route_code in station_routes:
+        return True
+    stop = feed.stops.get(stop_id)
+    if stop is not None and stop.parent_station:
+        parent_routes = feed.routes_by_station.get(stop.parent_station, [])
+        if route_code in parent_routes:
+            return True
+    return False
 
 
 def _headsign_for_bus(feed: "GtfsFeed", trip_id: str, route_code: str) -> str:
