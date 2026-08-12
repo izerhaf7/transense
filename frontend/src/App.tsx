@@ -1466,6 +1466,23 @@ function HomePage({
     return () => controller.abort()
   }, [])
 
+  const [busPositions, setBusPositions] = useState<{ id: string; route_code: string; lat: number; lng: number }[]>([])
+
+  useEffect(() => {
+    const fetchBuses = () => {
+      fetch(`${apiBaseUrl}/api/buses`)
+        .then(async (res) => {
+          if (!res.ok) return
+          const data = await res.json() as { buses: { id: string; route_code: string; lat: number; lng: number }[] }
+          if (data.buses.length) setBusPositions(data.buses)
+        })
+        .catch(() => {})
+    }
+    fetchBuses()
+    const interval = window.setInterval(fetchBuses, 15_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
   const displayStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
 
   return (
@@ -1480,7 +1497,7 @@ function HomePage({
       </section>
       <SearchEntry />
       <div className="home-map-stage">
-        <MapboxMap stops={displayStops} routeShapes={routeShapes} />
+        <MapboxMap stops={displayStops} routeShapes={routeShapes} buses={busPositions} />
         <BottomSheet>
           <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
         </BottomSheet>

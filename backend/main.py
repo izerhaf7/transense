@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
     app.state.gtfs_feed = None
     app.state.realtime_buses: list[RealtimeBus] = []
     app.state.gtfs_error: str | None = None
+    app.state.realtime_error: str | None = None
     app.state.realtime_client: TjRealtimeClient | None = None
 
     settings: Settings = app.state.settings
@@ -47,9 +48,10 @@ async def lifespan(app: FastAPI):
             app.state.realtime_client = TjRealtimeClient(api_base=settings.realtime_api_base)
             app.state.realtime_client.authenticate()
             logger.info("TJ realtime API authenticated")
-        except TjApiError as exc:
-            logger.warning("TJ realtime API not available: %s", exc)
+        except Exception as exc:
             app.state.realtime_client = None
+            app.state.realtime_error = str(exc)
+            logger.warning("TJ realtime API not available: %s", exc)
     try:
         store = DemoStore(app.state.settings.database_path)
         app.state.store = store
@@ -227,24 +229,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/api/buses", response_model=None)
     async def realtime_buses() -> dict[str, Any]:
-        client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
-        if client is not None:
-            try:
-                buses = client.get_buses(
-                    lat=resolved.realtime_center_lat,
-                    lng=resolved.realtime_center_lng,
-                    radius_km=resolved.realtime_radius_km,
-                )
-                application.state.realtime_buses = buses
-            except TjApiError:
-                pass
-        return {
-            "buses": [
-                {"id": b.bus_id, "route_code": b.route_code, "lat": b.lat, "lng": b.lng, "observed_at": b.observed_at.isoformat()}
-                for b in getattr(application.state, "realtime_buses", [])
-            ],
-            "source": "realtime" if client is not None else "unavailable",
-        }
+        try:
+            client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
+            error_detail: str | None = getattr(application.state, "realtime_error", None)
+            if client is None and resolved.realtime_enabled:
+                try:
+                    client = TjRealtimeClient(api_base=resolved.realtime_api_base)
+                    client.authenticate()
+                    application.state.realtime_client = client
+                    application.state.realtime_error = None
+                except Exception as exc:
+                    application.state.realtime_error = str(exc)
+            if client is not None:
+                try:
+                    buses = client.get_buses(
+                        lat=resolved.realtime_center_lat,
+                        lng=resolved.realtime_center_lng,
+                        radius_km=resolved.realtime_radius_km,
+                    )
+                    application.state.realtime_buses = buses
+                except TjApiError:
+                    pass
+            return {
+                "buses": [
+                    {"id": b.bus_id, "route_code": b.route_code, "lat": b.lat, "lng": b.lng, "observed_at": b.observed_at.isoformat()}
+                    for b in getattr(application.state, "realtime_buses", [])
+                ],
+                "source": "realtime" if client is not None else "unavailable",
+                "error": getattr(application.state, "realtime_error", None),
+            }
+        except Exception as exc:
+            return {"buses": [], "source": "error", "error": str(exc)}
 
     @application.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:

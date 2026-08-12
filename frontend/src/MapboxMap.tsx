@@ -14,9 +14,17 @@ interface RouteShape {
   coordinates: [number, number][]
 }
 
-function MapboxMap({ stops, routeShapes }: { stops: Stop[]; routeShapes?: RouteShape[] }) {
+interface BusPosition {
+  id: string
+  route_code: string
+  lat: number
+  lng: number
+}
+
+function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?: RouteShape[]; buses?: BusPosition[] }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const busMarkersRef = useRef<mapboxgl.Marker[]>([])
 
   useEffect(() => {
     if (!MAPBOX_TOKEN || !containerRef.current) return
@@ -40,6 +48,7 @@ function MapboxMap({ stops, routeShapes }: { stops: Stop[]; routeShapes?: RouteS
       for (const shape of routeShapes ?? []) {
         if (shape.coordinates.length < 2) continue
         const sourceId = `shape-${shape.id}`
+        if (map.getSource(sourceId)) continue
         map.addSource(sourceId, {
           type: 'geojson',
           data: {
@@ -70,7 +79,6 @@ function MapboxMap({ stops, routeShapes }: { stops: Stop[]; routeShapes?: RouteS
         const lat = stop.lat as number
         new mapboxgl.Marker({ color: '#1677ff' })
           .setLngLat([lng, lat])
-          .setPopup(new mapboxgl.Popup({ offset: 24 }).setHTML(`<strong>${stop.name}</strong>`))
           .addTo(map)
         bounds.extend([lng, lat])
       }
@@ -87,10 +95,38 @@ function MapboxMap({ stops, routeShapes }: { stops: Stop[]; routeShapes?: RouteS
 
     return () => {
       resizeObserver.disconnect()
+      busMarkersRef.current.forEach((m) => m.remove())
+      busMarkersRef.current = []
       map.remove()
       mapRef.current = null
     }
   }, [stops, routeShapes])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    busMarkersRef.current.forEach((m) => m.remove())
+    busMarkersRef.current = []
+
+    if (!buses || buses.length === 0) return
+
+    const shown = (buses as BusPosition[]).length > 300
+      ? (buses as BusPosition[]).filter((_, i) => i % Math.floor((buses as BusPosition[]).length / 100) === 0)
+      : (buses as BusPosition[])
+
+    for (const bus of shown) {
+      const el = document.createElement('div')
+      el.className = 'vehicle-marker'
+      el.title = `${bus.route_code} · ${bus.id}`
+      el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:#FF7A1A;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;font-size:12px;color:#fff;font-weight:700'
+      el.textContent = bus.route_code.length <= 3 ? bus.route_code : '...'
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([bus.lng, bus.lat])
+        .addTo(map)
+      busMarkersRef.current.push(marker)
+    }
+  }, [buses])
 
   if (!MAPBOX_TOKEN) {
     return (
@@ -102,7 +138,7 @@ function MapboxMap({ stops, routeShapes }: { stops: Stop[]; routeShapes?: RouteS
     )
   }
 
-  return <div className="map-canvas" ref={containerRef} aria-label="Peta halte TransJakarta" />
+  return <div className="map-canvas" ref={containerRef} aria-label="Peta TransJakarta — halte dan posisi armada" />
 }
 
 export default MapboxMap
