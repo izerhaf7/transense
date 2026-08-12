@@ -1472,6 +1472,165 @@ input[aria-invalid='true'] {
   50% { opacity: 0; }
 }
 
+/* ---- Antar Aku Transit Tracking ---- */
+
+.tracking-page {
+  gap: var(--brand-space-base);
+}
+
+.tracking-setup,
+.tracking-active {
+  display: grid;
+  gap: var(--brand-space-base);
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+}
+
+.tracking-mode-toggle,
+.tracking-view-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--brand-space-xs);
+}
+
+.tracking-mode,
+.tracking-view-btn {
+  min-height: 44px;
+  color: var(--brand-color-text-secondary);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  font-weight: var(--brand-font-weight-strong);
+  cursor: pointer;
+}
+
+.tracking-mode--active,
+.tracking-view-btn--active {
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border-color: var(--brand-color-accent);
+}
+
+.tracking-field {
+  display: grid;
+  gap: var(--brand-space-xs);
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.tracking-field input {
+  min-height: var(--brand-control-height-lg);
+}
+
+.tracking-gps-status {
+  margin: 0;
+  padding: var(--brand-space-sm);
+  color: var(--brand-color-success-foreground);
+  background: var(--brand-color-success-bg);
+  border: var(--brand-border-width) solid var(--brand-color-success-border);
+  border-radius: var(--brand-radius-base);
+  font-size: var(--brand-font-size-sm);
+}
+
+.tracking-suggestions {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.tracking-suggestions button {
+  min-height: 44px;
+  padding: 0 var(--brand-space-sm);
+  text-align: left;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.tracking-active--approaching {
+  border-color: var(--brand-color-warning);
+  box-shadow: 0 0 0 4px var(--brand-color-warning-bg);
+}
+
+.tracking-active--arrived {
+  border-color: var(--brand-color-success);
+  box-shadow: 0 0 0 4px var(--brand-color-success-bg);
+}
+
+.tracking-active__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--brand-space-sm);
+}
+
+.tracking-active__header h3 {
+  margin: var(--brand-space-xs) 0 0;
+  font-size: var(--brand-font-size-lg);
+}
+
+.tracking-cue {
+  margin: 0;
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.tracking-schematic {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: var(--brand-space-sm) 0;
+  list-style: none;
+  border-left: 4px solid var(--brand-color-accent);
+}
+
+.tracking-schematic__stop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-sm);
+  min-height: 44px;
+  padding: var(--brand-space-xs) 0 var(--brand-space-xs) var(--brand-space-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.tracking-schematic__dot {
+  position: absolute;
+  left: -11px;
+  width: 18px;
+  height: 18px;
+  background: var(--brand-color-bg-container);
+  border: 3px solid var(--brand-color-accent);
+  border-radius: 50%;
+}
+
+.tracking-schematic__stop--target {
+  color: var(--brand-color-error);
+}
+
+.tracking-schematic__stop--target .tracking-schematic__dot {
+  background: var(--brand-color-error);
+  border-color: var(--brand-color-error);
+}
+
+.tracking-schematic__stop small {
+  margin-left: auto;
+  color: var(--brand-color-warning-foreground);
+  font-size: 11px;
+}
+
+.tracking-map {
+  height: 360px;
+  overflow: hidden;
+  border-radius: var(--brand-radius-base);
+}
+
 .transcript-card__live {
   display: grid;
   align-content: start;

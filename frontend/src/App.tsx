@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import ChatTranscribe from './ChatTranscribe'
+import TransitTrackingPage from './TransitTrackingPage'
 import {
   areVibrationPatternsDistinct,
   cloneTransitState,
-  findRouteBetweenStops,
-  matchSeededStop,
   SEEDED_TRANSIT_STATE,
   VIBRATION_PATTERNS,
 } from './journey'
@@ -15,7 +14,6 @@ import MapboxMap from './MapboxMap'
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
-type JourneyState = 'entry' | 'matching' | 'route' | 'active' | 'ended'
 type MicrophonePermission = 'unknown' | 'granted' | 'denied' | 'unsupported'
 type TranscriptionSource = 'live' | 'mock' | 'degraded'
 
@@ -185,16 +183,6 @@ interface OptionalStaticData {
   routes: Route[]
   timetableCount: number
   sourceLabel: string
-}
-
-interface JourneySession {
-  state: JourneyState
-  destinationQuery: string
-  originId: string | null
-  destinationId: string | null
-  routeId: string | null
-  message: string
-  offRoute: boolean
 }
 
 interface BackendConnection {
@@ -1698,83 +1686,8 @@ function DelaysPage({ incidentRecords, onPinIncident }: { incidentRecords: Incid
   )
 }
 
-function AntarAkuPage({
-  transitState,
-  session,
-  notifications,
-  onQueryChange,
-  onMatch,
-  onConfirm,
-  onEnd,
-  onRestart,
-  onSimulateOffRoute,
-  onResolveOffRoute,
-}: {
-  transitState: TransitState
-  session: JourneySession
-  notifications: NotificationRecord[]
-  onQueryChange: (query: string) => void
-  onMatch: () => void
-  onConfirm: () => void
-  onEnd: () => void
-  onRestart: () => void
-  onSimulateOffRoute: () => void
-  onResolveOffRoute: () => void
-}) {
-  const origin = session.originId ? transitState.stops.find((stop) => stop.id === session.originId) : undefined
-  const destination = session.destinationId ? transitState.stops.find((stop) => stop.id === session.destinationId) : undefined
-  const route = session.routeId ? transitState.routes.find((candidate) => candidate.id === session.routeId) : undefined
-  const journeyNotifications = notifications.filter((notification) => notification.kind !== 'off_route').slice(0, 3)
-
-  return (
-    <main className="page-content inner-page journey-page">
-      <section className="page-intro">
-        <p className="eyebrow">ANTAR AKU / JOURNEY STATE</p>
-        <h2>Temani perjalananmu</h2>
-        <p>Halte dicocokkan dari konteks seed demo. Tidak ada geolocation, peta interaktif, atau posisi live pengguna.</p>
-      </section>
-      <div className="journey-stepper" aria-label="Status perjalanan">
-        {(['entry', 'matching', 'route', 'active', 'ended'] as JourneyState[]).map((step) => <span className={session.state === step ? 'journey-step journey-step--active' : 'journey-step'} key={step}>{step}</span>)}
-      </div>
-      {session.message ? <div className="notice-box" role="status"><strong>{session.message}</strong><span>Gunakan nama halte seeded yang tersedia; demo tidak membuat halte baru.</span></div> : null}
-      {session.state === 'entry' || session.state === 'ended' ? (
-        <section className="journey-entry" aria-labelledby="journey-entry-heading">
-          <span className="state-badge state-badge--warning">SIMULASI SEED</span>
-          <h3 id="journey-entry-heading">{session.state === 'ended' ? 'Perjalanan selesai' : 'Mau diantar ke mana?'}</h3>
-          <p>Asal seeded: <strong>Halte Karet</strong>. Coba tujuan <strong>Halte Bundaran HI</strong>.</p>
-          <label htmlFor="journey-destination">Tujuan halte</label>
-          <input id="journey-destination" value={session.destinationQuery} onChange={(event) => onQueryChange(event.target.value)} placeholder="Contoh: Bundaran HI" />
-          <button className="primary-button" type="button" onClick={onMatch}>Cocokkan halte terdekat <span aria-hidden="true">→</span></button>
-        </section>
-      ) : null}
-      {session.state === 'matching' ? <div className="journey-state-card"><span className="state-badge state-badge--warning">MATCHING</span><h3>Mencocokkan halte seeded…</h3><p>Context demo sedang mencari tujuan yang tersedia.</p></div> : null}
-      {session.state === 'route' && route && origin && destination ? (
-        <section className="journey-route-card" aria-labelledby="route-heading">
-          <span className="state-badge state-badge--safe">ROUTE READY</span>
-          <h3 id="route-heading">{route.name}</h3>
-          <p>{origin.name} → {destination.name}</p>
-          <ol className="stop-list">
-            {route.stop_ids.map((stopId) => <li key={stopId} className={stopId === origin.id || stopId === destination.id ? 'stop-list__stop stop-list__stop--endpoint' : 'stop-list__stop'}>{transitState.stops.find((stop) => stop.id === stopId)?.name || stopId}</li>)}
-          </ol>
-          <button className="primary-button" type="button" onClick={onConfirm}>Mulai perjalanan demo</button>
-        </section>
-      ) : null}
-      {session.state === 'active' && route && origin && destination ? (
-        <section className="journey-route-card journey-route-card--active" aria-labelledby="active-journey-heading">
-          <div className="journey-route-card__topline"><span className="state-badge state-badge--safe">AKTIF</span><span className="state-badge state-badge--warning">SIMULASI</span></div>
-          <h3 id="active-journey-heading">Menuju {destination.name}</h3>
-          <p>{route.name} · asal {origin.name}</p>
-          {session.offRoute ? <div className="off-route-warning" role="alert"><strong>Keluar rute simulasi</strong><span>Ini trigger debug terkontrol, bukan hasil geolocation. Kembali ke jalur demo untuk menyelesaikan warning.</span><button className="secondary-button" type="button" onClick={onResolveOffRoute}>Tandai kembali ke rute</button></div> : null}
-          <ol className="stop-list">
-            {route.stop_ids.map((stopId, index) => <li key={stopId} className={stopId === destination.id ? 'stop-list__stop stop-list__stop--endpoint' : index === 0 ? 'stop-list__stop stop-list__stop--current' : 'stop-list__stop'}>{transitState.stops.find((stop) => stop.id === stopId)?.name || stopId}</li>)}
-          </ol>
-          <div className="journey-actions"><button className="secondary-button" type="button" onClick={onSimulateOffRoute}>Simulasikan keluar rute</button><button className="secondary-button" type="button" onClick={onEnd}>Akhiri perjalanan</button></div>
-          {journeyNotifications.length ? <div className="journey-notification-list"><p className="eyebrow">NOTIFIKASI DALAM JOURNEY</p>{journeyNotifications.map((notification) => <p key={notification.id}><strong>{notification.title}:</strong> {notification.message}</p>)}</div> : null}
-        </section>
-      ) : null}
-      {session.state === 'ended' ? <button className="secondary-button" type="button" onClick={onRestart}>Mulai journey baru</button> : null}
-    </main>
-  )
+function AntarAkuPage() {
+  return <TransitTrackingPage apiBaseUrl={apiBaseUrl} />
 }
 
 function ProfilePage({ profile, onReset, connection, simulationDetail }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string }) {
@@ -1840,20 +1753,10 @@ function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: 
 
 function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetProfile: () => void }) {
   const [screen, setScreen] = useState<Screen>('home')
-  const [journeySession, setJourneySession] = useState<JourneySession>({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
   const optionalData = useOptionalStaticData(backend.transitState || SEEDED_TRANSIT_STATE)
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
-
-  useEffect(() => {
-    const offRouteNotification = backend.notifications[0]
-    if (offRouteNotification?.kind === 'off_route' && offRouteNotification.offRouteStatus === 'resolved' && journeySession.state === 'active' && journeySession.offRoute) {
-      setJourneySession((current) => ({ ...current, offRoute: false, message: 'Status resolved: simulasi keluar rute selesai.' }))
-    } else if (offRouteNotification?.kind === 'off_route' && offRouteNotification.offRouteStatus !== 'resolved' && journeySession.state === 'active' && !journeySession.offRoute) {
-      setJourneySession((current) => ({ ...current, offRoute: true, message: 'Peringatan keluar rute simulasi diterima.' }))
-    }
-  }, [backend.notifications, journeySession.offRoute, journeySession.state])
 
   const title = useMemo(() => {
     if (screen === 'home') return 'Beranda'
@@ -1869,33 +1772,6 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     setScreen(nextScreen)
   }
 
-  const handleJourneyMatch = () => {
-    const query = journeySession.destinationQuery.trim()
-    setJourneySession((current) => ({ ...current, state: 'matching', message: query ? 'Mencocokkan tujuan dengan halte seeded…' : 'Tujuan belum diisi.', offRoute: false }))
-    if (!query) {
-      setJourneySession((current) => ({ ...current, state: 'entry', message: 'Masukkan nama halte tujuan untuk memulai matching.' }))
-      return
-    }
-
-    window.setTimeout(() => {
-      const journeyState = optionalData.state
-      const origin = journeyState.stops[0]
-      const destination = matchSeededStop(journeyState, query)
-      if (!origin || !destination) {
-        setJourneySession((current) => ({ ...current, state: 'entry', originId: null, destinationId: null, routeId: null, message: 'Halte tujuan tidak ditemukan di seed demo.', offRoute: false }))
-        return
-      }
-      const route = findRouteBetweenStops(journeyState, origin.id, destination.id)
-      if (!route) {
-        setJourneySession((current) => ({ ...current, state: 'entry', originId: origin.id, destinationId: destination.id, routeId: null, message: 'Rute halte-ke-halte belum tersedia untuk pasangan ini.', offRoute: false }))
-        return
-      }
-      setJourneySession((current) => ({ ...current, state: 'route', originId: origin.id, destinationId: destination.id, routeId: route.id, message: 'Halte asal dan tujuan ditemukan dari konteks seeded.', offRoute: false }))
-    }, 320)
-  }
-
-  const handleJourneyRestart = () => setJourneySession({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
-
   return (
     <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
       {screen === 'home' ? null : <AppHeader title={title} />}
@@ -1906,7 +1782,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
-      {screen === 'antar-aku' ? <AntarAkuPage transitState={optionalData.state} session={journeySession} notifications={backend.notifications} onQueryChange={(destinationQuery) => setJourneySession((current) => ({ ...current, destinationQuery, message: '' }))} onMatch={handleJourneyMatch} onConfirm={() => setJourneySession((current) => ({ ...current, state: 'active', message: 'Journey aktif. Status armada dan notifikasi akan tampil di konteks ini.' }))} onEnd={() => setJourneySession((current) => ({ ...current, state: 'ended', offRoute: false, message: 'Journey berakhir di sesi demo.' }))} onRestart={handleJourneyRestart} onSimulateOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: true, message: 'Keluar rute disimulasikan secara manual untuk demo.' }))} onResolveOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: false, message: 'Status resolved: kembali ke rute demo (tanpa klaim posisi real).' }))} /> : null}
+      {screen === 'antar-aku' ? <AntarAkuPage /> : null}
       {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>

@@ -395,6 +395,79 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             return {"arrivals": [], "stop": None, "source": "error", "error": str(exc)}
 
+    @application.get("/api/journey/track", response_model=None)
+    async def journey_track(
+        vehicle_id: str | None = None,
+        target_stop_id: str | None = None,
+        user_lat: float | None = None,
+        user_lng: float | None = None,
+    ) -> dict[str, Any]:
+        """Return one live bus, its route stops, and target-stop status."""
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None or not target_stop_id:
+            return {"status": "unavailable", "error": "GTFS or target stop unavailable"}
+        target = feed.stops.get(target_stop_id)
+        if target is None:
+            return {"status": "unavailable", "error": "target stop not found"}
+
+        client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
+        if client is None and resolved.realtime_enabled:
+            try:
+                client = TjRealtimeClient(api_base=resolved.realtime_api_base)
+                client.authenticate()
+                application.state.realtime_client = client
+            except Exception as exc:
+                return {"status": "unavailable", "error": str(exc)}
+        if client is None:
+            return {"status": "unavailable", "error": "realtime bus tracking disabled"}
+
+        try:
+            buses = client.get_buses(
+                lat=user_lat if user_lat is not None else resolved.realtime_center_lat,
+                lng=user_lng if user_lng is not None else resolved.realtime_center_lng,
+                radius_km=resolved.realtime_radius_km,
+            )
+        except TjApiError as exc:
+            return {"status": "unavailable", "error": str(exc)}
+
+        bus: RealtimeBus | None = next((b for b in buses if vehicle_id and b.bus_id.casefold() == vehicle_id.casefold()), None)
+        if bus is None and user_lat is not None and user_lng is not None:
+            bus = min(buses, key=lambda b: _haversine_km(user_lat, user_lng, b.lat, b.lng), default=None)
+        if bus is None:
+            return {"status": "not_found", "error": "vehicle not found in realtime feed"}
+
+        trip = feed.trips.get(bus.trip_id or "")
+        if trip is None:
+            return {"status": "unavailable", "error": "vehicle trip not found in GTFS", "vehicle_id": bus.bus_id}
+        ordered = feed.stop_times.get(trip.trip_id, [])
+        target_ids = {target_stop_id}
+        target_ids.update(sid for sid, stop in feed.stops.items() if stop.parent_station == target_stop_id)
+        target_indexes = [i for i, st in enumerate(ordered) if st.stop_id in target_ids]
+        if not target_indexes:
+            return {"status": "not_on_route", "vehicle_id": bus.bus_id, "route_code": bus.route_code, "target_stop": {"id": target.stop_id, "name": target.name}}
+
+        nearest_index = min(
+            range(len(ordered)),
+            key=lambda i: _haversine_km(bus.lat, bus.lng, feed.stops[ordered[i].stop_id].lat, feed.stops[ordered[i].stop_id].lng),
+        )
+        target_index = min((i for i in target_indexes if i >= nearest_index), default=target_indexes[-1])
+        distance_km = _haversine_km(bus.lat, bus.lng, target.lat, target.lng)
+        eta_minutes = max(0, round(distance_km / 0.3))
+        status = "arrived" if distance_km < 0.15 else "approaching" if target_index - nearest_index <= 3 else "en_route"
+        route_stop_ids = [st.stop_id for st in ordered]
+        route_stops = [
+            {"id": sid, "name": feed.stops[sid].name, "lat": feed.stops[sid].lat, "lng": feed.stops[sid].lng}
+            for sid in route_stop_ids if sid in feed.stops
+        ]
+        return {
+            "status": status,
+            "vehicle": {"id": bus.bus_id, "route_code": bus.route_code, "lat": bus.lat, "lng": bus.lng, "observed_at": bus.observed_at.isoformat()},
+            "route": {"id": trip.route_id, "name": feed.routes.get(trip.route_id).short_name if feed.routes.get(trip.route_id) else bus.route_code, "headsign": trip.headsign, "stops": route_stops},
+            "target_stop": {"id": target.stop_id, "name": target.name, "lat": target.lat, "lng": target.lng},
+            "next_stop": _find_next_stop(feed, trip.trip_id, bus.lat, bus.lng),
+            "eta_minutes": eta_minutes,
+        }
+
     @application.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         origin = websocket.headers.get("origin")
