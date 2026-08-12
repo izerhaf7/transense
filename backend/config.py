@@ -38,6 +38,8 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        _load_env_file(Path.cwd() / ".env")
+        _load_env_file(Path(__file__).resolve().parent.parent / ".env")
         _load_env_file(Path.cwd() / ".env.local")
         _load_env_file(Path(__file__).resolve().parent / ".env.local")
         raw_origins = os.getenv("TRANSENSE_ALLOWED_ORIGINS", "")

@@ -25,10 +25,11 @@ When the connection is acknowledged, Beranda renders the backend's seeded `route
 
 ## Environment
 
-Copy `.env.example` to `.env.local` when using a different backend origin:
+All configuration lives in a single `.env` file at the repository root (see `.env.example`). The Vite dev server reads it via `envDir` in `vite.config.ts`. `VITE_API_BASE_URL` and `VITE_MAPBOX_TOKEN` are the frontend-specific variables:
 
 ```bash
-VITE_API_BASE_URL=https://your-demo-backend.example.com
+VITE_API_BASE_URL=http://localhost:8000
+VITE_MAPBOX_TOKEN=pk.your_mapbox_public_token_here
 ```
 
 Only `VITE_` variables are exposed to browser code. Do not put secrets in this file.

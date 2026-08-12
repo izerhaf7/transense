@@ -160,7 +160,7 @@ function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?:
       <div className="map-placeholder" role="status">
         <p className="eyebrow">PETA / MAPBOX</p>
         <h3>Peta belum aktif</h3>
-        <p>Isi <code>VITE_MAPBOX_TOKEN</code> di file <code>.env.local</code> untuk menampilkan peta TransJakarta.</p>
+        <p>Isi <code>VITE_MAPBOX_TOKEN</code> di file <code>.env</code> (root repo) untuk menampilkan peta TransJakarta.</p>
       </div>
     )
   }

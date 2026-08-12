@@ -15,5 +15,7 @@ backend/gtfs_cache.*
 .DS_Store
 
 # Env
+.env
 .env.local
 .env.*.local
+!.env.example
