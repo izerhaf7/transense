@@ -685,6 +685,95 @@ input[aria-invalid='true'] {
   border-radius: 0;
 }
 
+.map-filter-btn {
+  position: absolute;
+  z-index: 6;
+  top: var(--brand-space-xs);
+  right: var(--brand-space-xs);
+  min-height: var(--brand-control-height-base);
+  padding: 0 var(--brand-space-base);
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-pill);
+  font-weight: var(--brand-font-weight-strong);
+  box-shadow: var(--brand-shadow-card);
+  cursor: pointer;
+}
+
+.map-filter-btn--active {
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border-color: var(--brand-color-accent);
+}
+
+.map-filter-panel {
+  position: absolute;
+  z-index: 6;
+  top: 56px;
+  right: var(--brand-space-xs);
+  left: var(--brand-space-xs);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--brand-space-sm) var(--brand-space-base);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+  box-shadow: var(--brand-shadow-elevated);
+}
+
+.map-filter-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--brand-space-xs);
+}
+
+.map-filter-panel__header strong {
+  font-size: var(--brand-font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.map-filter-panel__header .secondary-button {
+  min-height: var(--brand-control-height-sm);
+  padding: 0 var(--brand-space-xs);
+  font-size: 12px;
+}
+
+.map-filter-panel__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: var(--brand-space-xs);
+}
+
+.map-filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-weight: var(--brand-font-weight-strong);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.map-filter-checkbox input {
+  min-height: auto;
+  width: auto;
+  accent-color: var(--brand-color-accent);
+}
+
+.map-filter-checkbox__swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 /* ---- Bottom Sheet ---- */
 
 .bottom-sheet {

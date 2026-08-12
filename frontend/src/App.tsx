@@ -1427,6 +1427,9 @@ function HomePage({
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
+  const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string }[]>([])
+  const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
+  const [showFilter, setShowFilter] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1446,19 +1449,17 @@ function HomePage({
       const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
       if (!res.ok) return
       const data = await res.json() as { routes: { id: string; name: string; color: string }[] }
-      const topRoutes = data.routes.filter((r) => /^\d/.test(r.name)).slice(0, 8)
+      const brRoutes = data.routes.filter((r) => /^\d/.test(r.name))
+      setAllRoutes(brRoutes)
+      setSelectedRoutes(new Set(brRoutes.map((r) => r.name)))
       const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
-      for (const route of topRoutes) {
+      for (const route of brRoutes) {
         try {
           const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
           if (!shapeRes.ok) continue
           const shapeData = await shapeRes.json() as { coordinates: [number, number][] }
-          if (shapeData.coordinates.length) {
-            shapes.push({ id: route.id, name: route.name, color: route.color, coordinates: shapeData.coordinates })
-          }
-        } catch {
-          /* skip */
-        }
+          if (shapeData.coordinates.length) shapes.push({ id: route.id, name: route.name, color: route.color, coordinates: shapeData.coordinates })
+        } catch { /* skip */ }
       }
       setRouteShapes(shapes)
     }
@@ -1483,6 +1484,25 @@ function HomePage({
     return () => window.clearInterval(interval)
   }, [])
 
+  const toggleRoute = (routeName: string) => {
+    setSelectedRoutes((prev) => {
+      const next = new Set(prev)
+      if (next.has(routeName)) next.delete(routeName)
+      else next.add(routeName)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selectedRoutes.size === allRoutes.length) {
+      setSelectedRoutes(new Set())
+    } else {
+      setSelectedRoutes(new Set(allRoutes.map((r) => r.name)))
+    }
+  }
+
+  const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
+  const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
   const displayStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
 
   return (
@@ -1497,7 +1517,29 @@ function HomePage({
       </section>
       <SearchEntry />
       <div className="home-map-stage">
-        <MapboxMap stops={displayStops} routeShapes={routeShapes} buses={busPositions} />
+        <button className={`map-filter-btn${showFilter ? ' map-filter-btn--active' : ''}`} type="button" onClick={() => setShowFilter((v) => !v)}>
+          Filter Rute ({selectedRoutes.size})
+        </button>
+        {showFilter ? (
+          <div className="map-filter-panel">
+            <div className="map-filter-panel__header">
+              <strong>Pilih rute</strong>
+              <button className="secondary-button" type="button" onClick={toggleAll}>
+                {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
+              </button>
+            </div>
+            <div className="map-filter-panel__list">
+              {allRoutes.map((route) => (
+                <label className="map-filter-checkbox" key={route.id}>
+                  <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
+                  <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
+                  <span>{route.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
         <BottomSheet>
           <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
         </BottomSheet>
