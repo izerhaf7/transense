@@ -1449,11 +1449,10 @@ function HomePage({
       const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
       if (!res.ok) return
       const data = await res.json() as { routes: { id: string; name: string; color: string }[] }
-      const brRoutes = data.routes.filter((r) => /^\d/.test(r.name))
-      setAllRoutes(brRoutes)
-      setSelectedRoutes(new Set(brRoutes.map((r) => r.name)))
+      setAllRoutes(data.routes)
+      setSelectedRoutes(new Set(data.routes.map((r) => r.name)))
       const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
-      for (const route of brRoutes) {
+      for (const route of data.routes) {
         try {
           const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
           if (!shapeRes.ok) continue
