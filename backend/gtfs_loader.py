@@ -74,6 +74,7 @@ class GtfsFeed:
     stop_times: dict[str, list[GtfsStopTime]] = field(default_factory=dict)
     routes_by_short_name: dict[str, list[GtfsRoute]] = field(default_factory=dict)
     stop_ids_by_route: dict[str, list[str]] = field(default_factory=dict)
+    routes_by_stop: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _read_csv_from_zip(zf: zipfile.ZipFile, name: str) -> list[dict[str, str]]:
@@ -240,6 +241,14 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
 
     for route_id in feed.stop_ids_by_route:
         feed.stop_ids_by_route[route_id] = _deduplicate_ordered(feed.stop_ids_by_route[route_id])
+
+    for route_id, stop_ids in feed.stop_ids_by_route.items():
+        route = feed.routes.get(route_id)
+        short_name = route.short_name if route else route_id
+        for stop_id in stop_ids:
+            feed.routes_by_stop.setdefault(stop_id, [])
+            if short_name not in feed.routes_by_stop[stop_id]:
+                feed.routes_by_stop[stop_id].append(short_name)
 
     logger.info(
         "GTFS parsed: %d stops, %d routes, %d trips, %d shapes",

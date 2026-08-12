@@ -841,6 +841,114 @@ input[aria-invalid='true'] {
   opacity: 1;
 }
 
+/* ---- Arrivals Sheet ---- */
+
+.arrivals-sheet {
+  display: grid;
+  gap: var(--brand-space-base);
+}
+
+.arrivals-sheet__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--brand-space-sm);
+}
+
+.arrivals-sheet__header h3 {
+  margin: var(--brand-space-xs) 0 0;
+  font-size: var(--brand-font-size-lg);
+}
+
+.arrivals-sheet__detail {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.arrivals-sheet__manual {
+  display: grid;
+  gap: var(--brand-space-sm);
+}
+
+.arrivals-sheet__search {
+  margin-top: 0;
+}
+
+.arrivals-sheet__suggestions {
+  display: grid;
+  gap: var(--brand-space-xs);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.arrivals-sheet__suggestion {
+  min-height: var(--brand-control-height-base);
+  padding: 0 var(--brand-space-base);
+  text-align: left;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  font-weight: var(--brand-font-weight-strong);
+  cursor: pointer;
+}
+
+.arrivals-sheet__suggestion:hover,
+.arrivals-sheet__suggestion:focus-visible {
+  border-color: var(--brand-color-accent);
+  color: var(--brand-color-accent);
+}
+
+.arrivals-list {
+  display: grid;
+  gap: var(--brand-space-xs);
+}
+
+.arrival-card {
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-sm);
+  padding: var(--brand-space-sm) var(--brand-space-base);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+}
+
+.arrival-card__route {
+  display: grid;
+  min-width: 40px;
+  height: 40px;
+  place-items: center;
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border-radius: var(--brand-radius-base);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.arrival-card__body {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.arrival-card__body strong {
+  font-size: var(--brand-font-size-base);
+  line-height: 1.2;
+}
+
+.arrival-card__body span {
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.arrival-card__eta {
+  color: var(--brand-color-accent);
+  font-size: var(--brand-font-size-lg);
+  font-weight: var(--brand-font-weight-strong);
+}
+
 /* ---- Badges ---- */
 
 .state-badge {

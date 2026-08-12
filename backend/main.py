@@ -193,6 +193,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "source": "gtfs",
         }
 
+    @application.get("/api/gtfs/stops/search", response_model=None)
+    async def gtfs_stops_search(q: str = "") -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            return {"stops": [], "source": "seed"}
+        query = q.strip().casefold()
+        if not query:
+            return {"stops": [], "source": "gtfs"}
+        matches = [
+            {"id": s.stop_id, "name": s.name, "lat": s.lat, "lng": s.lng}
+            for s in feed.stops.values()
+            if query in s.name.casefold()
+        ]
+        matches.sort(key=lambda s: s["name"])
+        return {"stops": matches[:20], "source": "gtfs"}
+
     @application.get("/api/gtfs/routes", response_model=None)
     async def gtfs_routes() -> dict[str, Any]:
         feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
@@ -272,6 +288,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         except Exception as exc:
             return {"buses": [], "source": "error", "error": str(exc)}
+
+    @application.get("/api/arrivals", response_model=None)
+    async def arrivals(stop_id: str | None = None, lat: float | None = None, lng: float | None = None) -> dict[str, Any]:
+        try:
+            feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+            if feed is None:
+                return {"arrivals": [], "stop": None, "source": "unavailable", "error": "GTFS not loaded"}
+
+            target_stop_id = stop_id
+            if target_stop_id is None and lat is not None and lng is not None:
+                target_stop_id = _find_nearest_stop(feed, lat, lng)
+            if target_stop_id is None:
+                return {"arrivals": [], "stop": None, "source": "unavailable", "error": "no stop resolved"}
+
+            stop = feed.stops.get(target_stop_id)
+            if stop is None:
+                return {"arrivals": [], "stop": None, "source": "unavailable", "error": "stop not found"}
+
+            client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
+            if client is None and resolved.realtime_enabled:
+                try:
+                    client = TjRealtimeClient(api_base=resolved.realtime_api_base)
+                    client.authenticate()
+                    application.state.realtime_client = client
+                except Exception:
+                    client = None
+
+            buses: list[RealtimeBus] = []
+            if client is not None:
+                try:
+                    buses = client.get_buses(lat=stop.lat, lng=stop.lng, radius_km=5.0)
+                except TjApiError:
+                    buses = []
+
+            arrivals_list: list[dict[str, object]] = []
+            for b in buses:
+                if not _route_serves_stop(feed, b.route_code, target_stop_id):
+                    continue
+                dist_km = _haversine_km(b.lat, b.lng, stop.lat, stop.lng)
+                eta_minutes = max(1, round(dist_km / 0.3))
+                headsign = _headsign_for_bus(feed, b.trip_id, b.route_code) if b.trip_id else b.route_code
+                arrivals_list.append({
+                    "bus_id": b.bus_id,
+                    "route_code": b.route_code,
+                    "headsign": headsign,
+                    "eta_minutes": eta_minutes,
+                    "distance_km": round(dist_km, 2),
+                })
+
+            arrivals_list.sort(key=lambda a: int(a["eta_minutes"]))
+            return {
+                "arrivals": arrivals_list[:20],
+                "stop": {"id": stop.stop_id, "name": stop.name, "lat": stop.lat, "lng": stop.lng},
+                "source": "realtime" if client is not None else "unavailable",
+            }
+        except Exception as exc:
+            return {"arrivals": [], "stop": None, "source": "error", "error": str(exc)}
 
     @application.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -408,6 +481,36 @@ def _find_next_stop(feed: "GtfsFeed", trip_id: str, bus_lat: float, bus_lng: flo
         if d[2] > closest_seq:
             return {"name": d[1], "sequence": d[2]}
     return {"name": candidates[0][1], "sequence": candidates[0][2]}
+
+
+def _find_nearest_stop(feed: "GtfsFeed", lat: float, lng: float) -> str | None:
+    best_id: str | None = None
+    best_dist = float("inf")
+    for stop in feed.stops.values():
+        dist = _haversine_km(lat, lng, stop.lat, stop.lng)
+        if dist < best_dist:
+            best_dist = dist
+            best_id = stop.stop_id
+    return best_id
+
+
+def _route_serves_stop(feed: "GtfsFeed", route_code: str, stop_id: str) -> bool:
+    served = feed.routes_by_stop.get(stop_id, [])
+    return route_code in served
+
+
+def _headsign_for_bus(feed: "GtfsFeed", trip_id: str, route_code: str) -> str:
+    trip = feed.trips.get(trip_id)
+    if trip and trip.headsign:
+        return trip.headsign
+    routes = feed.routes_by_short_name.get(_normalize_short(route_code), [])
+    if routes and routes[0].long_name:
+        return routes[0].long_name
+    return route_code
+
+
+def _normalize_short(value: str) -> str:
+    return " ".join(value.casefold().split()).strip()
 
 
 app = create_app()

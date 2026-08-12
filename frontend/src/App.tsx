@@ -1268,93 +1268,6 @@ function SearchEntry() {
   )
 }
 
-interface RouteContext {
-  routeName: string
-  currentStopName: string
-  nextStopName: string
-  vehicleId: string
-  etaMinutes: number
-}
-
-function getNearestRouteContext(state: TransitState | null): RouteContext | null {
-  if (!state) {
-    return null
-  }
-
-  const vehicle = state.vehicles[0]
-  if (!vehicle) {
-    return null
-  }
-
-  const trip = state.trips.find((candidate) => candidate.id === vehicle.trip_id)
-  const route = trip ? state.routes.find((candidate) => candidate.id === trip.route_id) : undefined
-  const currentStop = state.stops.find((stop) => stop.id === vehicle.position)
-  const nextStopId = route?.stop_ids.find((stopId) => stopId !== vehicle.position)
-  const nextStop = nextStopId ? state.stops.find((stop) => stop.id === nextStopId) : undefined
-  const eta = state.etas.find((candidate) => candidate.vehicle_id === vehicle.id)
-
-  if (!route || !currentStop || !nextStop || !eta) {
-    return null
-  }
-
-  return {
-    routeName: route.name,
-    currentStopName: currentStop.name,
-    nextStopName: nextStop.name,
-    vehicleId: vehicle.id,
-    etaMinutes: eta.minutes,
-  }
-}
-
-function StatusCard({
-  transitState,
-  connection,
-  simulationDetail,
-  onUpdate,
-  onReset,
-}: {
-  transitState: TransitState | null
-  connection: ConnectionState
-  simulationDetail: string
-  onUpdate: () => void
-  onReset: () => void
-}) {
-  const context = getNearestRouteContext(transitState)
-  const isConnected = connection.status === 'connected'
-
-  return (
-    <section className="status-card" aria-labelledby="status-card-heading">
-      <div className="status-card__topline">
-        <p className="eyebrow">STATUS RUTE TERDEKAT</p>
-        <span className="state-badge state-badge--warning">SIMULASI</span>
-      </div>
-      <h2 id="status-card-heading">{context ? `${context.routeName} · ${context.currentStopName}` : 'Menunggu rute seeded'}</h2>
-      <p className="status-card__message">
-        {context
-          ? `Armada ${context.vehicleId} menuju ${context.nextStopName}. Perkiraan tiba dari simulasi lokal.`
-          : 'Seeded nearest-route context akan tampil setelah backend terhubung.'}
-      </p>
-      <div className="eta-display">
-        <strong>{context ? context.etaMinutes : '—'}</strong>
-        <span>menit</span>
-        <span className="eta-display__note">Data demo tersimulasi</span>
-      </div>
-      <div className="simulation-controls" aria-label="Kontrol simulasi transit lokal">
-        <p className="simulation-controls__detail" role="status">{simulationDetail}</p>
-        <div className="simulation-controls__actions">
-          <button className="secondary-button" type="button" onClick={onUpdate} disabled={!isConnected || !context}>
-            Simulasikan ETA -1 menit
-          </button>
-          <button className="secondary-button" type="button" onClick={onReset} disabled={!isConnected}>
-            Reset ke seed
-          </button>
-        </div>
-      </div>
-      <div className="status-card__footer"><span className="status-pulse" aria-hidden="true" /> Belum terhubung ke feed TransJakarta riil</div>
-    </section>
-  )
-}
-
 function BottomSheet({ children }: { children: ReactNode }) {
   const dragStartY = useRef(0)
   const [collapsed, setCollapsed] = useState(true)
@@ -1410,20 +1323,156 @@ function BottomSheet({ children }: { children: ReactNode }) {
   )
 }
 
+interface Arrival {
+  bus_id: string
+  route_code: string
+  headsign: string
+  eta_minutes: number
+  distance_km: number
+}
+
+interface ArrivalsStop {
+  id: string
+  name: string
+  lat: number
+  lng: number
+}
+
+type GpsStatus = 'idle' | 'locating' | 'located' | 'denied'
+
+function ArrivalsSheet() {
+  const [gpsStatus, setGpsStatus] = useState<GpsStatus>('idle')
+  const [currentStop, setCurrentStop] = useState<ArrivalsStop | null>(null)
+  const [arrivals, setArrivals] = useState<Arrival[]>([])
+  const [detail, setDetail] = useState('Mencari halte terdekat…')
+  const [manualQuery, setManualQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<ArrivalsStop[]>([])
+  const [showManual, setShowManual] = useState(false)
+
+  const fetchArrivals = async (params: string) => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/arrivals?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as { arrivals: Arrival[]; stop: ArrivalsStop | null }
+      if (data.stop) {
+        setCurrentStop(data.stop)
+        setDetail(`Halte ${data.stop.name}`)
+      }
+      setArrivals(data.arrivals ?? [])
+      if ((data.arrivals ?? []).length === 0) {
+        setDetail(data.stop ? `Tidak ada bus menuju ${data.stop.name} saat ini` : 'Tidak ada bus ditemukan')
+      }
+    } catch (error) {
+      setDetail('Gagal mengambil data kedatangan.')
+      console.warn('Arrivals fetch failed.', error)
+    }
+  }
+
+  useEffect(() => {
+    if (!('geolocation' in navigator)) {
+      setGpsStatus('denied')
+      setDetail('GPS tidak tersedia di browser ini. Ketik nama halte untuk melanjutkan.')
+      setShowManual(true)
+      return
+    }
+    setGpsStatus('locating')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsStatus('located')
+        void fetchArrivals(`lat=${position.coords.latitude}&lng=${position.coords.longitude}`)
+      },
+      () => {
+        setGpsStatus('denied')
+        setDetail('GPS tidak aktif atau ditolak. Ketik nama halte tempatmu berada.')
+        setShowManual(true)
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    )
+  }, [])
+
+  const handleSearch = async (query: string) => {
+    setManualQuery(query)
+    if (query.trim().length < 2) {
+      setSuggestions([])
+      return
+    }
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(query.trim())}`)
+      if (!res.ok) return
+      const data = await res.json() as { stops: ArrivalsStop[] }
+      setSuggestions(data.stops ?? [])
+    } catch {
+      setSuggestions([])
+    }
+  }
+
+  const pickStop = (stop: ArrivalsStop) => {
+    setManualQuery(stop.name)
+    setSuggestions([])
+    void fetchArrivals(`stop_id=${encodeURIComponent(stop.id)}`)
+  }
+
+  return (
+    <section className="arrivals-sheet" aria-labelledby="arrivals-heading">
+      <div className="arrivals-sheet__header">
+        <div>
+          <p className="eyebrow">BUS MENUJU HALTEMU</p>
+          <h3 id="arrivals-heading">{currentStop ? currentStop.name : 'Halte terdekat'}</h3>
+        </div>
+        <span className={`state-badge state-badge--${gpsStatus === 'located' ? 'safe' : gpsStatus === 'locating' ? 'warning' : 'placeholder'}`}>
+          {gpsStatus === 'located' ? 'GPS AKTIF' : gpsStatus === 'locating' ? 'MENCARI GPS' : 'GPS MATI'}
+        </span>
+      </div>
+
+      {gpsStatus === 'denied' || showManual ? (
+        <div className="arrivals-sheet__manual">
+          <p className="arrivals-sheet__detail" role="status">{detail}</p>
+          <div className="search-form arrivals-sheet__search">
+            <span className="search-form__icon" aria-hidden="true">⌕</span>
+            <input
+              value={manualQuery}
+              onChange={(event) => { void handleSearch(event.target.value) }}
+              placeholder="Ketik nama halte, mis. Petamburan"
+            />
+          </div>
+          {suggestions.length ? (
+            <div className="arrivals-sheet__suggestions">
+              {suggestions.map((stop) => (
+                <button className="arrivals-sheet__suggestion" type="button" key={stop.id} onClick={() => pickStop(stop)}>
+                  {stop.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="arrivals-sheet__detail" role="status">{detail}</p>
+      )}
+
+      <div className="arrivals-list" aria-live="polite">
+        {arrivals.length ? arrivals.map((arrival) => (
+          <article className="arrival-card" key={`${arrival.bus_id}-${arrival.eta_minutes}`}>
+            <span className="arrival-card__route">{arrival.route_code}</span>
+            <div className="arrival-card__body">
+              <strong>{arrival.headsign}</strong>
+              <span>{arrival.distance_km} km · {arrival.bus_id}</span>
+            </div>
+            <span className="arrival-card__eta">{arrival.eta_minutes}′</span>
+          </article>
+        )) : (
+          <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada bus</h3><p>{gpsStatus === 'locating' ? 'Sedang mencari halte terdekat…' : 'Cari halte lain atau tunggu update berikutnya.'}</p></div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function HomePage({
   displayName,
   transitState,
-  connection,
-  simulationDetail,
-  onUpdate,
-  onReset,
 }: {
   displayName: string
   transitState: TransitState | null
-  connection: ConnectionState
-  simulationDetail: string
-  onUpdate: () => void
-  onReset: () => void
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
@@ -1540,7 +1589,7 @@ function HomePage({
         ) : null}
         <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
         <BottomSheet>
-          <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
+          <ArrivalsSheet />
         </BottomSheet>
       </div>
     </main>
@@ -2017,7 +2066,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       <NotificationRenderer notification={currentNotification} onDismiss={() => {
         if (currentNotification) setDismissedNotificationIds((current) => current.includes(currentNotification.id) ? current : [...current, currentNotification.id])
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} connection={backend.connection} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} /> : null}
+      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} /> : null}
       {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <TranscribePage transcription={backend.transcription} /> : null}
