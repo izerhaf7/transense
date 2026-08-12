@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useScribe } from '@elevenlabs/react'
+import { useScribe, CommitStrategy } from '@elevenlabs/react'
 
 type Sender = 'user' | 'other'
 
@@ -55,6 +55,8 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
 
   const scribe = useScribe({
     modelId: 'scribe_v2_realtime',
+    commitStrategy: CommitStrategy.VAD,
+    vadSilenceThresholdSecs: 1.5,
     onError: (error: Error | Event) => {
       setErrorMessage(error instanceof Error ? error.message : 'Terjadi error pada sesi transkripsi.')
     },
@@ -64,6 +66,7 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
   })
 
   const processedSegmentIds = useRef(new Set<string>())
+  const lastAppendedText = useRef('')
 
   useEffect(() => {
     for (const segment of scribe.committedTranscripts) {
@@ -71,6 +74,7 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
       processedSegmentIds.current.add(segment.id)
       const text = segment.text.trim()
       if (!text) continue
+      lastAppendedText.current = text
       void appendMessage('other', text, 'stt')
     }
   }, [scribe.committedTranscripts])
@@ -164,14 +168,13 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
 
   const stopListening = () => {
     const pending = scribe.partialTranscript?.trim()
+    scribe.commit()
     scribe.disconnect()
     setListening(false)
-    if (!pending) return
-    const last = activeRef.current?.messages.at(-1)
-    if (last && last.sender === 'other' && last.text.trim() === pending) {
-      return
+    if (pending && pending !== lastAppendedText.current) {
+      lastAppendedText.current = pending
+      void appendMessage('other', pending, 'stt')
     }
-    void appendMessage('other', pending, 'stt')
   }
 
   const sendDraft = (sender: Sender) => {
