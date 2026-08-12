@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
+import logging
 from typing import Any, cast
 from uuid import uuid4
 
@@ -11,18 +12,44 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
+from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed
 from .persistence import DemoStore
 from .notifications import NotificationEngine
 from .sources import load_static_schedule
+from .tj_api import TjRealtimeClient, RealtimeBus, TjApiError
 from .transit import TransitSimulator, TransitValidationError
 from .transcription import (MockTranscriptionProvider, ProviderConfigurationError, TranscriptionError,
                             TranscriptionResult, create_provider, persist_transcript, transcript_history)
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store: DemoStore | None = None
     app.state.store = None
+    app.state.gtfs_feed = None
+    app.state.realtime_buses: list[RealtimeBus] = []
+    app.state.gtfs_error: str | None = None
+    app.state.realtime_client: TjRealtimeClient | None = None
+
+    settings: Settings = app.state.settings
+    try:
+        zip_path = download_gtfs(url=settings.gtfs_url, cache_path=settings.gtfs_cache_path)
+        app.state.gtfs_feed = parse_gtfs(zip_path)
+        logger.info("GTFS feed loaded: %d stops, %d routes", len(app.state.gtfs_feed.stops), len(app.state.gtfs_feed.routes))
+    except Exception as exc:
+        app.state.gtfs_error = str(exc)
+        logger.warning("GTFS load failed, using seed data: %s", exc)
+
+    if settings.realtime_enabled:
+        try:
+            app.state.realtime_client = TjRealtimeClient(api_base=settings.realtime_api_base)
+            app.state.realtime_client.authenticate()
+            logger.info("TJ realtime API authenticated")
+        except TjApiError as exc:
+            logger.warning("TJ realtime API not available: %s", exc)
+            app.state.realtime_client = None
     try:
         store = DemoStore(app.state.settings.database_path)
         app.state.store = store
@@ -50,6 +77,8 @@ async def lifespan(app: FastAPI):
     finally:
         if store is not None:
             store.close()
+        if app.state.realtime_client is not None:
+            app.state.realtime_client.close()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -134,6 +163,88 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as error:
             raise HTTPException(status_code=502, detail=f"ElevenLabs token creation failed: {error}")
         return {"token": getattr(token, "token", str(token))}
+
+    @application.get("/api/gtfs/status", response_model=None)
+    async def gtfs_status() -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is not None:
+            return {
+                "loaded": True,
+                "stops": len(feed.stops),
+                "routes": len(feed.routes),
+                "trips": len(feed.trips),
+                "shapes": len(feed.shapes),
+                "source": resolved.gtfs_url,
+            }
+        return {"loaded": False, "error": getattr(application.state, "gtfs_error", "not loaded")}
+
+    @application.get("/api/gtfs/stops", response_model=None)
+    async def gtfs_stops() -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            return {"stops": [], "source": "seed"}
+        return {
+            "stops": [
+                {"id": s.stop_id, "name": s.name, "lat": s.lat, "lng": s.lng}
+                for s in feed.stops.values()
+            ],
+            "source": "gtfs",
+        }
+
+    @application.get("/api/gtfs/routes", response_model=None)
+    async def gtfs_routes() -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            return {"routes": [], "source": "seed"}
+        result = []
+        for route in feed.routes.values():
+            stop_ids = feed.stop_ids_by_route.get(route.route_id, [])
+            result.append({
+                "id": route.route_id,
+                "name": route.short_name,
+                "long_name": route.long_name,
+                "color": f"#{route.color}" if route.color else "#1677ff",
+                "stop_ids": stop_ids,
+            })
+        return {"routes": result, "source": "gtfs"}
+
+    @application.get("/api/gtfs/route/{route_id}/shape", response_model=None)
+    async def gtfs_route_shape(route_id: str) -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            raise HTTPException(status_code=503, detail="GTFS feed not loaded")
+        trip_id = _first_trip_for(route_id, feed)
+        if not trip_id:
+            raise HTTPException(status_code=404, detail="route not found")
+        trip = feed.trips.get(trip_id)
+        if not trip or not trip.shape_id:
+            return {"coordinates": [], "source": "gtfs"}
+        points = feed.shapes.get(trip.shape_id, [])
+        return {
+            "coordinates": [[pt.lng, pt.lat] for pt in points],
+            "source": "gtfs",
+        }
+
+    @application.get("/api/buses", response_model=None)
+    async def realtime_buses() -> dict[str, Any]:
+        client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
+        if client is not None:
+            try:
+                buses = client.get_buses(
+                    lat=resolved.realtime_center_lat,
+                    lng=resolved.realtime_center_lng,
+                    radius_km=resolved.realtime_radius_km,
+                )
+                application.state.realtime_buses = buses
+            except TjApiError:
+                pass
+        return {
+            "buses": [
+                {"id": b.bus_id, "route_code": b.route_code, "lat": b.lat, "lng": b.lng, "observed_at": b.observed_at.isoformat()}
+                for b in getattr(application.state, "realtime_buses", [])
+            ],
+            "source": "realtime" if client is not None else "unavailable",
+        }
 
     @application.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -230,6 +341,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return
 
     return application
+
+
+def _first_trip_for(route_id: str, feed: "GtfsFeed") -> str | None:
+    for trip_id, trip in feed.trips.items():
+        if trip.route_id == route_id:
+            return trip_id
+    return None
 
 
 app = create_app()

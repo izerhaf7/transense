@@ -1425,6 +1425,49 @@ function HomePage({
   onUpdate: () => void
   onReset: () => void
 }) {
+  const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+  const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/gtfs/stops`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+        if (data.stops.length) setGtfsStops(data.stops.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })))
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const load = async () => {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
+      if (!res.ok) return
+      const data = await res.json() as { routes: { id: string; name: string; color: string }[] }
+      const topRoutes = data.routes.filter((r) => /^\d/.test(r.name)).slice(0, 8)
+      const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
+      for (const route of topRoutes) {
+        try {
+          const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
+          if (!shapeRes.ok) continue
+          const shapeData = await shapeRes.json() as { coordinates: [number, number][] }
+          if (shapeData.coordinates.length) {
+            shapes.push({ id: route.id, name: route.name, color: route.color, coordinates: shapeData.coordinates })
+          }
+        } catch {
+          /* skip */
+        }
+      }
+      setRouteShapes(shapes)
+    }
+    void load()
+    return () => controller.abort()
+  }, [])
+
+  const displayStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+
   return (
     <main className="page-content home-page">
       <section className="welcome-card" aria-labelledby="welcome-heading">
@@ -1437,7 +1480,7 @@ function HomePage({
       </section>
       <SearchEntry />
       <div className="home-map-stage">
-        <MapboxMap stops={transitState?.stops ?? SEEDED_TRANSIT_STATE.stops} />
+        <MapboxMap stops={displayStops} routeShapes={routeShapes} />
         <BottomSheet>
           <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
         </BottomSheet>
