@@ -208,46 +208,47 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
         <section className="chat-history" aria-label="Riwayat percakapan">
           {loading ? <div className="empty-state"><h3>Memuat…</h3></div> : null}
           {!loading && conversations.length ? conversations.map((conv) => (
-            <article className="chat-history__card" key={conv.id}>
-              <button className="chat-history__open" type="button" onClick={() => openConversation(conv)}>
+            <button className="chat-history__card" type="button" key={conv.id} onClick={() => openConversation(conv)}>
+              <div className="chat-history__card-body">
                 <strong>{conv.title || 'Percakapan'}</strong>
-                <span>{conv.messages.length} pesan · {new Date(conv.updated_at).toLocaleString('id-ID')}</span>
-              </button>
-              <button className="chat-history__delete" type="button" onClick={() => { void removeConversation(conv.id) }} aria-label="Hapus percakapan">✕</button>
-            </article>
+                <span>{new Date(conv.updated_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+              </div>
+              <span className="chat-history__card-count">{conv.messages.length}</span>
+              <button className="chat-history__delete" type="button" onClick={(event) => { event.stopPropagation(); void removeConversation(conv.id) }} aria-label="Hapus percakapan">✕</button>
+            </button>
           )) : null}
           {!loading && !conversations.length ? (
             <div className="empty-state"><h3>Belum ada riwayat</h3><p>Mulai percakapan untuk menyimpannya di server.</p></div>
           ) : null}
         </section>
-      ) : null}
-
-      <div className="chat-messages" ref={scrollRef} aria-live="polite">
-        {active && active.messages.length ? active.messages.map((message) => (
-          <div className={`chat-bubble chat-bubble--${message.sender}`} key={message.id}>
-            <span className="chat-bubble__label">{message.sender === 'user' ? 'Kamu' : 'Lawan bicara'}</span>
-            <p>{message.text}</p>
-            <time dateTime={message.timestamp}>{new Date(message.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</time>
+      ) : (
+        <>
+          <div className="chat-messages" ref={scrollRef} aria-live="polite">
+            {active && active.messages.length ? active.messages.map((message) => (
+              <div className={`chat-bubble chat-bubble--${message.sender}`} key={message.id}>
+                <span className="chat-bubble__label">{message.sender === 'user' ? 'Kamu' : 'Lawan bicara'}</span>
+                <p>{message.text}</p>
+                <time dateTime={message.timestamp}>{new Date(message.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</time>
+              </div>
+            )) : (
+              <div className="chat-empty">
+                <strong>Belum ada percakapan</strong>
+                <span>Ketik pesanmu, atau tap mikrofon untuk menangkap ucapan lawan bicara.</span>
+              </div>
+            )}
+            {listening && scribe.partialTranscript ? (
+              <div className="chat-bubble chat-bubble--other chat-bubble--partial">
+                <span className="chat-bubble__label">Lawan bicara</span>
+                <p>{scribe.partialTranscript}<span className="live-transcript__caret" aria-hidden="true">|</span></p>
+              </div>
+            ) : null}
           </div>
-        )) : (
-          <div className="chat-empty">
-            <strong>Belum ada percakapan</strong>
-            <span>Ketik pesanmu, atau tap mikrofon untuk menangkap ucapan lawan bicara.</span>
-          </div>
-        )}
-        {listening && scribe.partialTranscript ? (
-          <div className="chat-bubble chat-bubble--other chat-bubble--partial">
-            <span className="chat-bubble__label">Lawan bicara</span>
-            <p>{scribe.partialTranscript}<span className="live-transcript__caret" aria-hidden="true">|</span></p>
-          </div>
-        ) : null}
-      </div>
 
-      {errorMessage ? (
-        <div className="notice-box notice-box--danger" role="alert"><strong>Gagal tersambung</strong><span>{errorMessage}</span></div>
-      ) : null}
+          {errorMessage ? (
+            <div className="notice-box notice-box--danger" role="alert"><strong>Gagal tersambung</strong><span>{errorMessage}</span></div>
+          ) : null}
 
-      <div className="chat-composer">
+          <div className="chat-composer">
         <div className="chat-composer__modes">
           <button
             className={`chat-mode-btn${inputMode === 'keyboard' ? ' chat-mode-btn--active' : ''}`}
@@ -323,6 +324,8 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
           </div>
         )}
       </div>
+        </>
+      )}
     </main>
   )
 }

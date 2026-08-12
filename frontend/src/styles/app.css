@@ -362,6 +362,8 @@ input[aria-invalid='true'] {
 }
 
 .app-frame--home {
+  display: flex;
+  flex-direction: column;
   height: 100svh;
   overflow: hidden;
   padding-bottom: var(--brand-bottom-nav-height);
@@ -659,7 +661,8 @@ input[aria-invalid='true'] {
   display: flex;
   flex-direction: column;
   gap: var(--brand-space-base);
-  height: calc(100svh - var(--brand-bottom-nav-height));
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--brand-space-lg) var(--brand-screen-padding) 0;
   overflow: hidden;
 }
@@ -1927,7 +1930,8 @@ input[aria-invalid='true'] {
 .chat-page {
   display: flex;
   flex-direction: column;
-  height: calc(100svh - var(--brand-bottom-nav-height));
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--brand-space-lg) var(--brand-screen-padding) var(--brand-space-base);
   overflow: hidden;
 }
@@ -1963,24 +1967,19 @@ input[aria-invalid='true'] {
 .chat-history {
   display: grid;
   gap: var(--brand-space-xs);
-  flex: 0 0 auto;
-  max-height: 40vh;
+  align-content: start;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--brand-space-sm) 0;
-  border-bottom: var(--brand-border-width) solid var(--brand-color-border);
 }
 
 .chat-history__card {
   display: flex;
   align-items: center;
-  gap: var(--brand-space-xs);
-}
-
-.chat-history__open {
-  flex: 1;
-  display: grid;
-  gap: 2px;
-  padding: var(--brand-space-xs) var(--brand-space-base);
+  gap: var(--brand-space-sm);
+  width: 100%;
+  padding: var(--brand-space-sm) var(--brand-space-base);
   text-align: left;
   color: var(--brand-color-text);
   background: var(--brand-color-bg-container);
@@ -1989,21 +1988,44 @@ input[aria-invalid='true'] {
   cursor: pointer;
 }
 
-.chat-history__open strong {
+.chat-history__card:hover,
+.chat-history__card:focus-visible {
+  border-color: var(--brand-color-accent);
+}
+
+.chat-history__card-body {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.chat-history__card-body strong {
   font-size: var(--brand-font-size-base);
 }
 
-.chat-history__open span {
+.chat-history__card-body span {
   color: var(--brand-color-text-secondary);
   font-size: var(--brand-font-size-sm);
+}
+
+.chat-history__card-count {
+  display: grid;
+  min-width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
 }
 
 .chat-history__delete {
   min-width: 40px;
   min-height: 40px;
   color: var(--brand-color-error);
-  background: var(--brand-color-bg-container);
-  border: var(--brand-border-width) solid var(--brand-color-border);
+  background: transparent;
+  border: 0;
   border-radius: var(--brand-radius-base);
   cursor: pointer;
 }

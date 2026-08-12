@@ -72,7 +72,7 @@ def update_conversation(store: DemoStore, record_id: str, payload: dict[str, Any
         "created_at": existing["created_at"],
         "updated_at": now.isoformat().replace("+00:00", "Z"),
     }
-    store.add("conversation", full, now, record_id=record_id)
+    store.update_record(record_id, full, now)
     return {"id": record_id, **full}
 
 
