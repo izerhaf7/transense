@@ -55,11 +55,6 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
 
   const scribe = useScribe({
     modelId: 'scribe_v2_realtime',
-    onCommittedTranscript: (data: { text: string }) => {
-      const text = data.text.trim()
-      if (!text) return
-      void appendMessage('other', text, 'stt')
-    },
     onError: (error: Error | Event) => {
       setErrorMessage(error instanceof Error ? error.message : 'Terjadi error pada sesi transkripsi.')
     },
@@ -67,6 +62,18 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
       setListening(false)
     },
   })
+
+  const processedSegmentIds = useRef(new Set<string>())
+
+  useEffect(() => {
+    for (const segment of scribe.committedTranscripts) {
+      if (processedSegmentIds.current.has(segment.id)) continue
+      processedSegmentIds.current.add(segment.id)
+      const text = segment.text.trim()
+      if (!text) continue
+      void appendMessage('other', text, 'stt')
+    }
+  }, [scribe.committedTranscripts])
 
   useEffect(() => {
     activeRef.current = active
