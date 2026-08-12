@@ -163,8 +163,15 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
   }
 
   const stopListening = () => {
+    const pending = scribe.partialTranscript?.trim()
     scribe.disconnect()
     setListening(false)
+    if (!pending) return
+    const last = activeRef.current?.messages.at(-1)
+    if (last && last.sender === 'other' && last.text.trim() === pending) {
+      return
+    }
+    void appendMessage('other', pending, 'stt')
   }
 
   const sendDraft = (sender: Sender) => {
