@@ -19,6 +19,15 @@ interface BusPosition {
   route_code: string
   lat: number
   lng: number
+  observed_at: string
+  next_stop?: { name: string }
+}
+
+function relativeTime(iso: string): string {
+  const diff = (Date.now() - new Date(iso).getTime()) / 60000
+  if (diff < 1) return 'Baru saja'
+  if (diff < 60) return `${Math.floor(diff)} menit lalu`
+  return `${Math.floor(diff / 60)} jam lalu`
 }
 
 function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?: RouteShape[]; buses?: BusPosition[] }) {
@@ -121,8 +130,26 @@ function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?:
       el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:#FF7A1A;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;font-size:12px;color:#fff;font-weight:700'
       el.textContent = bus.route_code.length <= 3 ? bus.route_code : '...'
 
+      const popupHTML = [
+        '<div style="font-family:system-ui,sans-serif;font-weight:600;min-width:160px">',
+        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Nomor Kendaraan</p>`,
+        `<p style="margin:0 0 8px;font-size:16px">${bus.id}</p>`,
+        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Layanan</p>`,
+        `<p style="margin:0 0 8px;font-size:16px">Transjakarta</p>`,
+        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Trayek</p>`,
+        `<p style="margin:0 0 8px;font-size:16px">${bus.route_code}</p>`,
+        bus.next_stop ? `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Halte Berikutnya</p><p style="margin:0 0 8px;font-size:16px">${bus.next_stop.name}</p>` : '',
+        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Update Terakhir</p>`,
+        `<p style="margin:0;font-size:16px">${relativeTime(bus.observed_at)}</p>`,
+        '</div>',
+      ].join('')
+
+      const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '240px' })
+        .setHTML(popupHTML)
+
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([bus.lng, bus.lat])
+        .setPopup(popup)
         .addTo(map)
       busMarkersRef.current.push(marker)
     }

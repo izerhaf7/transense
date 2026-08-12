@@ -232,6 +232,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
             error_detail: str | None = getattr(application.state, "realtime_error", None)
+            feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
             if client is None and resolved.realtime_enabled:
                 try:
                     client = TjRealtimeClient(api_base=resolved.realtime_api_base)
@@ -250,11 +251,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     application.state.realtime_buses = buses
                 except TjApiError:
                     pass
+            enriched: list[dict[str, object]] = []
+            for b in getattr(application.state, "realtime_buses", []):
+                info: dict[str, object] = {
+                    "id": b.bus_id,
+                    "route_code": b.route_code,
+                    "lat": b.lat,
+                    "lng": b.lng,
+                    "observed_at": b.observed_at.isoformat(),
+                }
+                if feed is not None and b.trip_id:
+                    next_stop = _find_next_stop(feed, b.trip_id, b.lat, b.lng)
+                    if next_stop is not None:
+                        info["next_stop"] = next_stop
+                enriched.append(info)
             return {
-                "buses": [
-                    {"id": b.bus_id, "route_code": b.route_code, "lat": b.lat, "lng": b.lng, "observed_at": b.observed_at.isoformat()}
-                    for b in getattr(application.state, "realtime_buses", [])
-                ],
+                "buses": enriched,
                 "source": "realtime" if client is not None else "unavailable",
                 "error": getattr(application.state, "realtime_error", None),
             }
@@ -363,6 +375,39 @@ def _first_trip_for(route_id: str, feed: "GtfsFeed") -> str | None:
         if trip.route_id == route_id:
             return trip_id
     return None
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    import math
+    r = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _find_next_stop(feed: "GtfsFeed", trip_id: str, bus_lat: float, bus_lng: float) -> dict[str, object] | None:
+    trip = feed.trips.get(trip_id)
+    if not trip:
+        return None
+    st_list = sorted(feed.stop_times.get(trip_id, []), key=lambda st: st.stop_sequence)
+    if not st_list:
+        return None
+    candidates: list[tuple[float, str, int]] = []
+    for st in st_list:
+        stop = feed.stops.get(st.stop_id)
+        if stop is None:
+            continue
+        dist = _haversine_km(bus_lat, bus_lng, stop.lat, stop.lng)
+        candidates.append((dist, stop.name, st.stop_sequence))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+    closest_seq = candidates[0][2]
+    for d in candidates:
+        if d[2] > closest_seq:
+            return {"name": d[1], "sequence": d[2]}
+    return {"name": candidates[0][1], "sequence": candidates[0][2]}
 
 
 app = create_app()

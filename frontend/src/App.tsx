@@ -1467,14 +1467,14 @@ function HomePage({
     return () => controller.abort()
   }, [])
 
-  const [busPositions, setBusPositions] = useState<{ id: string; route_code: string; lat: number; lng: number }[]>([])
+  const [busPositions, setBusPositions] = useState<{ id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[]>([])
 
   useEffect(() => {
     const fetchBuses = () => {
       fetch(`${apiBaseUrl}/api/buses`)
         .then(async (res) => {
           if (!res.ok) return
-          const data = await res.json() as { buses: { id: string; route_code: string; lat: number; lng: number }[] }
+          const data = await res.json() as { buses: { id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[] }
           if (data.buses.length) setBusPositions(data.buses)
         })
         .catch(() => {})
