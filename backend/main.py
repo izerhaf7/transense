@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
-from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed
+from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label
 from .persistence import DemoStore
 from .notifications import NotificationEngine
 from .sources import load_static_schedule
@@ -202,11 +202,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not query:
             return {"stops": [], "source": "gtfs"}
         matches = [
-            {"id": s.stop_id, "name": s.name, "lat": s.lat, "lng": s.lng}
+            {
+                "id": s.stop_id,
+                "name": s.name,
+                "lat": s.lat,
+                "lng": s.lng,
+                "type": stop_type_label(s),
+                "platform": s.platform_code,
+            }
             for s in feed.stops.values()
             if query in s.name.casefold()
         ]
-        matches.sort(key=lambda s: s["name"])
+        matches.sort(key=lambda s: (s["name"], s["type"]))
         return {"stops": matches[:20], "source": "gtfs"}
 
     @application.get("/api/gtfs/routes", response_model=None)

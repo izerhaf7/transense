@@ -28,6 +28,8 @@ class GtfsStop:
     lat: float
     lng: float
     parent_station: str | None = None
+    location_type: str = "0"
+    platform_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -153,6 +155,8 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
                 lat=float(row["stop_lat"]),
                 lng=float(row["stop_lon"]),
                 parent_station=(row.get("parent_station") or "").strip() or None,
+                location_type=(row.get("location_type") or "0").strip(),
+                platform_code=(row.get("platform_code") or "").strip(),
             )
         except (KeyError, ValueError):
             continue
@@ -262,6 +266,14 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
 
 def _normalize(value: str) -> str:
     return " ".join(value.casefold().split()).strip()
+
+
+def stop_type_label(stop: "GtfsStop") -> str:
+    if stop.location_type == "1":
+        return "BRT Station"
+    if stop.parent_station:
+        return f"BRT Platform ({stop.platform_code})" if stop.platform_code else "BRT Platform"
+    return "Bus Stop"
 
 
 def _deduplicate_ordered(ids: list[str]) -> list[str]:

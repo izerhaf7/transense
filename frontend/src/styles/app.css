@@ -883,8 +883,12 @@ input[aria-invalid='true'] {
 }
 
 .arrivals-sheet__suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--brand-space-sm);
   min-height: var(--brand-control-height-base);
-  padding: 0 var(--brand-space-base);
+  padding: var(--brand-space-xs) var(--brand-space-base);
   text-align: left;
   color: var(--brand-color-text);
   background: var(--brand-color-bg-container);
@@ -892,6 +896,21 @@ input[aria-invalid='true'] {
   border-radius: var(--brand-radius-base);
   font-weight: var(--brand-font-weight-strong);
   cursor: pointer;
+}
+
+.arrivals-sheet__suggestion-name {
+  font-size: var(--brand-font-size-base);
+}
+
+.arrivals-sheet__suggestion-type {
+  flex: 0 0 auto;
+  padding: 2px var(--brand-space-xs);
+  color: var(--brand-color-text-secondary);
+  background: var(--brand-color-surface);
+  border-radius: var(--brand-radius-pill);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .arrivals-sheet__suggestion:hover,

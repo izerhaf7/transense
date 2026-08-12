@@ -1336,6 +1336,8 @@ interface ArrivalsStop {
   name: string
   lat: number
   lng: number
+  type?: string
+  platform?: string
 }
 
 type GpsStatus = 'idle' | 'locating' | 'located' | 'denied'
@@ -1439,7 +1441,8 @@ function ArrivalsSheet() {
             <div className="arrivals-sheet__suggestions">
               {suggestions.map((stop) => (
                 <button className="arrivals-sheet__suggestion" type="button" key={stop.id} onClick={() => pickStop(stop)}>
-                  {stop.name}
+                  <span className="arrivals-sheet__suggestion-name">{stop.name}</span>
+                  <span className="arrivals-sheet__suggestion-type">{stop.type ?? 'Halte'}</span>
                 </button>
               ))}
             </div>
