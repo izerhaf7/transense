@@ -89,7 +89,8 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
     return () => {
       scribe.disconnect()
     }
-  }, [scribe])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const appendMessage = async (sender: Sender, text: string, source: 'typed' | 'stt') => {
     const trimmed = text.trim()
