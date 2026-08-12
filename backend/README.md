@@ -1,23 +1,8 @@
 # Transense backend
 
-FastAPI + WebSocket demo backend using a local SQLite persistence boundary for transcripts/incidents. Transit data comes from the official TransJakarta GTFS feed (stops, routes, shapes, schedules) plus the internal realtime bus API when enabled. A deterministic seed remains available as a fallback when external sources are unavailable.
+FastAPI + WebSocket demo backend using only a local SQLite persistence boundary. Transit data is deterministic seed/simulation data; no TransJakarta or other external API is called at runtime.
 
-## One-shot setup (recommended for teammates)
-
-From the repository root:
-
-```powershell
-python scripts/setup.py
-```
-
-This installs backend deps, creates `backend/.env.local` from `.env.example` (if missing), pre-downloads the GTFS feed, and installs frontend deps. Then run:
-
-```powershell
-python -m uvicorn backend.main:app --reload   # terminal 1
-cd frontend && npm run dev                    # terminal 2
-```
-
-## Manual run locally
+## Run locally
 
 From the repository root:
 
@@ -25,18 +10,16 @@ From the repository root:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r backend\requirements.txt
-Copy-Item backend\.env.example backend\.env.local   # then edit if needed
+$env:TRANSENSE_ENVIRONMENT = "local"
+$env:TRANSENSE_ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174"
 python -m uvicorn backend.main:app --reload
 ```
 
-The API is then available at `http://localhost:8000`. `TRANSENSE_ENVIRONMENT` and `TRANSENSE_ALLOWED_ORIGINS` are required non-secret settings; they are read from `backend/.env.local` (auto-loaded) or the process environment. `TRANSENSE_DATABASE_PATH` is optional and defaults to `backend/transense.sqlite3`.
-
-## Transit data sources
-
-- **GTFS (static)**: downloaded from `TRANSENSE_GTFS_URL` (default the official TransJakarta feed) and cached at `backend/gtfs_cache.zip` for 24h. Serves `GET /api/gtfs/status`, `/api/gtfs/stops`, `/api/gtfs/routes`, and `/api/gtfs/route/{id}/shape`.
-- **Realtime buses**: when `TRANSENSE_REALTIME_ENABLED=1`, the backend authenticates a guest session against the TransJakarta internal API (`tijeapi.transjakarta.co.id`) and returns live bus positions with route codes and next-stop estimates via `GET /api/buses`.
+The API is then available at `http://localhost:8000`. `TRANSENSE_ENVIRONMENT` and `TRANSENSE_ALLOWED_ORIGINS` are required non-secret settings. `TRANSENSE_DATABASE_PATH` is optional and defaults to `backend/transense.sqlite3`.
 
 Run tests with `python -m pytest backend/tests -q`.
+
+For local frontend integration, run the frontend separately with `VITE_API_BASE_URL=http://localhost:8000 npm run dev` from `frontend/`, then open its Vite URL. A successful browser connection receives the `connection.ack` seed, shows the nearest-route status card in Beranda, and enables the explicitly labeled simulation controls. Use `Simulasikan ETA -1 menit` to send the documented update for `vehicle-kp-01`, or `Reset ke seed` to return to the four-minute seed state. These controls are deterministic demo actions, not real-time transit data.
 
 ## JSON contracts
 
