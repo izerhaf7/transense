@@ -31,6 +31,8 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
   const [errorMessage, setErrorMessage] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [inputMode, setInputMode] = useState<'mic' | 'keyboard'>('keyboard')
+  const [typingAs, setTypingAs] = useState<Sender>('user')
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const activeRef = useRef<Conversation | null>(null)
 
@@ -246,31 +248,80 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
       ) : null}
 
       <div className="chat-composer">
-        <button
-          className={`chat-mic-btn${listening ? ' chat-mic-btn--active' : ''}`}
-          type="button"
-          onClick={listening ? stopListening : startListening}
-          aria-label={listening ? 'Hentikan mendengarkan' : 'Mulai mendengarkan lawan bicara'}
-          title={listening ? 'Hentikan' : 'Dengar lawan bicara'}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
-            <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
-          </svg>
-        </button>
-        <input
-          className="chat-composer__input"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') sendDraft('user') }}
-          placeholder="Ketik pesan…"
-          aria-label="Ketik pesan"
-        />
-        <button className="chat-composer__send" type="button" onClick={() => sendDraft('user')} aria-label="Kirim sebagai kamu">
-          Kamu ↗
-        </button>
-        <button className="chat-composer__send chat-composer__send--other" type="button" onClick={() => sendDraft('other')} aria-label="Kirim sebagai lawan bicara">
-          Lawan ↗
-        </button>
+        <div className="chat-composer__modes">
+          <button
+            className={`chat-mode-btn${inputMode === 'keyboard' ? ' chat-mode-btn--active' : ''}`}
+            type="button"
+            onClick={() => setInputMode('keyboard')}
+            aria-label="Mode ketik"
+            title="Mode ketik"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
+              <path fill="currentColor" d="M2 5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4 3v-3H4a2 2 0 0 1-2-2V5Zm4 2v2h2V7H6Zm4 0v2h2V7h-2Zm4 0v2h2V7h-2Z" />
+            </svg>
+            <span>Ketik</span>
+          </button>
+          <button
+            className={`chat-mode-btn${inputMode === 'mic' ? ' chat-mode-btn--active' : ''}`}
+            type="button"
+            onClick={() => setInputMode('mic')}
+            aria-label="Mode mikrofon"
+            title="Mode mikrofon"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
+              <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
+            </svg>
+            <span>Mikrofon</span>
+          </button>
+        </div>
+
+        {inputMode === 'mic' ? (
+          <div className="chat-composer__mic">
+            <button
+              className={`chat-mic-btn${listening ? ' chat-mic-btn--active' : ''}`}
+              type="button"
+              onClick={listening ? stopListening : startListening}
+              aria-label={listening ? 'Hentikan mendengarkan' : 'Mulai mendengarkan lawan bicara'}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" width="28" height="28">
+                <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
+              </svg>
+            </button>
+            <p className="chat-composer__mic-label">{listening ? 'Mendengarkan lawan bicara…' : 'Ketuk untuk mendengar lawan bicara'}</p>
+          </div>
+        ) : (
+          <div className="chat-composer__keyboard">
+            <div className="chat-composer__who">
+              <button
+                className={`chat-who-btn${typingAs === 'user' ? ' chat-who-btn--active' : ''}`}
+                type="button"
+                onClick={() => setTypingAs('user')}
+              >
+                Kamu
+              </button>
+              <button
+                className={`chat-who-btn chat-who-btn--other${typingAs === 'other' ? ' chat-who-btn--active' : ''}`}
+                type="button"
+                onClick={() => setTypingAs('other')}
+              >
+                Lawan bicara
+              </button>
+            </div>
+            <div className="chat-composer__row">
+              <input
+                className="chat-composer__input"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') sendDraft(typingAs) }}
+                placeholder={typingAs === 'user' ? 'Ketik pesanmu…' : 'Ketik ucapan lawan bicara…'}
+                aria-label="Ketik pesan"
+              />
+              <button className="chat-composer__send" type="button" onClick={() => sendDraft(typingAs)} aria-label="Kirim">
+                Kirim ↗
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   )
