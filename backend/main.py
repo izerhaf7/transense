@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
+from .conversation import (ConversationError, create_conversation, delete_conversation,
+                           list_conversations, update_conversation)
 from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label
 from .persistence import DemoStore
 from .notifications import NotificationEngine
@@ -165,6 +167,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as error:
             raise HTTPException(status_code=502, detail=f"ElevenLabs token creation failed: {error}")
         return {"token": getattr(token, "token", str(token))}
+
+    @application.get("/api/conversations", response_model=None)
+    async def conversations() -> dict[str, Any]:
+        store: DemoStore | None = getattr(application.state, "store", None)
+        if store is None:
+            return {"conversations": [], "retention_days": 7}
+        return {"conversations": list_conversations(store), "retention_days": 7}
+
+    @application.post("/api/conversations", response_model=None)
+    async def create_conversation_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+        store: DemoStore | None = getattr(application.state, "store", None)
+        if store is None:
+            raise HTTPException(status_code=503, detail="persistence unavailable")
+        try:
+            return create_conversation(store, payload)
+        except ConversationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+    @application.patch("/api/conversations/{record_id}", response_model=None)
+    async def update_conversation_endpoint(record_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        store: DemoStore | None = getattr(application.state, "store", None)
+        if store is None:
+            raise HTTPException(status_code=503, detail="persistence unavailable")
+        try:
+            result = update_conversation(store, record_id, payload)
+        except ConversationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        if result is None:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        return result
+
+    @application.delete("/api/conversations/{record_id}", response_model=None)
+    async def delete_conversation_endpoint(record_id: str) -> dict[str, Any]:
+        store: DemoStore | None = getattr(application.state, "store", None)
+        if store is None or not delete_conversation(store, record_id):
+            raise HTTPException(status_code=404, detail="conversation not found")
+        return {"id": record_id, "deleted": True}
 
     @application.get("/api/gtfs/status", response_model=None)
     async def gtfs_status() -> dict[str, Any]:

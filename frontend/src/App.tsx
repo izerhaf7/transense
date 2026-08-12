@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { useScribe } from '@elevenlabs/react'
+import ChatTranscribe from './ChatTranscribe'
 import {
   areVibrationPatternsDistinct,
   cloneTransitState,
@@ -1698,173 +1698,6 @@ function DelaysPage({ incidentRecords, onPinIncident }: { incidentRecords: Incid
   )
 }
 
-function TranscribePage({ transcription }: { transcription: TranscriptionController }) {
-  const [errorMessage, setErrorMessage] = useState('')
-
-  const scribe = useScribe({
-    modelId: 'scribe_v2_realtime',
-    onCommittedTranscript: (data: { text: string }) => {
-      if (data.text.trim()) {
-        transcription.saveTranscript(data.text.trim())
-      }
-    },
-    onError: (error: Error | Event) => {
-      setErrorMessage(error instanceof Error ? error.message : 'Terjadi error pada sesi transkripsi.')
-    },
-    onDisconnect: () => {
-      setErrorMessage('')
-    },
-  })
-
-  const handleStart = async () => {
-    setErrorMessage('')
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/scribe-token`)
-      if (!response.ok) {
-        const errText = await response.text()
-        setErrorMessage(`Gagal mendapatkan token: ${errText}`)
-        return
-      }
-      const tokenData: { token: string } = await response.json()
-      await scribe.connect({
-        token: tokenData.token,
-        microphone: { echoCancellation: true, noiseSuppression: true },
-      })
-    } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : 'Gagal memulai transkripsi ElevenLabs.')
-    }
-  }
-
-  const handleStop = () => {
-    scribe.disconnect()
-  }
-
-  const connected = scribe.isConnected
-  const liveText = scribe.partialTranscript
-
-  const sourceLabel: Record<TranscriptionSource, string> = {
-    live: 'LIVE / BACKEND',
-    mock: 'MOCK DEMO',
-    degraded: 'DEGRADED',
-  }
-
-  return (
-    <main className="transcribe-page">
-      <section className="transcribe-intro">
-        <p className="eyebrow">TRANSCRIBE / PERCAKAPAN LANGSUNG</p>
-        <h2>Ubah percakapan menjadi teks</h2>
-        <p>Untuk percakapan orang-ke-orang melalui mikrofon ponsel. Audio mentah tidak disimpan sebagai history.</p>
-      </section>
-
-      <section className="transcribe-live" aria-labelledby="transcribe-live-heading">
-        <button
-          className={`transcribe-mic-btn${connected ? ' transcribe-mic-btn--active' : ''}`}
-          type="button"
-          onClick={connected ? handleStop : handleStart}
-          aria-label={connected ? 'Hentikan transcribe' : 'Mulai transcribe'}
-        >
-          <svg className="transcribe-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
-          </svg>
-        </button>
-        <h3 id="transcribe-live-heading">{connected ? 'Mendengarkan…' : 'Ketuk untuk mulai mendengarkan'}</h3>
-        <p className="transcribe-live__detail" role="status">
-          {connected ? 'ElevenLabs Scribe v2 — transkripsi bahasa Indonesia real-time.' : 'Ketuk mikrofon untuk mulai. Audio diproses melalui ElevenLabs Scribe.'}
-        </p>
-        <div className="transcribe-live__badges">
-          <span className={`state-badge state-badge--${connected ? 'safe' : 'warning'}`}>{connected ? 'LIVE' : 'SIAP'}</span>
-        </div>
-        {errorMessage ? (
-          <div className="notice-box notice-box--danger" role="alert"><strong>Gagal tersambung</strong><span>{errorMessage}</span></div>
-        ) : null}
-      </section>
-
-      <div className="transcribe-stage">
-        <section className="transcript-card" aria-labelledby="transcript-output-heading">
-          <div className="transcript-card__header">
-            <div>
-              <p className="eyebrow">HASIL TERBACA</p>
-              <h3 id="transcript-output-heading">Transkrip percakapan</h3>
-            </div>
-            <span className={`state-badge state-badge--${connected ? 'safe' : transcription.current ? 'warning' : 'placeholder'}`}>
-              {connected ? 'LIVE' : transcription.current ? sourceLabel[transcription.current.provider] : 'KOSONG'}
-            </span>
-          </div>
-          {connected || liveText ? (
-            <div className="transcript-card__live" aria-live="polite">
-              <p className="live-transcript__text">
-                {liveText || 'Menunggu suara…'}
-                <span className="live-transcript__caret" aria-hidden="true">|</span>
-              </p>
-            </div>
-          ) : transcription.current ? (
-            <>
-              <p className="transcript-card__text">{transcription.current.text}</p>
-              <time dateTime={transcription.current.createdAt}>{new Date(transcription.current.createdAt).toLocaleString('id-ID')}</time>
-            </>
-          ) : (
-            <div className="transcript-card__empty"><strong>Belum ada teks</strong><span>Ketuk mikrofon untuk memulai. Hasil percakapan akan muncul kata per kata di sini.</span></div>
-          )}
-        </section>
-
-        <BottomSheet>
-          <div className="section-heading">
-            <p className="eyebrow">HISTORY / RETENSI 7 HARI</p>
-            <h3>Percakapan tersimpan</h3>
-          </div>
-          <div className="source-note" role="status"><strong>STATUS HISTORY</strong><span>{transcription.historyDetail}</span><span>Hanya teks fungsional yang ditampilkan; raw audio dan ambient noise tidak masuk history.</span></div>
-          {transcription.history.length ? (() => {
-            const today = new Date()
-            const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-
-            const grouped: { label: string; entries: TranscriptRecord[] }[] = []
-            for (const transcript of transcription.history) {
-              const createdAt = new Date(transcript.createdAt)
-              const entryDate = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate())
-              const diffDays = Math.floor((todayDate.getTime() - entryDate.getTime()) / 86400000)
-              let label: string
-              if (diffDays === 0) {
-                label = 'Hari ini'
-              } else if (diffDays === 1) {
-                label = 'Kemarin'
-              } else if (diffDays < 7) {
-                label = `${diffDays} hari lalu`
-              } else {
-                label = createdAt.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
-              }
-              const lastGroup = grouped[grouped.length - 1]
-              if (lastGroup && lastGroup.label === label) {
-                lastGroup.entries.push(transcript)
-              } else {
-                grouped.push({ label, entries: [transcript] })
-              }
-            }
-
-            return grouped.map((group) => (
-              <div className="history-group" key={group.label}>
-                <p className="history-group__label">{group.label}</p>
-                {group.entries.map((transcript) => (
-                  <article className="transcript-history-card" key={transcript.id}>
-                    <div className="transcript-history-card__topline">
-                      <span className={`state-badge state-badge--${transcript.provider === 'live' ? 'safe' : 'warning'}`}>{sourceLabel[transcript.provider]}</span>
-                      <time dateTime={transcript.createdAt}>{new Date(transcript.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</time>
-                    </div>
-                    <p>{transcript.text}</p>
-                    <div className="transcript-history-card__footer">
-                      <span>{transcript.pinned ? 'Tersimpan · dikecualikan dari cleanup' : transcript.simulated ? 'Mock sesi demo · belum tentu persisten' : 'Retensi demo: 7 hari'}</span>
-                      <button className="secondary-button" type="button" onClick={() => transcription.pin(transcript.id)}>{transcript.pinned ? 'Lepas simpan' : 'Simpan / pin'}</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ))
-          })() : <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada history</h3><p>Hasil percakapan akan muncul di sini setelah sesi menghasilkan teks fungsional.</p></div>}
-        </BottomSheet>
-      </div>
-    </main>
-  )
-}
-
 function AntarAkuPage({
   transitState,
   session,
@@ -2072,7 +1905,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} /> : null}
       {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
-      {screen === 'transcribe' ? <TranscribePage transcription={backend.transcription} /> : null}
+      {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage transitState={optionalData.state} session={journeySession} notifications={backend.notifications} onQueryChange={(destinationQuery) => setJourneySession((current) => ({ ...current, destinationQuery, message: '' }))} onMatch={handleJourneyMatch} onConfirm={() => setJourneySession((current) => ({ ...current, state: 'active', message: 'Journey aktif. Status armada dan notifikasi akan tampil di konteks ini.' }))} onEnd={() => setJourneySession((current) => ({ ...current, state: 'ended', offRoute: false, message: 'Journey berakhir di sesi demo.' }))} onRestart={handleJourneyRestart} onSimulateOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: true, message: 'Keluar rute disimulasikan secara manual untuk demo.' }))} onResolveOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: false, message: 'Status resolved: kembali ke rute demo (tanpa klaim posisi real).' }))} /> : null}
       {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
