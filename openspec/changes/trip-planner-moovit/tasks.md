@@ -33,5 +33,5 @@
 - [x] 6.1 Backend pytest green (new + existing)
 - [x] 6.2 Frontend typecheck/build + extend planner-check.mjs contract strings
 - [x] 6.3 `openspec validate --all --strict --no-interactive` passes
-- [x] 6.4 Demo smoke: arrive_by + include_eta curl returns deterministic delay fields; incident banner + saved places visible in browser (pending manual)
+- [x] 6.4 Demo smoke: arrive_by + include_eta curl returns deterministic delay fields; incident banner + saved places visible in browser — VERIFIED on production (Gambir→Kota: 3 itineraries, BUS delay 2/9 simulated, arrive_by 10:30 honored, delay incident on route 1)
 
