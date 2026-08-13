@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import ChatTranscribe from './ChatTranscribe'
+import TransitTrackingPage from './TransitTrackingPage'
 import {
   areVibrationPatternsDistinct,
   cloneTransitState,
-  findRouteBetweenStops,
-  matchSeededStop,
   SEEDED_TRANSIT_STATE,
   VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
+import MapboxMap from './MapboxMap'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
-type PlaceholderKey = 'antar-aku' | 'transcribe' | 'schedule'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
-type JourneyState = 'entry' | 'matching' | 'route' | 'active' | 'ended'
 type MicrophonePermission = 'unknown' | 'granted' | 'denied' | 'unsupported'
 type TranscriptionSource = 'live' | 'mock' | 'degraded'
 
@@ -154,6 +153,7 @@ interface TranscriptionController {
   start: () => void
   stop: () => void
   pin: (transcriptId: string) => void
+  saveTranscript: (text: string) => void
 }
 
 interface NotificationRecord {
@@ -185,16 +185,6 @@ interface OptionalStaticData {
   sourceLabel: string
 }
 
-interface JourneySession {
-  state: JourneyState
-  destinationQuery: string
-  originId: string | null
-  destinationId: string | null
-  routeId: string | null
-  message: string
-  offRoute: boolean
-}
-
 interface BackendConnection {
   connection: ConnectionState
   transitState: TransitState | null
@@ -206,50 +196,12 @@ interface BackendConnection {
   resetTransit: () => void
   simulateNotification: (kind: Exclude<NotificationKind, 'off_route'>) => void
   pinIncident: (incidentId: string) => void
-}
-
-interface FeatureEntry {
-  key: PlaceholderKey | 'delays'
-  title: string
-  description: string
-  state: 'functional' | 'placeholder'
-  accent: 'brand' | 'warning' | 'safe' | 'danger'
+  saveTranscript: (text: string) => void
 }
 
 const PROFILE_STORAGE_KEY = 'transense.demo-profile.v1'
 const DEFAULT_API_BASE_URL = 'http://localhost:8000'
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL).replace(/\/$/, '')
-
-const featureEntries: FeatureEntry[] = [
-  {
-    key: 'antar-aku',
-    title: 'Antar Aku',
-    description: 'Rute perjalanan terpandu dari halte ke halte.',
-    state: 'functional',
-    accent: 'brand',
-  },
-  {
-    key: 'transcribe',
-    title: 'Transcribe',
-    description: 'Teks percakapan langsung dari mikrofon ponsel.',
-    state: 'functional',
-    accent: 'safe',
-  },
-  {
-    key: 'delays',
-    title: 'Informasi Keterlambatan Jalur',
-    description: 'Buka feed status dan insiden layanan.',
-    state: 'functional',
-    accent: 'warning',
-  },
-  {
-    key: 'schedule',
-    title: 'Jadwal TransJakarta',
-    description: 'Jadwal armada dan perkiraan kedatangan.',
-    state: 'functional',
-    accent: 'danger',
-  },
-]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -1005,6 +957,27 @@ function useBackendConnection(): BackendConnection {
       })
   }
 
+  const saveTranscript = (text: string) => {
+    const sessionId = `scribe-${Date.now()}`
+    activeTranscriptionSessionRef.current = sessionId
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'transcription.save', text, session_id: sessionId }))
+      setSimulationDetail('Transkrip disimpan ke backend.')
+    } else {
+      acceptTranscript({
+        id: `local-scribe-${sessionId}`,
+        sessionId,
+        text,
+        createdAt: new Date().toISOString(),
+        provider: 'live',
+        pinned: false,
+        simulated: false,
+      })
+      setSimulationDetail('Transkrip disimpan lokal; backend belum tersedia.')
+    }
+  }
+
   return {
     connection,
     transitState,
@@ -1020,6 +993,7 @@ function useBackendConnection(): BackendConnection {
       start: () => { void startTranscription() },
       stop: stopTranscription,
       pin: pinTranscript,
+      saveTranscript,
     },
     updateTransit: () => sendTransitMessage({ type: 'transit.update', vehicle_id: 'vehicle-kp-01' }),
     resetTransit: () => sendTransitMessage({ type: 'transit.reset' }),
@@ -1050,6 +1024,7 @@ function useBackendConnection(): BackendConnection {
         })
         .catch((error: unknown) => console.warn('Transense could not update incident pin state.', error))
     },
+    saveTranscript,
   }
 }
 
@@ -1202,7 +1177,7 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string) => void 
     <main className="onboarding-frame">
       <div className="onboarding-panel">
         <div className="brand-lockup" aria-label="Transense">
-          <span className="brand-lockup__mark" aria-hidden="true">TR</span>
+          <span className="brand-lockup__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
           <span className="brand-lockup__text">TRANSENSE</span>
         </div>
         <p className="eyebrow">DEMO SHELL / ANDROID READY</p>
@@ -1236,17 +1211,15 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string) => void 
   )
 }
 
-function AppHeader({ title, connection }: { title: string; connection: ConnectionState }) {
+function AppHeader({ title }: { title: string }) {
   return (
     <header className="app-header">
       <div className="app-header__title">
-        <span className="brand-mark" aria-hidden="true">TR</span>
+        <span className="brand-mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
         <div>
-          <p className="eyebrow">TRANSENSE / DEMO</p>
           <h1>{title}</h1>
         </div>
       </div>
-      <ConnectionStatusBadge connection={connection} />
     </header>
   )
 }
@@ -1283,145 +1256,333 @@ function SearchEntry() {
   )
 }
 
-interface RouteContext {
-  routeName: string
-  currentStopName: string
-  nextStopName: string
-  vehicleId: string
-  etaMinutes: number
-}
+function BottomSheet({ children }: { children: ReactNode }) {
+  const dragStartY = useRef(0)
+  const [collapsed, setCollapsed] = useState(true)
+  const [dragging, setDragging] = useState(false)
+  const [dragDistance, setDragDistance] = useState(0)
 
-function getNearestRouteContext(state: TransitState | null): RouteContext | null {
-  if (!state) {
-    return null
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragStartY.current = event.clientY
+    setDragDistance(0)
+    setDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
   }
 
-  const vehicle = state.vehicles[0]
-  if (!vehicle) {
-    return null
+  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!dragging) return
+    const distance = dragStartY.current - event.clientY
+    setDragDistance(distance)
   }
 
-  const trip = state.trips.find((candidate) => candidate.id === vehicle.trip_id)
-  const route = trip ? state.routes.find((candidate) => candidate.id === trip.route_id) : undefined
-  const currentStop = state.stops.find((stop) => stop.id === vehicle.position)
-  const nextStopId = route?.stop_ids.find((stopId) => stopId !== vehicle.position)
-  const nextStop = nextStopId ? state.stops.find((stop) => stop.id === nextStopId) : undefined
-  const eta = state.etas.find((candidate) => candidate.vehicle_id === vehicle.id)
-
-  if (!route || !currentStop || !nextStop || !eta) {
-    return null
+  const handlePointerUp = () => {
+    if (!dragging) return
+    setDragging(false)
+    if (dragDistance > 40) {
+      setCollapsed(false)
+    } else if (dragDistance < -40) {
+      setCollapsed(true)
+    }
+    setDragDistance(0)
   }
 
-  return {
-    routeName: route.name,
-    currentStopName: currentStop.name,
-    nextStopName: nextStop.name,
-    vehicleId: vehicle.id,
-    etaMinutes: eta.minutes,
-  }
-}
-
-function StatusCard({
-  transitState,
-  connection,
-  simulationDetail,
-  onUpdate,
-  onReset,
-}: {
-  transitState: TransitState | null
-  connection: ConnectionState
-  simulationDetail: string
-  onUpdate: () => void
-  onReset: () => void
-}) {
-  const context = getNearestRouteContext(transitState)
-  const isConnected = connection.status === 'connected'
+  const className = `bottom-sheet${collapsed ? ' bottom-sheet--collapsed' : ' bottom-sheet--expanded'}${dragging ? ' bottom-sheet--dragging' : ''}`
+  const inlineStyle = dragging ? { transform: `translateY(${-dragDistance}px)` } : undefined
 
   return (
-    <section className="status-card" aria-labelledby="status-card-heading">
-      <div className="status-card__topline">
-        <p className="eyebrow">STATUS RUTE TERDEKAT</p>
-        <span className="state-badge state-badge--warning">SIMULASI</span>
+    <div className={className} style={inlineStyle}>
+      <button
+        className="bottom-sheet__handle"
+        type="button"
+        aria-label={collapsed ? 'Buka panel informasi' : 'Tutup panel informasi'}
+        aria-expanded={!collapsed}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span className="bottom-sheet__grip" aria-hidden="true" />
+      </button>
+      <div className="bottom-sheet__content">
+        {children}
       </div>
-      <h2 id="status-card-heading">{context ? `${context.routeName} · ${context.currentStopName}` : 'Menunggu rute seeded'}</h2>
-      <p className="status-card__message">
-        {context
-          ? `Armada ${context.vehicleId} menuju ${context.nextStopName}. Perkiraan tiba dari simulasi lokal.`
-          : 'Seeded nearest-route context akan tampil setelah backend terhubung.'}
-      </p>
-      <div className="eta-display">
-        <strong>{context ? context.etaMinutes : '—'}</strong>
-        <span>menit</span>
-        <span className="eta-display__note">Data demo tersimulasi</span>
-      </div>
-      <div className="simulation-controls" aria-label="Kontrol simulasi transit lokal">
-        <p className="simulation-controls__detail" role="status">{simulationDetail}</p>
-        <div className="simulation-controls__actions">
-          <button className="secondary-button" type="button" onClick={onUpdate} disabled={!isConnected || !context}>
-            Simulasikan ETA -1 menit
-          </button>
-          <button className="secondary-button" type="button" onClick={onReset} disabled={!isConnected}>
-            Reset ke seed
-          </button>
-        </div>
-      </div>
-      <div className="status-card__footer"><span className="status-pulse" aria-hidden="true" /> Belum terhubung ke feed TransJakarta riil</div>
-    </section>
+    </div>
   )
 }
 
-function FeatureTile({ entry, onSelect }: { entry: FeatureEntry; onSelect: (entry: FeatureEntry) => void }) {
-  const stateLabel = entry.state === 'functional' ? 'BERFUNGSI' : 'PLACEHOLDER'
+interface Arrival {
+  bus_id: string
+  route_code: string
+  headsign: string
+  eta_minutes: number
+  distance_km: number
+}
+
+interface ArrivalsStop {
+  id: string
+  name: string
+  lat: number
+  lng: number
+  type?: string
+  platform?: string
+}
+
+type GpsStatus = 'idle' | 'locating' | 'located' | 'denied'
+
+function ArrivalsSheet() {
+  const [gpsStatus, setGpsStatus] = useState<GpsStatus>('idle')
+  const [currentStop, setCurrentStop] = useState<ArrivalsStop | null>(null)
+  const [arrivals, setArrivals] = useState<Arrival[]>([])
+  const [detail, setDetail] = useState('Mencari halte terdekat…')
+  const [manualQuery, setManualQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<ArrivalsStop[]>([])
+  const [showManual, setShowManual] = useState(false)
+
+  const fetchArrivals = async (params: string) => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/arrivals?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as { arrivals: Arrival[]; stop: ArrivalsStop | null }
+      if (data.stop) {
+        setCurrentStop(data.stop)
+        setDetail(`Halte ${data.stop.name}`)
+      }
+      setArrivals(data.arrivals ?? [])
+      if ((data.arrivals ?? []).length === 0) {
+        setDetail(data.stop ? `Tidak ada bus menuju ${data.stop.name} saat ini` : 'Tidak ada bus ditemukan')
+      }
+    } catch (error) {
+      setDetail('Gagal mengambil data kedatangan.')
+      console.warn('Arrivals fetch failed.', error)
+    }
+  }
+
+  useEffect(() => {
+    if (!('geolocation' in navigator)) {
+      setGpsStatus('denied')
+      setDetail('GPS tidak tersedia di browser ini. Ketik nama halte untuk melanjutkan.')
+      setShowManual(true)
+      return
+    }
+    setGpsStatus('locating')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsStatus('located')
+        void fetchArrivals(`lat=${position.coords.latitude}&lng=${position.coords.longitude}`)
+      },
+      () => {
+        setGpsStatus('denied')
+        setDetail('GPS tidak aktif atau ditolak. Ketik nama halte tempatmu berada.')
+        setShowManual(true)
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    )
+  }, [])
+
+  const handleSearch = async (query: string) => {
+    setManualQuery(query)
+    if (query.trim().length < 2) {
+      setSuggestions([])
+      return
+    }
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(query.trim())}`)
+      if (!res.ok) return
+      const data = await res.json() as { stops: ArrivalsStop[] }
+      setSuggestions(data.stops ?? [])
+    } catch {
+      setSuggestions([])
+    }
+  }
+
+  const pickStop = (stop: ArrivalsStop) => {
+    setManualQuery(stop.name)
+    setSuggestions([])
+    void fetchArrivals(`stop_id=${encodeURIComponent(stop.id)}`)
+  }
+
   return (
-    <button className={`feature-tile feature-tile--${entry.state} feature-tile--${entry.accent}`} type="button" onClick={() => onSelect(entry)}>
-      <span className="feature-tile__stripe" aria-hidden="true" />
-      <span className="feature-tile__content">
-        <span className="feature-tile__topline">
-          <span className="feature-tile__state">{stateLabel}</span>
-          <span aria-hidden="true">↗</span>
+    <section className="arrivals-sheet" aria-labelledby="arrivals-heading">
+      <div className="arrivals-sheet__header">
+        <div>
+          <p className="eyebrow">BUS MENUJU HALTEMU</p>
+          <h3 id="arrivals-heading">{currentStop ? currentStop.name : 'Halte terdekat'}</h3>
+        </div>
+        <span className={`state-badge state-badge--${gpsStatus === 'located' ? 'safe' : gpsStatus === 'locating' ? 'warning' : 'placeholder'}`}>
+          {gpsStatus === 'located' ? 'GPS AKTIF' : gpsStatus === 'locating' ? 'MENCARI GPS' : 'GPS MATI'}
         </span>
-        <strong>{entry.title}</strong>
-        <span>{entry.description}</span>
-      </span>
-    </button>
+      </div>
+
+      {gpsStatus === 'denied' || showManual ? (
+        <div className="arrivals-sheet__manual">
+          <p className="arrivals-sheet__detail" role="status">{detail}</p>
+          <div className="search-form arrivals-sheet__search">
+            <span className="search-form__icon" aria-hidden="true">⌕</span>
+            <input
+              value={manualQuery}
+              onChange={(event) => { void handleSearch(event.target.value) }}
+              placeholder="Ketik nama halte, mis. Petamburan"
+            />
+          </div>
+          {suggestions.length ? (
+            <div className="arrivals-sheet__suggestions">
+              {suggestions.map((stop) => (
+                <button className="arrivals-sheet__suggestion" type="button" key={stop.id} onClick={() => pickStop(stop)}>
+                  <span className="arrivals-sheet__suggestion-name">{stop.name}</span>
+                  <span className="arrivals-sheet__suggestion-type">{stop.type ?? 'Halte'}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="arrivals-sheet__detail" role="status">{detail}</p>
+      )}
+
+      <div className="arrivals-list" aria-live="polite">
+        {arrivals.length ? arrivals.map((arrival) => (
+          <article className="arrival-card" key={`${arrival.bus_id}-${arrival.eta_minutes}`}>
+            <span className="arrival-card__route">{arrival.route_code}</span>
+            <div className="arrival-card__body">
+              <strong>{arrival.headsign}</strong>
+              <span>{arrival.distance_km} km · {arrival.bus_id}</span>
+            </div>
+            <span className="arrival-card__eta">{arrival.eta_minutes}′</span>
+          </article>
+        )) : (
+          <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada bus</h3><p>{gpsStatus === 'locating' ? 'Sedang mencari halte terdekat…' : 'Cari halte lain atau tunggu update berikutnya.'}</p></div>
+        )}
+      </div>
+    </section>
   )
 }
 
 function HomePage({
   displayName,
-  onFeatureSelect,
   transitState,
-  connection,
-  simulationDetail,
-  onUpdate,
-  onReset,
 }: {
   displayName: string
-  onFeatureSelect: (entry: FeatureEntry) => void
   transitState: TransitState | null
-  connection: ConnectionState
-  simulationDetail: string
-  onUpdate: () => void
-  onReset: () => void
 }) {
+  const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+  const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
+  const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string }[]>([])
+  const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
+  const [showFilter, setShowFilter] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/gtfs/stops`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+        if (data.stops.length) setGtfsStops(data.stops.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })))
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const load = async () => {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
+      if (!res.ok) return
+      const data = await res.json() as { routes: { id: string; name: string; color: string }[] }
+      setAllRoutes(data.routes)
+      setSelectedRoutes(new Set(data.routes.map((r) => r.name)))
+      const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
+      for (const route of data.routes) {
+        try {
+          const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
+          if (!shapeRes.ok) continue
+          const shapeData = await shapeRes.json() as { coordinates: [number, number][] }
+          if (shapeData.coordinates.length) shapes.push({ id: route.id, name: route.name, color: route.color, coordinates: shapeData.coordinates })
+        } catch { /* skip */ }
+      }
+      setRouteShapes(shapes)
+    }
+    void load()
+    return () => controller.abort()
+  }, [])
+
+  const [busPositions, setBusPositions] = useState<{ id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[]>([])
+
+  useEffect(() => {
+    const fetchBuses = () => {
+      fetch(`${apiBaseUrl}/api/buses`)
+        .then(async (res) => {
+          if (!res.ok) return
+          const data = await res.json() as { buses: { id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[] }
+          if (data.buses.length) setBusPositions(data.buses)
+        })
+        .catch(() => {})
+    }
+    fetchBuses()
+    const interval = window.setInterval(fetchBuses, 15_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  const toggleRoute = (routeName: string) => {
+    setSelectedRoutes((prev) => {
+      const next = new Set(prev)
+      if (next.has(routeName)) next.delete(routeName)
+      else next.add(routeName)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selectedRoutes.size === allRoutes.length) {
+      setSelectedRoutes(new Set())
+    } else {
+      setSelectedRoutes(new Set(allRoutes.map((r) => r.name)))
+    }
+  }
+
+  const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
+  const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
+  const displayStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+
   return (
     <main className="page-content home-page">
-      <section className="welcome-block" aria-labelledby="welcome-heading">
-        <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
-        <h2 id="welcome-heading">Halo, {displayName}.</h2>
-        <p>Semua informasi penting perjalananmu, dalam satu tampilan.</p>
+      <section className="welcome-card" aria-labelledby="welcome-heading">
+        <span className="welcome-card__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
+        <div className="welcome-card__body">
+          <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
+          <h2 id="welcome-heading">Halo, {displayName}!</h2>
+          <p>Semua informasi penting perjalananmu, dalam satu tampilan.</p>
+        </div>
       </section>
       <SearchEntry />
-      <StatusCard transitState={transitState} connection={connection} simulationDetail={simulationDetail} onUpdate={onUpdate} onReset={onReset} />
-      <section className="feature-section" aria-labelledby="feature-heading">
-        <div className="section-heading">
-          <p className="eyebrow">AKSES CEPAT</p>
-          <h2 id="feature-heading">Pilih kebutuhanmu</h2>
-        </div>
-        <div className="feature-list">
-          {featureEntries.map((entry) => <FeatureTile key={entry.key} entry={entry} onSelect={onFeatureSelect} />)}
-        </div>
-      </section>
+      <div className="home-map-stage">
+        <button className={`map-filter-btn${showFilter ? ' map-filter-btn--active' : ''}`} type="button" onClick={() => setShowFilter((v) => !v)}>
+          Filter Rute ({selectedRoutes.size})
+        </button>
+        {showFilter ? (
+          <div className="map-filter-panel">
+            <div className="map-filter-panel__header">
+              <strong>Pilih rute</strong>
+              <button className="secondary-button" type="button" onClick={toggleAll}>
+                {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
+              </button>
+            </div>
+            <div className="map-filter-panel__list">
+              {allRoutes.map((route) => (
+                <label className="map-filter-checkbox" key={route.id}>
+                  <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
+                  <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
+                  <span>{route.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
+        <BottomSheet>
+          <ArrivalsSheet />
+        </BottomSheet>
+      </div>
     </main>
   )
 }
@@ -1525,177 +1686,11 @@ function DelaysPage({ incidentRecords, onPinIncident }: { incidentRecords: Incid
   )
 }
 
-function TranscribePage({ transcription }: { transcription: TranscriptionController }) {
-  const permissionLabel: Record<MicrophonePermission, string> = {
-    unknown: 'BELUM DIPERIKSA',
-    granted: 'MIKROFON DIIZINKAN',
-    denied: 'MIKROFON DITOLAK',
-    unsupported: 'MIKROFON TIDAK TERSEDIA',
-  }
-  const sourceLabel: Record<TranscriptionSource, string> = {
-    live: 'LIVE / BACKEND',
-    mock: 'MOCK DEMO',
-    degraded: 'DEGRADED',
-  }
-  const sessionLabel = transcription.session.status === 'active'
-    ? 'SESI AKTIF'
-    : transcription.session.status === 'requesting'
-      ? 'MEMINTA IZIN'
-      : transcription.session.status === 'denied'
-        ? 'BELUM AKTIF'
-        : 'SIAP DIMULAI'
-  const canStart = transcription.session.status === 'idle' || transcription.session.status === 'denied'
-
-  return (
-    <main className="page-content inner-page transcribe-page">
-      <section className="page-intro">
-        <p className="eyebrow">TRANSCRIBE / PERCAKAPAN LANGSUNG</p>
-        <h2>Ubah percakapan menjadi teks</h2>
-        <p>Untuk percakapan orang-ke-orang melalui mikrofon ponsel. Fitur ini bukan untuk pengumuman PA, dan audio mentah tidak disimpan sebagai history.</p>
-      </section>
-
-      <section className="transcribe-session-card" aria-labelledby="transcribe-session-heading">
-        <div className="transcribe-session-card__topline">
-          <span className="state-badge state-badge--safe">{permissionLabel[transcription.microphone]}</span>
-          <span className={`state-badge state-badge--${transcription.session.source === 'live' ? 'safe' : transcription.session.source === 'mock' ? 'warning' : 'danger'}`}>{sourceLabel[transcription.session.source]}</span>
-        </div>
-        <h3 id="transcribe-session-heading">{sessionLabel}</h3>
-        <p className="transcribe-session-card__detail" role="status">{transcription.session.detail}</p>
-        <div className="transcribe-session-card__actions">
-          <span className="transcribe-mic-mark" aria-hidden="true">●</span>
-          {transcription.session.status === 'active' ? (
-            <button className="secondary-button" type="button" onClick={transcription.stop}>Hentikan sesi</button>
-          ) : (
-            <button className="primary-button" type="button" onClick={transcription.start} disabled={!canStart}>Mulai transcribe <span aria-hidden="true">→</span></button>
-          )}
-        </div>
-        {transcription.session.status === 'denied' ? <div className="notice-box notice-box--danger" role="alert"><strong>Akses mikrofon belum diberikan</strong><span>Transcription tetap tidak aktif. Ubah izin mikrofon Android lalu coba mulai lagi.</span></div> : null}
-      </section>
-
-      <section className="transcript-card" aria-labelledby="transcript-output-heading" aria-live="polite">
-        <div className="transcript-card__header">
-          <div>
-            <p className="eyebrow">HASIL TERBACA</p>
-            <h3 id="transcript-output-heading">Transkrip percakapan</h3>
-          </div>
-          <span className={`state-badge state-badge--${transcription.current?.provider === 'live' ? 'safe' : transcription.current?.provider === 'mock' ? 'warning' : 'danger'}`}>
-            {transcription.current ? sourceLabel[transcription.current.provider] : sourceLabel[transcription.session.source]}
-          </span>
-        </div>
-        {transcription.current ? (
-          <>
-            <p className="transcript-card__text">{transcription.current.text}</p>
-            <time dateTime={transcription.current.createdAt}>{new Date(transcription.current.createdAt).toLocaleString('id-ID')}</time>
-          </>
-        ) : (
-          <div className="transcript-card__empty"><strong>Belum ada teks</strong><span>Mulai sesi untuk menampilkan percakapan dalam teks besar. Tidak ada keadaan audio-only.</span></div>
-        )}
-      </section>
-
-      <section className="transcript-history" aria-labelledby="transcript-history-heading">
-        <div className="section-heading">
-          <p className="eyebrow">HISTORY / RETENSI 7 HARI</p>
-          <h3 id="transcript-history-heading">Percakapan tersimpan</h3>
-        </div>
-        <div className="source-note" role="status"><strong>STATUS HISTORY</strong><span>{transcription.historyDetail}</span><span>Hanya teks fungsional yang ditampilkan; raw audio dan ambient noise tidak masuk history.</span></div>
-        {transcription.history.length ? transcription.history.map((transcript) => (
-          <article className="transcript-history-card" key={transcript.id}>
-            <div className="transcript-history-card__topline">
-              <span className={`state-badge state-badge--${transcript.provider === 'live' ? 'safe' : 'warning'}`}>{sourceLabel[transcript.provider]}</span>
-              <time dateTime={transcript.createdAt}>{new Date(transcript.createdAt).toLocaleString('id-ID')}</time>
-            </div>
-            <p>{transcript.text}</p>
-            <div className="transcript-history-card__footer">
-              <span>{transcript.pinned ? 'Tersimpan · dikecualikan dari cleanup' : transcript.simulated ? 'Mock sesi demo · belum tentu persisten' : 'Retensi demo: 7 hari'}</span>
-              <button className="secondary-button" type="button" onClick={() => transcription.pin(transcript.id)}>{transcript.pinned ? 'Lepas simpan' : 'Simpan / pin'}</button>
-            </div>
-          </article>
-        )) : <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada history</h3><p>Hasil percakapan akan muncul di sini setelah sesi menghasilkan teks fungsional.</p></div>}
-      </section>
-    </main>
-  )
+function AntarAkuPage() {
+  return <TransitTrackingPage apiBaseUrl={apiBaseUrl} />
 }
 
-function AntarAkuPage({
-  transitState,
-  session,
-  notifications,
-  onQueryChange,
-  onMatch,
-  onConfirm,
-  onEnd,
-  onRestart,
-  onSimulateOffRoute,
-  onResolveOffRoute,
-}: {
-  transitState: TransitState
-  session: JourneySession
-  notifications: NotificationRecord[]
-  onQueryChange: (query: string) => void
-  onMatch: () => void
-  onConfirm: () => void
-  onEnd: () => void
-  onRestart: () => void
-  onSimulateOffRoute: () => void
-  onResolveOffRoute: () => void
-}) {
-  const origin = session.originId ? transitState.stops.find((stop) => stop.id === session.originId) : undefined
-  const destination = session.destinationId ? transitState.stops.find((stop) => stop.id === session.destinationId) : undefined
-  const route = session.routeId ? transitState.routes.find((candidate) => candidate.id === session.routeId) : undefined
-  const journeyNotifications = notifications.filter((notification) => notification.kind !== 'off_route').slice(0, 3)
-
-  return (
-    <main className="page-content inner-page journey-page">
-      <section className="page-intro">
-        <p className="eyebrow">ANTAR AKU / JOURNEY STATE</p>
-        <h2>Temani perjalananmu</h2>
-        <p>Halte dicocokkan dari konteks seed demo. Tidak ada geolocation, peta interaktif, atau posisi live pengguna.</p>
-      </section>
-      <div className="journey-stepper" aria-label="Status perjalanan">
-        {(['entry', 'matching', 'route', 'active', 'ended'] as JourneyState[]).map((step) => <span className={session.state === step ? 'journey-step journey-step--active' : 'journey-step'} key={step}>{step}</span>)}
-      </div>
-      {session.message ? <div className="notice-box" role="status"><strong>{session.message}</strong><span>Gunakan nama halte seeded yang tersedia; demo tidak membuat halte baru.</span></div> : null}
-      {session.state === 'entry' || session.state === 'ended' ? (
-        <section className="journey-entry" aria-labelledby="journey-entry-heading">
-          <span className="state-badge state-badge--warning">SIMULASI SEED</span>
-          <h3 id="journey-entry-heading">{session.state === 'ended' ? 'Perjalanan selesai' : 'Mau diantar ke mana?'}</h3>
-          <p>Asal seeded: <strong>Halte Karet</strong>. Coba tujuan <strong>Halte Bundaran HI</strong>.</p>
-          <label htmlFor="journey-destination">Tujuan halte</label>
-          <input id="journey-destination" value={session.destinationQuery} onChange={(event) => onQueryChange(event.target.value)} placeholder="Contoh: Bundaran HI" />
-          <button className="primary-button" type="button" onClick={onMatch}>Cocokkan halte terdekat <span aria-hidden="true">→</span></button>
-        </section>
-      ) : null}
-      {session.state === 'matching' ? <div className="journey-state-card"><span className="state-badge state-badge--warning">MATCHING</span><h3>Mencocokkan halte seeded…</h3><p>Context demo sedang mencari tujuan yang tersedia.</p></div> : null}
-      {session.state === 'route' && route && origin && destination ? (
-        <section className="journey-route-card" aria-labelledby="route-heading">
-          <span className="state-badge state-badge--safe">ROUTE READY</span>
-          <h3 id="route-heading">{route.name}</h3>
-          <p>{origin.name} → {destination.name}</p>
-          <ol className="stop-list">
-            {route.stop_ids.map((stopId) => <li key={stopId} className={stopId === origin.id || stopId === destination.id ? 'stop-list__stop stop-list__stop--endpoint' : 'stop-list__stop'}>{transitState.stops.find((stop) => stop.id === stopId)?.name || stopId}</li>)}
-          </ol>
-          <button className="primary-button" type="button" onClick={onConfirm}>Mulai perjalanan demo</button>
-        </section>
-      ) : null}
-      {session.state === 'active' && route && origin && destination ? (
-        <section className="journey-route-card journey-route-card--active" aria-labelledby="active-journey-heading">
-          <div className="journey-route-card__topline"><span className="state-badge state-badge--safe">AKTIF</span><span className="state-badge state-badge--warning">SIMULASI</span></div>
-          <h3 id="active-journey-heading">Menuju {destination.name}</h3>
-          <p>{route.name} · asal {origin.name}</p>
-          {session.offRoute ? <div className="off-route-warning" role="alert"><strong>Keluar rute simulasi</strong><span>Ini trigger debug terkontrol, bukan hasil geolocation. Kembali ke jalur demo untuk menyelesaikan warning.</span><button className="secondary-button" type="button" onClick={onResolveOffRoute}>Tandai kembali ke rute</button></div> : null}
-          <ol className="stop-list">
-            {route.stop_ids.map((stopId, index) => <li key={stopId} className={stopId === destination.id ? 'stop-list__stop stop-list__stop--endpoint' : index === 0 ? 'stop-list__stop stop-list__stop--current' : 'stop-list__stop'}>{transitState.stops.find((stop) => stop.id === stopId)?.name || stopId}</li>)}
-          </ol>
-          <div className="journey-actions"><button className="secondary-button" type="button" onClick={onSimulateOffRoute}>Simulasikan keluar rute</button><button className="secondary-button" type="button" onClick={onEnd}>Akhiri perjalanan</button></div>
-          {journeyNotifications.length ? <div className="journey-notification-list"><p className="eyebrow">NOTIFIKASI DALAM JOURNEY</p>{journeyNotifications.map((notification) => <p key={notification.id}><strong>{notification.title}:</strong> {notification.message}</p>)}</div> : null}
-        </section>
-      ) : null}
-      {session.state === 'ended' ? <button className="secondary-button" type="button" onClick={onRestart}>Mulai journey baru</button> : null}
-    </main>
-  )
-}
-
-function ProfilePage({ profile, onReset }: { profile: DemoProfile; onReset: () => void }) {
+function ProfilePage({ profile, onReset, connection, simulationDetail }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string }) {
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
@@ -1711,23 +1706,22 @@ function ProfilePage({ profile, onReset }: { profile: DemoProfile; onReset: () =
           <p>Dibuat {new Date(profile.createdAt).toLocaleDateString('id-ID')}</p>
         </div>
       </section>
+      <section className="connection-panel" aria-labelledby="connection-panel-heading">
+        <div className="section-heading">
+          <p className="eyebrow">STATUS KONEKSI</p>
+          <h2 id="connection-panel-heading">Koneksi backend</h2>
+        </div>
+        <div className="connection-panel__badge">
+          <ConnectionStatusBadge connection={connection} />
+        </div>
+        <div className="connection-panel__details">
+          <div className="connection-panel__detail"><span>Alamat backend</span><strong>{apiBaseUrl}</strong></div>
+          <div className="connection-panel__detail"><span>Percobaan koneksi</span><strong>{connection.attempts}</strong></div>
+          <div className="connection-panel__detail"><span>Detail simulasi</span><strong>{simulationDetail}</strong></div>
+        </div>
+      </section>
       <div className="notice-box"><strong>Catatan privasi demo</strong><span>Tidak ada login produksi atau data cloud di shell ini.</span></div>
       <button className="secondary-button" type="button" onClick={onReset}>Hapus profil demo</button>
-    </main>
-  )
-}
-
-function PlaceholderPage({ title, description, onBack }: { title: string; description: string; onBack: () => void }) {
-  return (
-    <main className="page-content inner-page">
-      <section className="placeholder-page">
-        <span className="state-badge state-badge--placeholder">PLACEHOLDER</span>
-        <p className="eyebrow">FITUR BERIKUTNYA</p>
-        <h2>{title}</h2>
-        <p>{description}</p>
-        <div className="notice-box"><strong>Belum tersedia di foundation demo</strong><span>Entry point ini sengaja terlihat agar batas fungsional dan placeholder tetap jelas.</span></div>
-        <button className="secondary-button" type="button" onClick={onBack}>Kembali ke Beranda</button>
-      </section>
     </main>
   )
 }
@@ -1735,7 +1729,10 @@ function PlaceholderPage({ title, description, onBack }: { title: string; descri
 function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void }) {
   const navigationItems: Array<{ screen: Exclude<Screen, 'placeholder'>; label: string; icon: string }> = [
     { screen: 'home', label: 'Beranda', icon: '⌂' },
+    { screen: 'antar-aku', label: 'Antar Aku', icon: '→' },
+    { screen: 'transcribe', label: 'Transcribe', icon: '✎' },
     { screen: 'delays', label: 'Keterlambatan', icon: '!' },
+    { screen: 'schedule', label: 'Jadwal', icon: '▦' },
     { screen: 'profile', label: 'Profil', icon: '◉' },
   ]
 
@@ -1756,21 +1753,10 @@ function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: 
 
 function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetProfile: () => void }) {
   const [screen, setScreen] = useState<Screen>('home')
-  const [placeholder, setPlaceholder] = useState<FeatureEntry | null>(null)
-  const [journeySession, setJourneySession] = useState<JourneySession>({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
   const optionalData = useOptionalStaticData(backend.transitState || SEEDED_TRANSIT_STATE)
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
-
-  useEffect(() => {
-    const offRouteNotification = backend.notifications[0]
-    if (offRouteNotification?.kind === 'off_route' && offRouteNotification.offRouteStatus === 'resolved' && journeySession.state === 'active' && journeySession.offRoute) {
-      setJourneySession((current) => ({ ...current, offRoute: false, message: 'Status resolved: simulasi keluar rute selesai.' }))
-    } else if (offRouteNotification?.kind === 'off_route' && offRouteNotification.offRouteStatus !== 'resolved' && journeySession.state === 'active' && !journeySession.offRoute) {
-      setJourneySession((current) => ({ ...current, offRoute: true, message: 'Peringatan keluar rute simulasi diterima.' }))
-    }
-  }, [backend.notifications, journeySession.offRoute, journeySession.state])
 
   const title = useMemo(() => {
     if (screen === 'home') return 'Beranda'
@@ -1779,85 +1765,56 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     if (screen === 'schedule') return 'Jadwal & armada'
     if (screen === 'antar-aku') return 'Antar Aku'
     if (screen === 'transcribe') return 'Transcribe'
-    return placeholder?.title || 'Fitur Transense'
-  }, [placeholder, screen])
-
-  const handleFeatureSelect = (entry: FeatureEntry) => {
-    if (entry.key === 'delays') {
-      setScreen('delays')
-      setPlaceholder(null)
-      return
-    }
-
-    if (entry.key === 'schedule' || entry.key === 'antar-aku') {
-      setScreen(entry.key)
-      setPlaceholder(null)
-      return
-    }
-
-    if (entry.key === 'transcribe') {
-      setScreen('transcribe')
-      setPlaceholder(null)
-      return
-    }
-
-    setPlaceholder(entry)
-    setScreen('placeholder')
-  }
+    return 'Fitur Transense'
+  }, [screen])
 
   const handleNavigate = (nextScreen: Exclude<Screen, 'placeholder'>) => {
     setScreen(nextScreen)
-    setPlaceholder(null)
   }
-
-  const handleJourneyMatch = () => {
-    const query = journeySession.destinationQuery.trim()
-    setJourneySession((current) => ({ ...current, state: 'matching', message: query ? 'Mencocokkan tujuan dengan halte seeded…' : 'Tujuan belum diisi.', offRoute: false }))
-    if (!query) {
-      setJourneySession((current) => ({ ...current, state: 'entry', message: 'Masukkan nama halte tujuan untuk memulai matching.' }))
-      return
-    }
-
-    window.setTimeout(() => {
-      const journeyState = optionalData.state
-      const origin = journeyState.stops[0]
-      const destination = matchSeededStop(journeyState, query)
-      if (!origin || !destination) {
-        setJourneySession((current) => ({ ...current, state: 'entry', originId: null, destinationId: null, routeId: null, message: 'Halte tujuan tidak ditemukan di seed demo.', offRoute: false }))
-        return
-      }
-      const route = findRouteBetweenStops(journeyState, origin.id, destination.id)
-      if (!route) {
-        setJourneySession((current) => ({ ...current, state: 'entry', originId: origin.id, destinationId: destination.id, routeId: null, message: 'Rute halte-ke-halte belum tersedia untuk pasangan ini.', offRoute: false }))
-        return
-      }
-      setJourneySession((current) => ({ ...current, state: 'route', originId: origin.id, destinationId: destination.id, routeId: route.id, message: 'Halte asal dan tujuan ditemukan dari konteks seeded.', offRoute: false }))
-    }, 320)
-  }
-
-  const handleJourneyRestart = () => setJourneySession({ state: 'entry', destinationQuery: '', originId: null, destinationId: null, routeId: null, message: '', offRoute: false })
 
   return (
-    <div className="app-frame">
-      <AppHeader title={title} connection={backend.connection} />
+    <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
+      {screen === 'home' ? null : <AppHeader title={title} />}
       <NotificationRenderer notification={currentNotification} onDismiss={() => {
         if (currentNotification) setDismissedNotificationIds((current) => current.includes(currentNotification.id) ? current : [...current, currentNotification.id])
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} onFeatureSelect={handleFeatureSelect} transitState={backend.transitState} connection={backend.connection} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} /> : null}
+      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} /> : null}
       {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
-      {screen === 'transcribe' ? <TranscribePage transcription={backend.transcription} /> : null}
-      {screen === 'antar-aku' ? <AntarAkuPage transitState={optionalData.state} session={journeySession} notifications={backend.notifications} onQueryChange={(destinationQuery) => setJourneySession((current) => ({ ...current, destinationQuery, message: '' }))} onMatch={handleJourneyMatch} onConfirm={() => setJourneySession((current) => ({ ...current, state: 'active', message: 'Journey aktif. Status armada dan notifikasi akan tampil di konteks ini.' }))} onEnd={() => setJourneySession((current) => ({ ...current, state: 'ended', offRoute: false, message: 'Journey berakhir di sesi demo.' }))} onRestart={handleJourneyRestart} onSimulateOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: true, message: 'Keluar rute disimulasikan secara manual untuk demo.' }))} onResolveOffRoute={() => setJourneySession((current) => ({ ...current, offRoute: false, message: 'Status resolved: kembali ke rute demo (tanpa klaim posisi real).' }))} /> : null}
-      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} /> : null}
-      {screen === 'placeholder' && placeholder ? <PlaceholderPage title={placeholder.title} description={placeholder.description} onBack={() => handleNavigate('home')} /> : null}
+      {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
+      {screen === 'antar-aku' ? <AntarAkuPage /> : null}
+      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
+  )
+}
+
+function SplashScreen({ leaving }: { leaving: boolean }) {
+  return (
+    <main className={`splash-screen${leaving ? ' splash-screen--leaving' : ''}`} aria-label="Memuat Transense">
+      <div className="splash-screen__stage">
+        <img className="splash-screen__logo" src="/logos/Logo-Transense.png" alt="Logo Transense" />
+      </div>
+      <p className="splash-screen__brand">TRANSENSE</p>
+      <p className="splash-screen__tagline">Informasi perjalanan yang terlihat jelas.</p>
+    </main>
   )
 }
 
 export default function App() {
   const [profile, setProfile] = useState<DemoProfile | null>(() => readProfile())
   const [screen, setScreen] = useState<Screen>(() => (readProfile() ? 'home' : 'onboarding'))
+  const [splashLeaving, setSplashLeaving] = useState(false)
+  const [splashDone, setSplashDone] = useState(false)
+
+  useEffect(() => {
+    const leaveTimer = window.setTimeout(() => setSplashLeaving(true), 1400)
+    const doneTimer = window.setTimeout(() => setSplashDone(true), 1900)
+    return () => {
+      window.clearTimeout(leaveTimer)
+      window.clearTimeout(doneTimer)
+    }
+  }, [])
 
   const handleCompleteOnboarding = (displayName: string) => {
     const nextProfile: DemoProfile = { displayName, createdAt: new Date().toISOString() }
@@ -1872,6 +1829,10 @@ export default function App() {
       setProfile(null)
       setScreen('onboarding')
     }
+  }
+
+  if (!splashDone) {
+    return <SplashScreen leaving={splashLeaving} />
   }
 
   if (!profile || screen === 'onboarding') {

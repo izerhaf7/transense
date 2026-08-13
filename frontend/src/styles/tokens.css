@@ -1,47 +1,122 @@
+@font-face {
+  font-family: "PlusJakartaSans VariableFont wght";
+  src: url("/fonts/PlusJakartaSans-VariableFont_wght.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --color-background: #FFFFFF;
-  --color-text-primary: #000000;
-  --color-text-on-brand: #FFFFFF;
-  --color-surface-muted: #F4F7FA;
-  --color-brand: #0153A4;
-  --color-status-safe: #00B055;
-  --color-status-safe-foreground: #006A33;
-  --color-status-warning: #FF7A1A;
-  --color-status-warning-foreground: #994910;
-  --color-status-danger: #B83630;
+  /* === Base palette (DESIGN.md) === */
+  --brand-color-background: #ffffff;
+  --brand-color-foreground: #111111;
+  --brand-color-accent: #1677ff;
+  --brand-color-surface: #f7f8fa;
+  --brand-color-muted: #6b7280;
+  --brand-color-border: #d9dee7;
 
-  --font-family-display: "Bahnschrift", "Trebuchet MS", sans-serif;
-  --font-size-body: 18px;
-  --font-size-oversized: 24px;
-  --font-size-transcript: 32px;
-  --font-size-small: 16px;
-  --font-weight-readable: 600;
-  --line-height-readable: 1.45;
-  --opacity-muted: 0.72;
+  /* === Accent derived palette === */
+  --brand-color-accent-bg: #e6f4ff;
+  --brand-color-accent-bg-hover: #bae0ff;
+  --brand-color-accent-border: #91caff;
+  --brand-color-accent-border-hover: #69b1ff;
+  --brand-color-accent-hover: #4096ff;
+  --brand-color-accent-active: #0958d9;
+  --brand-color-accent-text: #002c8c;
 
-  --space-1: 8px;
-  --space-2: 16px;
-  --space-3: 24px;
-  --space-4: 32px;
-  --space-5: 40px;
-  --space-6: 48px;
-  --screen-padding: 16px;
-  --component-gap: 16px;
+  /* === Success (Transense brand) === */
+  --brand-color-success: #00B055;
+  --brand-color-success-bg: #e6f9f0;
+  --brand-color-success-border: #80d4a8;
+  --brand-color-success-hover: #1cc064;
+  --brand-color-success-active: #008c44;
+  --brand-color-success-foreground: #006A33;
 
-  --touch-target-standard: 48px;
-  --size-feature-tile-min-height: 96px;
-  --size-profile-avatar: 64px;
-  --size-transcribe-mic: 72px;
-  --bottom-nav-height: 72px;
+  /* === Warning (Transense brand) === */
+  --brand-color-warning: #FF7A1A;
+  --brand-color-warning-bg: #fff0e6;
+  --brand-color-warning-border: #ffb380;
+  --brand-color-warning-hover: #ff8c3c;
+  --brand-color-warning-active: #cc6010;
+  --brand-color-warning-foreground: #994910;
 
-  --radius-control: 8px;
-  --radius-card: 16px;
-  --radius-pill: 999px;
-  --border-thin: 1px;
-  --border-strong: 3px;
-  --shadow-card: 8px 8px 0 var(--color-brand);
-  --shadow-card-safe: 8px 8px 0 var(--color-status-safe);
-  --transition-quick: 160ms ease;
-  --transition-notification-flash: 800ms ease-in-out;
-  --notification-z-index: 20;
+  /* === Error (Transense brand) === */
+  --brand-color-error: #B83630;
+  --brand-color-error-bg: #fce8e8;
+  --brand-color-error-border: #e89c9a;
+  --brand-color-error-hover: #c9403b;
+  --brand-color-error-active: #932b26;
+
+  /* === Text hierarchy === */
+  --brand-color-text: #111111;
+  --brand-color-text-secondary: #646464;
+  --brand-color-text-tertiary: #949494;
+  --brand-color-text-on-accent: #ffffff;
+  --brand-color-text-on-success: #ffffff;
+  --brand-color-text-on-warning: #000000;
+  --brand-color-text-on-error: #ffffff;
+
+  /* === Fills & backgrounds === */
+  --brand-color-fill: #dbdbdb;
+  --brand-color-fill-secondary: #f1f1f1;
+  --brand-color-fill-tertiary: #f5f5f5;
+  --brand-color-bg-layout: #f5f5f5;
+  --brand-color-bg-container: #ffffff;
+  --brand-color-bg-elevated: #ffffff;
+
+  /* === Typography === */
+  --brand-font-family: "PlusJakartaSans VariableFont wght", system-ui, sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --brand-font-size-sm: 14px;
+  --brand-font-size-base: 18px;
+  --brand-font-size-lg: 22px;
+  --brand-font-size-xl: 26px;
+  --brand-font-size-transcript: 32px;
+  --brand-font-weight-normal: 400;
+  --brand-font-weight-strong: 600;
+  --brand-line-height: 1.5;
+  --brand-line-height-heading: 1.2;
+
+  /* === Spacing (8px baseline) === */
+  --brand-space-xxs: 4px;
+  --brand-space-xs: 8px;
+  --brand-space-sm: 12px;
+  --brand-space-base: 16px;
+  --brand-space-md: 20px;
+  --brand-space-lg: 24px;
+  --brand-space-xl: 32px;
+  --brand-space-xxl: 48px;
+
+  /* === Border radius === */
+  --brand-radius-xs: 3px;
+  --brand-radius-sm: 5px;
+  --brand-radius-base: 8px;
+  --brand-radius-lg: 10px;
+  --brand-radius-xl: 16px;
+  --brand-radius-pill: 999px;
+
+  /* === Border === */
+  --brand-border-width: 1px;
+  --brand-border-width-strong: 3px;
+
+  /* === Control heights (accessibility boosted) === */
+  --brand-control-height-sm: 32px;
+  --brand-control-height-base: 40px;
+  --brand-control-height-lg: 48px;
+
+  /* === Motion === */
+  --brand-motion-fast: 0.1s;
+  --brand-motion-base: 0.2s;
+  --brand-motion-slow: 0.3s;
+  --brand-motion-ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
+
+  /* === Transense-specific === */
+  --brand-screen-padding: var(--brand-space-base);
+  --brand-max-width: 560px;
+  --brand-bottom-nav-height: 72px;
+  --brand-notification-z: 20;
+  --brand-opacity-muted: 0.72;
+
+  /* === Shadow (subtle, no brutalist) === */
+  --brand-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --brand-shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.08);
 }

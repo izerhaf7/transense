@@ -65,6 +65,20 @@ class DemoStore:
         self.connection.commit()
         return changed == 1
 
+    def update_record(self, record_id: str, payload: dict[str, Any], created_at: datetime) -> bool:
+        created = timestamp(created_at)
+        changed = self.connection.execute(
+            "UPDATE demo_records SET payload = ?, created_at = ? WHERE id = ?",
+            (json.dumps(payload), created, record_id),
+        ).rowcount
+        self.connection.commit()
+        return changed == 1
+
+    def delete_record(self, record_id: str) -> bool:
+        changed = self.connection.execute("DELETE FROM demo_records WHERE id = ?", (record_id,)).rowcount
+        self.connection.commit()
+        return changed == 1
+
     def cleanup(self, now: datetime) -> int:
         cutoff = now.astimezone(timezone.utc) - timedelta(days=7)
         deleted = self.connection.execute("DELETE FROM demo_records WHERE pinned = 0 AND created_at < ?", (timestamp(cutoff),)).rowcount

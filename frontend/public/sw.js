@@ -1,5 +1,5 @@
 const CACHE_NAME = 'transense-shell-v1'
-const SHELL_ASSETS = ['/', '/manifest.webmanifest', '/icons/transense-mark.svg']
+const SHELL_ASSETS = ['/', '/manifest.webmanifest', '/icons/transense-mark.svg', '/logos/Logo-Transense.png', '/fonts/PlusJakartaSans-VariableFont_wght.ttf']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

@@ -1,19 +1,22 @@
-# Frontend dependencies and build output
+# Node
 node_modules/
 dist/
+*.local
 
-# Local environment files
-.env
-.env.*
-!.env.example
-
-# Python runtime artifacts
+# Python
 __pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-venv/
-
-# Local backend state and environment files
+*.pyc
+backend/transense.sqlite3
+backend/gtfs_cache.*
 *.sqlite3
-*.sqlite3-journal
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example

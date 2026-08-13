@@ -13,6 +13,9 @@
     "check": "npm run typecheck && npm run build"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.63.0",
+    "@elevenlabs/react": "^1.12.0",
+    "mapbox-gl": "^3.28.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
