@@ -4,16 +4,24 @@ import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
 import TransitTrackingPage from './TransitTrackingPage'
 import type { Stop } from './journey'
+import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
+import {
+  addHistoryEntry,
+  isPlanPoint,
+  isRecord,
+  persistSavedStops,
+  persistSearchHistory,
+  pointFromSavedStop,
+  readSavedStops,
+  readSearchHistory,
+  removeHistoryEntry,
+  removeSavedStop,
+  saveSavedStop,
+  savedStopFromPoint,
+} from './plannerStorage'
 
 interface PlannerPageProps {
   apiBaseUrl: string
-}
-
-interface PlanPoint {
-  stop_id?: string
-  name: string
-  lat: number
-  lng: number
 }
 
 interface PlanRouteInfo {
@@ -33,6 +41,12 @@ interface PlanLeg {
   route?: PlanRouteInfo
   headsign?: string
   trip_id?: string
+  /** Delay (minutes) reported for this leg's trip when the backend sends ETA data (`include_eta=1`). */
+  delay_minutes?: number
+  /** Live/estimated arrival (minutes) when the backend sends ETA data. */
+  live_eta_minutes?: number
+  /** Origin of `delay_minutes`: deterministic schedule estimate or live feed. */
+  eta_source?: 'simulated' | 'realtime'
 }
 
 interface PlanItinerary {
@@ -44,9 +58,21 @@ interface PlanItinerary {
   total_minutes: number
 }
 
+interface PlanIncident {
+  route_id?: string
+  status: 'delay' | 'diverted'
+  cause?: string
+  action?: string
+  instruction?: string
+  updated_at?: string
+  id?: string
+}
+
 interface PlanResponse {
   itineraries: PlanItinerary[]
   source: 'gtfs' | 'unavailable'
+  /** Active service disruptions returned beside the itineraries; absent on older responses. */
+  incidents?: PlanIncident[]
 }
 
 interface PlannerShape {
@@ -57,18 +83,6 @@ interface PlannerShape {
 }
 
 type PlannerPhase = 'plan' | 'tracking'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function isPlanPoint(value: unknown): value is PlanPoint {
-  if (!isRecord(value)) return false
-  return typeof value.name === 'string'
-    && typeof value.lat === 'number'
-    && typeof value.lng === 'number'
-    && (value.stop_id === undefined || typeof value.stop_id === 'string')
-}
 
 function isPlanRoute(value: unknown): value is PlanRouteInfo {
   if (!isRecord(value)) return false
@@ -89,6 +103,9 @@ function isPlanLeg(value: unknown): value is PlanLeg {
     && (value.trip_id === undefined || typeof value.trip_id === 'string')
     && (value.start_time === undefined || typeof value.start_time === 'string')
     && (value.end_time === undefined || typeof value.end_time === 'string')
+    && (value.delay_minutes === undefined || typeof value.delay_minutes === 'number')
+    && (value.live_eta_minutes === undefined || typeof value.live_eta_minutes === 'number')
+    && (value.eta_source === undefined || value.eta_source === 'simulated' || value.eta_source === 'realtime')
 }
 
 function isPlanItinerary(value: unknown): value is PlanItinerary {
@@ -102,11 +119,30 @@ function isPlanItinerary(value: unknown): value is PlanItinerary {
     && (value.waiting_minutes === undefined || typeof value.waiting_minutes === 'number')
 }
 
+function isPlanIncident(value: unknown): value is PlanIncident {
+  if (!isRecord(value)) return false
+  return typeof value.status === 'string'
+    && (value.route_id === undefined || typeof value.route_id === 'string')
+    && (value.cause === undefined || typeof value.cause === 'string')
+    && (value.action === undefined || typeof value.action === 'string')
+    && (value.instruction === undefined || typeof value.instruction === 'string')
+    && (value.updated_at === undefined || typeof value.updated_at === 'string')
+    && (value.id === undefined || typeof value.id === 'string')
+}
+
 function isPlanResponse(value: unknown): value is PlanResponse {
   if (!isRecord(value)) return false
   return Array.isArray(value.itineraries)
     && value.itineraries.every(isPlanItinerary)
     && (value.source === 'gtfs' || value.source === 'unavailable')
+    && (value.incidents === undefined
+      || (Array.isArray(value.incidents) && value.incidents.every(isPlanIncident)))
+}
+
+function incidentStatusLabel(status: string): string {
+  if (status === 'delay') return 'Keterlambatan'
+  if (status === 'diverted') return 'Pengalihan'
+  return status
 }
 
 function formatClock(value: string | undefined): string {
@@ -120,7 +156,56 @@ function formatDistance(meters: number): string {
   return `${Math.round(meters)} m`
 }
 
-function LegRow({ leg, index }: { leg: PlanLeg; index: number }) {
+function formatHistoryTime(at: string): string {
+  const date = new Date(at)
+  if (Number.isNaN(date.getTime())) return at
+  return date.toLocaleString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function useSavedStops() {
+  const [savedStops, setSavedStops] = useState<SavedStop[]>(() => readSavedStops())
+  const addSavedStop = (item: SavedStop) => {
+    setSavedStops((current) => {
+      const next = saveSavedStop(current, item)
+      persistSavedStops(next)
+      return next
+    })
+  }
+  const removeStoredStop = (id: string) => {
+    setSavedStops((current) => {
+      const next = removeSavedStop(current, id)
+      persistSavedStops(next)
+      return next
+    })
+  }
+  return { savedStops, addSavedStop, removeSavedStop: removeStoredStop }
+}
+
+function useSearchHistory() {
+  const [history, setHistory] = useState<SearchHistoryEntry[]>(() => readSearchHistory())
+  const recordSearch = (origin: PlanPoint, destination: PlanPoint, at = new Date().toISOString()) => {
+    setHistory((current) => {
+      const next = addHistoryEntry(current, { origin, destination, at })
+      persistSearchHistory(next)
+      return next
+    })
+  }
+  const removeStoredEntry = (at: string) => {
+    setHistory((current) => {
+      const next = removeHistoryEntry(current, at)
+      persistSearchHistory(next)
+      return next
+    })
+  }
+  return { history, recordSearch, removeHistoryEntry: removeStoredEntry }
+}
+
+function LegRow({ leg, index, affected }: { leg: PlanLeg; index: number; affected: boolean }) {
   if (leg.mode === 'WALK') {
     return (
       <li className="leg leg--walk">
@@ -137,7 +222,10 @@ function LegRow({ leg, index }: { leg: PlanLeg; index: number }) {
     <li className="leg leg--bus">
       <span className="leg__route-badge" style={{ background: leg.route?.color ?? 'var(--brand-color-accent)' }} aria-hidden="true">{leg.route?.short_name ?? 'BUS'}</span>
       <div className="leg__body">
-        <p className="leg__eyebrow">LANGKAH {index + 1} · NAIK BUS</p>
+        <p className="leg__eyebrow">
+          LANGKAH {index + 1} · NAIK BUS
+          {affected ? <span className="state-badge state-badge--danger leg__affected-chip">terganggu</span> : null}
+        </p>
         <strong>Koridor {leg.route?.short_name ?? leg.route?.id ?? 'bus'} · {leg.headsign ?? 'menuju tujuan'}</strong>
         <p className="leg__stops">
           <span>{formatClock(leg.start_time)} naik di {leg.from.name}</span>
@@ -145,6 +233,17 @@ function LegRow({ leg, index }: { leg: PlanLeg; index: number }) {
           <span>{formatClock(leg.end_time)} turun di {leg.to.name}</span>
         </p>
         <p className="leg__meta">{leg.duration_minutes} menit · {formatDistance(leg.distance_m)}</p>
+        {leg.delay_minutes && leg.delay_minutes > 0 ? (
+          <p className="leg__delay" role="status">
+            <span className="state-badge state-badge--warning">+{leg.delay_minutes} mnt</span>
+            {leg.eta_source === 'simulated' ? <small className="leg__eta-source">simulasi</small> : null}
+            {leg.live_eta_minutes !== undefined ? <span className="leg__live-eta">ETA langsung {leg.live_eta_minutes} mnt</span> : null}
+          </p>
+        ) : leg.live_eta_minutes !== undefined ? (
+          <p className="leg__delay" role="status">
+            <span className="leg__live-eta">ETA langsung {leg.live_eta_minutes} mnt</span>
+          </p>
+        ) : null}
       </div>
     </li>
   )
@@ -165,6 +264,18 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
   const [walkLegs, setWalkLegs] = useState<WalkLine[]>([])
   const [phase, setPhase] = useState<PlannerPhase>('plan')
   const [trackTarget, setTrackTarget] = useState<Stop | null>(null)
+
+  // Departure vs arrive-by planning. Default = "Berangkat jam" (backward
+  // compatible: sends `time`). Toggle on = "Tiba jam": sends `arrive_by` and
+  // the backend plans a latest departure that still arrives by that clock.
+  const [arriveByMode, setArriveByMode] = useState(false)
+  const [travelTime, setTravelTime] = useState(() => new Date().toTimeString().slice(0, 5))
+
+  const { savedStops, addSavedStop, removeSavedStop: removeStoredStop } = useSavedStops()
+  const { history, recordSearch, removeHistoryEntry: removeStoredHistoryEntry } = useSearchHistory()
+  const [saveTarget, setSaveTarget] = useState<'origin' | 'destination' | null>(null)
+  const [saveLabel, setSaveLabel] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(true)
 
   const searchStops = async (query: string, kind: 'origin' | 'destination') => {
     if (kind === 'origin') setOriginQuery(query)
@@ -200,6 +311,46 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     }
   }
 
+  const resetPlanResults = () => {
+    setPlanState('idle')
+    setPlanResponse(null)
+    setPlanError('')
+    setSelectedItinerary(0)
+    setPlanShapes([])
+    setWalkLegs([])
+  }
+
+  const beginSaveStop = (kind: 'origin' | 'destination') => {
+    const point = kind === 'origin' ? origin : destination
+    if (!point) return
+    setSaveLabel(point.name)
+    setSaveTarget(kind)
+  }
+
+  const cancelSaveStop = () => {
+    setSaveTarget(null)
+    setSaveLabel('')
+  }
+
+  const confirmSaveStop = () => {
+    if (!saveTarget) return
+    const point = saveTarget === 'origin' ? origin : destination
+    if (!point) return
+    addSavedStop(savedStopFromPoint(point, saveLabel))
+    cancelSaveStop()
+  }
+
+  const fillSavedStop = (stop: SavedStop, kind: 'origin' | 'destination') => {
+    choosePoint(kind, pointFromSavedStop(stop))
+    resetPlanResults()
+  }
+
+  const fillFromHistory = (entry: SearchHistoryEntry) => {
+    choosePoint('origin', entry.origin)
+    choosePoint('destination', entry.destination)
+    resetPlanResults()
+  }
+
   const runPlan = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!origin) {
@@ -233,9 +384,24 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       params.set('to_lng', String(destination.lng))
     }
 
+    // Departure vs arrive-by: when the toggle is ON ("Tiba jam") we send only
+    // `arrive_by`; when OFF ("Berangkat jam") we send only `time` (the original
+    // departure param, backward compatible). Never both at once.
+    if (travelTime) {
+      if (arriveByMode) params.set('arrive_by', travelTime)
+      else params.set('time', travelTime)
+    }
+    // Always request ETA metadata so the demo renders delay badges whenever the
+    // backend has them (`delay_minutes` / `live_eta_minutes` / `eta_source`).
+    params.set('include_eta', '1')
+
     try {
       const response = await fetch(`${apiBaseUrl}/api/journey/plan?${params}`)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      // Record this successful plan (HTTP 200) in the local search history,
+      // regardless of itinerary count. Consecutive duplicates are merged into
+      // one entry and moved to the top by addHistoryEntry.
+      recordSearch(origin, destination)
       const payload: unknown = await response.json()
       const parsed = isPlanResponse(payload) ? payload : null
       if (!parsed) throw new Error('respons plan tidak valid')
@@ -301,6 +467,14 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     }
     return stops
   }, [planResponse, selectedItinerary])
+
+  const affectedRouteIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const incident of planResponse?.incidents ?? []) {
+      if (incident.route_id) ids.add(incident.route_id)
+    }
+    return ids
+  }, [planResponse])
 
   const startTrackingForChosenRoute = () => {
     const itinerary = planResponse?.itineraries[selectedItinerary]
@@ -374,10 +548,145 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             ))}
           </div>
         ) : null}
+        <div className="planner-time-controls" role="group" aria-label="Waktu perjalanan">
+          <div className="planner-time-toggle" role="radiogroup" aria-label="Mode waktu">
+            <button
+              type="button"
+              className={`planner-time-toggle__option${arriveByMode ? '' : ' planner-time-toggle__option--active'}`}
+              aria-pressed={!arriveByMode}
+              onClick={() => setArriveByMode(false)}
+            >
+              Berangkat jam
+            </button>
+            <button
+              type="button"
+              className={`planner-time-toggle__option${arriveByMode ? ' planner-time-toggle__option--active' : ''}`}
+              aria-pressed={arriveByMode}
+              onClick={() => setArriveByMode(true)}
+            >
+              Tiba jam
+            </button>
+          </div>
+          <label className="planner-field">
+            <span className="planner-field__label">{arriveByMode ? 'Tiba jam' : 'Berangkat jam'}</span>
+            <input
+              type="time"
+              value={travelTime}
+              onChange={(event) => setTravelTime(event.target.value)}
+            />
+          </label>
+        </div>
         <button className="primary-button" type="submit" disabled={planState === 'loading'}>
           {planState === 'loading' ? 'Mencari rute…' : 'Cari rute'} <span aria-hidden="true">→</span>
         </button>
       </form>
+
+      <section className="saved-stops-section" aria-labelledby="saved-stops-heading">
+        <div>
+          <p className="eyebrow">HALTE FAVORIT</p>
+          <h3 id="saved-stops-heading">Halte favorit</h3>
+        </div>
+
+        {saveTarget !== null ? (
+          <div className="saved-stop-editor" role="group" aria-labelledby="saved-stop-editor-heading">
+            <p className="eyebrow" id="saved-stop-editor-heading">
+              Simpan {saveTarget === 'origin' ? 'asal' : 'tujuan'} · {(saveTarget === 'origin' ? origin : destination)?.name}
+            </p>
+            <label className="planner-field" htmlFor="saved-stop-name">
+              <span className="planner-field__label">Nama favorit</span>
+              <input
+                id="saved-stop-name"
+                value={saveLabel}
+                onChange={(event) => setSaveLabel(event.target.value)}
+                placeholder="Mis. kantor, rumah, sekolah"
+                autoComplete="off"
+              />
+            </label>
+            <div className="saved-stop-editor__actions">
+              <button className="primary-button" type="button" onClick={confirmSaveStop}>Simpan</button>
+              <button className="secondary-button" type="button" onClick={cancelSaveStop}>Batal</button>
+            </div>
+          </div>
+        ) : origin || destination ? (
+          <div className="saved-stop-actions">
+            {origin ? (
+              <button type="button" className="secondary-button" onClick={() => beginSaveStop('origin')}>
+                Simpan asal sebagai favorit <span aria-hidden="true">★</span>
+              </button>
+            ) : null}
+            {destination ? (
+              <button type="button" className="secondary-button" onClick={() => beginSaveStop('destination')}>
+                Simpan tujuan sebagai favorit <span aria-hidden="true">★</span>
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {savedStops.length === 0 ? (
+          <div className="empty-state">
+            <span className="empty-state__mark" aria-hidden="true">☆</span>
+            <h3>Belum ada halte favorit</h3>
+            <p>Pilih asal atau tujuan, lalu simpan sebagai favorit untuk pencarian yang lebih cepat.</p>
+          </div>
+        ) : (
+          <ul className="saved-stops-list">
+            {savedStops.map((stop) => (
+              <li key={stop.id} className="saved-stop-item">
+                <span className="saved-stop-item__mark" aria-hidden="true">★</span>
+                <div className="saved-stop-item__body">
+                  <strong>{stop.name}</strong>
+                  {stop.stopName !== stop.name ? <span>{stop.stopName}</span> : null}
+                </div>
+                <div className="saved-stop-item__actions">
+                  <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'origin')}>Dari</button>
+                  <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'destination')}>Ke</button>
+                  <button type="button" className="saved-stop-item__delete" aria-label={`Hapus favorit ${stop.name}`} onClick={() => removeStoredStop(stop.id)}>×</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="search-history-section" aria-labelledby="search-history-heading">
+        <div className="search-history-section__head">
+          <div>
+            <p className="eyebrow">RIWAYAT PENCARIAN</p>
+            <h3 id="search-history-heading">Riwayat pencarian</h3>
+          </div>
+          <button
+            type="button"
+            className="secondary-button search-history-section__toggle"
+            onClick={() => setHistoryOpen((open) => !open)}
+            aria-expanded={historyOpen}
+            aria-controls="search-history-list"
+          >
+            {historyOpen ? 'Sembunyikan' : 'Tampilkan'} <span aria-hidden="true">{historyOpen ? '▲' : '▼'}</span>
+          </button>
+        </div>
+
+        {historyOpen ? (
+          history.length === 0 ? (
+            <div className="empty-state">
+              <span className="empty-state__mark" aria-hidden="true">⌕</span>
+              <h3>Belum ada riwayat pencarian</h3>
+              <p>Rute yang berhasil dicari akan muncul di sini agar bisa dipakai lagi dengan cepat.</p>
+            </div>
+          ) : (
+            <ul id="search-history-list" className="history-list">
+              {history.map((entry) => (
+                <li key={entry.at} className="history-item">
+                  <button type="button" className="history-item__fill" onClick={() => fillFromHistory(entry)}>
+                    <strong>{entry.origin.name} <span aria-hidden="true">→</span> {entry.destination.name}</strong>
+                    <span>{formatHistoryTime(entry.at)}</span>
+                  </button>
+                  <button type="button" className="history-item__delete" aria-label={`Hapus riwayat ${entry.origin.name} ke ${entry.destination.name}`} onClick={() => removeStoredHistoryEntry(entry.at)}>×</button>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
+      </section>
 
       {planState === 'error' ? (
         <div className="notice-box notice-box--danger" role="alert"><strong>Rute belum ditemukan</strong><span>{planError}</span></div>
@@ -404,6 +713,33 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
         </section>
       ) : null}
 
+      {planState === 'results' && planResponse?.incidents && planResponse.incidents.length > 0 ? (
+        <section className="planner-incidents" aria-labelledby="planner-incidents-heading">
+          <div className="planner-incidents__head">
+            <p className="eyebrow">GANGGUAN LAYANAN</p>
+            <h3 id="planner-incidents-heading">Ada gangguan di perjalananmu</h3>
+          </div>
+          <ul className="incident-list">
+            {planResponse.incidents.map((incident, index) => (
+              <li key={incident.id ?? `planner-incident-${index}`}>
+                <article className="incident-card">
+                  <div className="incident-card__header">
+                    <span className="state-badge state-badge--danger">GANGGUAN</span>
+                    <span>{incident.route_id ? `Koridor ${incident.route_id}` : 'Rute terpengaruh'}</span>
+                  </div>
+                  <h3>{incidentStatusLabel(incident.status)}</h3>
+                  <dl className="incident-details">
+                    {incident.cause ? <div><dt>Penyebab</dt><dd>{incident.cause}</dd></div> : null}
+                    {incident.action ? <div><dt>Tindakan</dt><dd>{incident.action}</dd></div> : null}
+                    {incident.instruction ? <div><dt>Instruksi</dt><dd>{incident.instruction}</dd></div> : null}
+                  </dl>
+                </article>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {planState === 'results' && planResponse && itineraries.length > 0 && selected ? (
         <>
           <section className="itinerary-tabs" aria-label="Pilih alternatif rute">
@@ -423,6 +759,13 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
 
           <section className="planner-summary" aria-labelledby="planner-summary-heading">
             <p className="eyebrow">RINGKASAN PERJALANAN</p>
+            {arriveByMode && selected.legs[0] ? (
+              <p className="planner-summary__departure" role="status">
+                <span>Berangkat pukul</span>
+                <strong>{formatClock(selected.legs[0].start_time)}</strong>
+                <span>dari {selected.legs[0].from.name}</span>
+              </p>
+            ) : null}
             <div className="planner-summary__numbers">
               <div><strong>{selected.total_minutes}</strong><span>menit total</span></div>
               <div><strong>{selected.transfers}</strong><span>transfer</span></div>
@@ -434,7 +777,12 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           <section className="planner-legs" aria-label="Daftar langkah perjalanan">
             <ol className="leg-list">
               {selected.legs.map((leg, index) => (
-                <LegRow key={`leg-${index}`} leg={leg} index={index} />
+                <LegRow
+                  key={`leg-${index}`}
+                  leg={leg}
+                  index={index}
+                  affected={leg.mode === 'BUS' && !!leg.route && (affectedRouteIds.has(leg.route.id) || affectedRouteIds.has(leg.route.short_name))}
+                />
               ))}
             </ol>
           </section>
