@@ -2396,3 +2396,286 @@ input[aria-invalid='true'] {
 @keyframes transcribe-blink {
   50% { opacity: 0; }
 }
+
+/* ---- Trip Planner (Antar Aku) ---- */
+
+.planner-page {
+  gap: var(--brand-space-base);
+}
+
+.planner-form {
+  display: grid;
+  gap: var(--brand-space-xs);
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+  box-shadow: var(--brand-shadow-card);
+}
+
+.planner-form .primary-button {
+  margin-top: var(--brand-space-xs);
+}
+
+.planner-field {
+  display: grid;
+  gap: var(--brand-space-xs);
+}
+
+.planner-field__label {
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.planner-field input {
+  min-height: var(--brand-control-height-lg);
+}
+
+.planner-suggestions {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.planner-suggestions button {
+  min-height: 44px;
+  padding: 0 var(--brand-space-sm);
+  text-align: left;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.planner-suggestions button:hover,
+.planner-suggestions button:focus-visible {
+  border-color: var(--brand-color-accent);
+  color: var(--brand-color-accent);
+}
+
+.planner-status {
+  display: grid;
+  gap: var(--brand-space-xs);
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+}
+
+.planner-status h3 {
+  margin: 0;
+  font-size: var(--brand-font-size-lg);
+}
+
+.planner-status p {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+}
+
+.planner-status--degraded {
+  border-color: var(--brand-color-warning-border);
+  background: var(--brand-color-warning-bg);
+}
+
+.planner-status--degraded p {
+  color: var(--brand-color-warning-foreground);
+}
+
+.planner-status--empty {
+  border-color: var(--brand-color-error-border);
+  background: var(--brand-color-error-bg);
+}
+
+.planner-status--empty p {
+  color: var(--brand-color-error);
+}
+
+.itinerary-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--brand-space-xs);
+}
+
+.itinerary-tab {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  min-height: 72px;
+  align-content: center;
+  padding: var(--brand-space-sm) var(--brand-space-base);
+  text-align: left;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+  font-weight: var(--brand-font-weight-strong);
+  cursor: pointer;
+}
+
+.itinerary-tab strong {
+  font-size: var(--brand-font-size-base);
+}
+
+.itinerary-tab span {
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-normal);
+}
+
+.itinerary-tab--active {
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border-color: var(--brand-color-accent);
+}
+
+.itinerary-tab--active span {
+  color: var(--brand-color-accent-bg);
+}
+
+.planner-summary {
+  display: grid;
+  gap: var(--brand-space-xs);
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-success-border);
+  border-radius: var(--brand-radius-xl);
+}
+
+.planner-summary__numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--brand-space-xs);
+}
+
+.planner-summary__numbers div {
+  display: grid;
+  gap: var(--brand-space-xxs);
+}
+
+.planner-summary__numbers strong {
+  color: var(--brand-color-accent);
+  font-size: var(--brand-font-size-xl);
+  line-height: 1;
+}
+
+.planner-summary__numbers span {
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.planner-summary__note {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.planner-legs {
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+}
+
+.leg-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leg {
+  position: relative;
+  display: flex;
+  gap: var(--brand-space-base);
+  padding: var(--brand-space-base) 0;
+  border-top: var(--brand-border-width) solid var(--brand-color-border);
+}
+
+.leg:first-child {
+  border-top: 0;
+}
+
+.leg__route-badge {
+  display: grid;
+  min-width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--brand-color-text-on-accent);
+  border-radius: var(--brand-radius-base);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.leg__marker {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--brand-color-text-secondary);
+  background: var(--brand-color-fill-tertiary);
+  border-radius: 50%;
+  font-size: var(--brand-font-size-lg);
+}
+
+.leg__body {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  min-width: 0;
+}
+
+.leg__eyebrow {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.leg__body strong {
+  font-size: var(--brand-font-size-base);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.leg__stops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--brand-space-xs);
+  margin: 0;
+  color: var(--brand-color-text);
+  font-size: var(--brand-font-size-base);
+}
+
+.leg__meta {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.planner-map {
+  height: 320px;
+  overflow: hidden;
+  border-radius: var(--brand-radius-xl);
+}
+
+.planner-track-button {
+  width: 100%;
+}
+
+.tracking-back-row {
+  display: grid;
+  justify-items: start;
+}
+
+.tracking-back-row .secondary-button {
+  min-height: var(--brand-control-height-base);
+}

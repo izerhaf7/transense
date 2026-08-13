@@ -21,14 +21,18 @@ interface TrackResponse {
 
 interface TransitTrackingPageProps {
   apiBaseUrl: string
+  initialTarget?: Stop | null
+  initialVehicleId?: string
+  initialMode?: TrackingMode
+  onBack?: () => void
 }
 
-function TransitTrackingPage({ apiBaseUrl }: TransitTrackingPageProps) {
-  const [mode, setMode] = useState<TrackingMode>('vehicle')
+function TransitTrackingPage({ apiBaseUrl, initialTarget, initialVehicleId, initialMode, onBack }: TransitTrackingPageProps) {
+  const [mode, setMode] = useState<TrackingMode>(initialMode ?? 'vehicle')
   const [viewMode, setViewMode] = useState<ViewMode>('schematic')
-  const [vehicleId, setVehicleId] = useState('')
-  const [targetQuery, setTargetQuery] = useState('')
-  const [target, setTarget] = useState<Stop | null>(null)
+  const [vehicleId, setVehicleId] = useState(initialVehicleId ?? '')
+  const [targetQuery, setTargetQuery] = useState(initialTarget?.name ?? '')
+  const [target, setTarget] = useState<Stop | null>(initialTarget ?? null)
   const [suggestions, setSuggestions] = useState<Stop[]>([])
   const [track, setTrack] = useState<TrackResponse | null>(null)
   const [tracking, setTracking] = useState(false)
@@ -131,6 +135,11 @@ function TransitTrackingPage({ apiBaseUrl }: TransitTrackingPageProps) {
 
   return (
     <main className="page-content inner-page tracking-page">
+      {onBack ? (
+        <div className="tracking-back-row">
+          <button className="secondary-button" type="button" onClick={onBack}>Kembali ke daftar rute</button>
+        </div>
+      ) : null}
       <section className="page-intro">
         <p className="eyebrow">ANTAR AKU / TRACKING PERJALANAN</p>
         <h2>Ikuti perjalananmu</h2>

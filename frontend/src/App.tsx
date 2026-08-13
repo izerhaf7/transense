@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import ChatTranscribe from './ChatTranscribe'
-import TransitTrackingPage from './TransitTrackingPage'
+import PlannerPage from './PlannerPage'
 import {
   areVibrationPatternsDistinct,
   cloneTransitState,
@@ -1687,7 +1687,7 @@ function DelaysPage({ incidentRecords, onPinIncident }: { incidentRecords: Incid
 }
 
 function AntarAkuPage() {
-  return <TransitTrackingPage apiBaseUrl={apiBaseUrl} />
+  return <PlannerPage apiBaseUrl={apiBaseUrl} />
 }
 
 function ProfilePage({ profile, onReset, connection, simulationDetail }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string }) {

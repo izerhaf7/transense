@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 import io
 import logging
 import os
@@ -49,6 +50,7 @@ class GtfsTrip:
     shape_id: str | None
     direction_id: int
     headsign: str
+    service_id: str = ""
 
 
 @dataclass
@@ -67,6 +69,22 @@ class GtfsShapePoint:
     sequence: int
 
 
+@dataclass(frozen=True)
+class GtfsTransfer:
+    from_stop_id: str
+    to_stop_id: str
+    transfer_type: str = "0"
+    min_transfer_time: int = 0
+
+
+@dataclass(frozen=True)
+class GtfsCalendar:
+    service_id: str
+    weekdays: set[int] = field(default_factory=set)
+    start_date: str = ""
+    end_date: str = ""
+
+
 @dataclass
 class GtfsFeed:
     stops: dict[str, GtfsStop] = field(default_factory=dict)
@@ -78,6 +96,9 @@ class GtfsFeed:
     stop_ids_by_route: dict[str, list[str]] = field(default_factory=dict)
     routes_by_stop: dict[str, list[str]] = field(default_factory=dict)
     routes_by_station: dict[str, list[str]] = field(default_factory=dict)
+    transfers: dict[tuple[str, str], GtfsTransfer] = field(default_factory=dict)
+    calendar: dict[str, GtfsCalendar] = field(default_factory=dict)
+    calendar_dates: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 def _read_csv_from_zip(zf: zipfile.ZipFile, name: str) -> list[dict[str, str]]:
@@ -146,6 +167,9 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
         trip_rows = _read_csv_from_zip(zf, "trips.txt")
         st_rows = _read_csv_from_zip(zf, "stop_times.txt")
         shape_rows = _read_csv_from_zip(zf, "shapes.txt") if "shapes.txt" in zf.namelist() else []
+        transfer_rows = _read_csv_from_zip(zf, "transfers.txt") if "transfers.txt" in zf.namelist() else []
+        calendar_rows = _read_csv_from_zip(zf, "calendar.txt") if "calendar.txt" in zf.namelist() else []
+        calendar_dates_rows = _read_csv_from_zip(zf, "calendar_dates.txt") if "calendar_dates.txt" in zf.namelist() else []
 
     for row in stop_rows:
         try:
@@ -196,6 +220,7 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
             shape_id=(row.get("shape_id") or "").strip() or None,
             direction_id=direction_id,
             headsign=(row.get("trip_headsign") or "").strip(),
+            service_id=(row.get("service_id") or "").strip(),
         )
 
     for row in st_rows:
@@ -239,6 +264,57 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
     for points in feed.shapes.values():
         points.sort(key=lambda pt: pt.sequence)
 
+    for row in transfer_rows:
+        from_stop_id = (row.get("from_stop_id") or "").strip()
+        to_stop_id = (row.get("to_stop_id") or "").strip()
+        if not from_stop_id or not to_stop_id:
+            continue
+        try:
+            min_transfer_time = int(row.get("min_transfer_time") or 0)
+        except ValueError:
+            min_transfer_time = 0
+        feed.transfers[(from_stop_id, to_stop_id)] = GtfsTransfer(
+            from_stop_id=from_stop_id,
+            to_stop_id=to_stop_id,
+            transfer_type=(row.get("transfer_type") or "0").strip(),
+            min_transfer_time=min_transfer_time,
+        )
+
+    for row in calendar_rows:
+        service_id = (row.get("service_id") or "").strip()
+        if not service_id:
+            continue
+        weekdays: set[int] = set()
+        for gtfs_day, py_weekday in (
+            ("monday", 0),
+            ("tuesday", 1),
+            ("wednesday", 2),
+            ("thursday", 3),
+            ("friday", 4),
+            ("saturday", 5),
+            ("sunday", 6),
+        ):
+            day_value = (row.get(gtfs_day) or "").strip()
+            if day_value not in ("", "0"):
+                weekdays.add(py_weekday)
+        feed.calendar[service_id] = GtfsCalendar(
+            service_id=service_id,
+            weekdays=weekdays,
+            start_date=(row.get("start_date") or "").strip(),
+            end_date=(row.get("end_date") or "").strip(),
+        )
+
+    for row in calendar_dates_rows:
+        service_id = (row.get("service_id") or "").strip()
+        date_str = (row.get("date") or "").strip()
+        if not service_id or not date_str:
+            continue
+        try:
+            exception_type = int(row.get("exception_type") or 1)
+        except ValueError:
+            exception_type = 1
+        feed.calendar_dates.setdefault(service_id, {})[date_str] = exception_type
+
     for trip in feed.trips.values():
         stop_ids = [st.stop_id for st in feed.stop_times.get(trip.trip_id, [])]
         if stop_ids:
@@ -263,13 +339,54 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
                     feed.routes_by_station[stop.parent_station].append(short_name)
 
     logger.info(
-        "GTFS parsed: %d stops, %d routes, %d trips, %d shapes",
+        "GTFS parsed: %d stops, %d routes, %d trips, %d shapes, %d transfers, %d calendar services",
         len(feed.stops),
         len(feed.routes),
         len(feed.trips),
         len(feed.shapes),
+        len(feed.transfers),
+        len(feed.calendar),
     )
     return feed
+
+
+def _parse_gtfs_date(value: str) -> datetime.date:
+    return datetime.date(int(value[0:4]), int(value[4:6]), int(value[6:8]))
+
+
+def service_active_on(feed: "GtfsFeed", service_id: str, date: datetime.date | str) -> bool:
+    """Whether a GTFS service runs on the given date.
+
+    Uses the weekday set and date range from ``calendar.txt``, then applies
+    ``calendar_dates.txt`` exceptions (1 = service added, 2 = service removed).
+    Services absent from ``calendar.txt`` default to inactive unless an
+    exception date activates them.
+    """
+    if isinstance(date, str):
+        target = _parse_gtfs_date(date)
+    else:
+        target = date
+
+    cal = feed.calendar.get(service_id)
+    active = False
+    if cal is not None:
+        active = target.weekday() in cal.weekdays
+        if cal.start_date:
+            try:
+                active = active and target >= _parse_gtfs_date(cal.start_date)
+            except ValueError:
+                pass
+        if cal.end_date:
+            try:
+                active = active and target <= _parse_gtfs_date(cal.end_date)
+            except ValueError:
+                pass
+
+    exceptions = feed.calendar_dates.get(service_id, {})
+    exception_type = exceptions.get(target.strftime("%Y%m%d"))
+    if exception_type is not None:
+        active = exception_type == 1
+    return active
 
 
 def _normalize(value: str) -> str:

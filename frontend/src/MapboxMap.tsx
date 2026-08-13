@@ -23,6 +23,11 @@ interface BusPosition {
   next_stop?: { name: string }
 }
 
+export interface WalkLine {
+  from: { lng: number; lat: number }
+  to: { lng: number; lat: number }
+}
+
 function relativeTime(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 60000
   if (diff < 1) return 'Baru saja'
@@ -30,7 +35,7 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 60)} jam lalu`
 }
 
-function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?: RouteShape[]; buses?: BusPosition[] }) {
+function MapboxMap({ stops, routeShapes, buses, walkLegs }: { stops: Stop[]; routeShapes?: RouteShape[]; buses?: BusPosition[]; walkLegs?: WalkLine[] }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
@@ -52,6 +57,12 @@ function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?:
     map.on('load', () => {
       map.resize()
       const bounds = new mapboxgl.LngLatBounds()
+      let hasLocatedPoints = false
+      const extendBounds = (lng: number, lat: number) => {
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return
+        bounds.extend([lng, lat])
+        hasLocatedPoints = true
+      }
       const locatedStops = stops.filter((stop) => typeof stop.lng === 'number' && typeof stop.lat === 'number')
 
       for (const shape of routeShapes ?? []) {
@@ -77,6 +88,40 @@ function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?:
             'line-opacity': 0.6,
           },
         })
+        for (const [lng, lat] of shape.coordinates) {
+          extendBounds(lng, lat)
+        }
+      }
+
+      for (const [index, walk] of (walkLegs ?? []).entries()) {
+        if (!Number.isFinite(walk.from.lng) || !Number.isFinite(walk.from.lat) || !Number.isFinite(walk.to.lng) || !Number.isFinite(walk.to.lat)) continue
+        const sourceId = `walk-${index}`
+        if (map.getSource(sourceId)) continue
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: [[walk.from.lng, walk.from.lat], [walk.to.lng, walk.to.lat]],
+            },
+          },
+        })
+        map.addLayer({
+          id: `layer-${sourceId}`,
+          type: 'line',
+          source: sourceId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#6b7280',
+            'line-width': 3,
+            'line-opacity': 0.85,
+            'line-dasharray': [2, 2],
+          },
+        })
+        extendBounds(walk.from.lng, walk.from.lat)
+        extendBounds(walk.to.lng, walk.to.lat)
       }
 
       const shownStops = locatedStops.length > 200
@@ -89,10 +134,10 @@ function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?:
         new mapboxgl.Marker({ color: '#1677ff' })
           .setLngLat([lng, lat])
           .addTo(map)
-        bounds.extend([lng, lat])
+        extendBounds(lng, lat)
       }
 
-      if (locatedStops.length > 0) {
+      if (hasLocatedPoints) {
         map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 600 })
       }
     })
@@ -109,7 +154,7 @@ function MapboxMap({ stops, routeShapes, buses }: { stops: Stop[]; routeShapes?:
       map.remove()
       mapRef.current = null
     }
-  }, [stops, routeShapes])
+  }, [stops, routeShapes, walkLegs])
 
   useEffect(() => {
     const map = mapRef.current

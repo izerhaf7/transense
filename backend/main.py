@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date as date_cls, datetime, timezone
 import json
 import logging
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
@@ -16,12 +17,14 @@ from .conversation import (ConversationError, create_conversation, delete_conver
                            list_conversations, update_conversation)
 from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label
 from .persistence import DemoStore
+from .planner import itinerary_to_dict, plan_trip
 from .notifications import NotificationEngine
 from .sources import load_static_schedule
 from .tj_api import TjRealtimeClient, RealtimeBus, TjApiError
 from .transit import TransitSimulator, TransitValidationError
 from .transcription import (MockTranscriptionProvider, ProviderConfigurationError, TranscriptionError,
                             TranscriptionResult, create_provider, persist_transcript, transcript_history)
+from .walk_graph import WalkGraph, load_walk_graph, walk_graph_from_feed
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,7 @@ async def lifespan(app: FastAPI):
     store: DemoStore | None = None
     app.state.store = None
     app.state.gtfs_feed = None
+    app.state.walk_graph: WalkGraph | None = None
     app.state.realtime_buses: list[RealtimeBus] = []
     app.state.gtfs_error: str | None = None
     app.state.realtime_error: str | None = None
@@ -41,6 +45,7 @@ async def lifespan(app: FastAPI):
         zip_path = download_gtfs(url=settings.gtfs_url, cache_path=settings.gtfs_cache_path)
         app.state.gtfs_feed = parse_gtfs(zip_path)
         logger.info("GTFS feed loaded: %d stops, %d routes", len(app.state.gtfs_feed.stops), len(app.state.gtfs_feed.routes))
+        app.state.walk_graph = _load_or_build_walk_graph(app.state.gtfs_feed)
     except Exception as exc:
         app.state.gtfs_error = str(exc)
         logger.warning("GTFS load failed, using seed data: %s", exc)
@@ -468,6 +473,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "eta_minutes": eta_minutes,
         }
 
+    @application.get("/api/journey/plan", response_model=None)
+    async def journey_plan(
+        from_stop: str | None = None,
+        to_stop: str | None = None,
+        from_lat: float | None = None,
+        from_lng: float | None = None,
+        to_lat: float | None = None,
+        to_lng: float | None = None,
+        date: str | None = None,
+        time: str | None = None,
+    ) -> dict[str, Any]:
+        """Plan up to three transit itineraries from an origin to a destination.
+
+        Each point is a GTFS stop id (``from_stop``/``to_stop``) or coordinates
+        (``from_lat``+``from_lng``, ``to_lat``+``to_lng``).  ``date`` is
+        ``YYYY-MM-DD`` (default: today in Asia/Jakarta) and ``time`` is ``HH:MM``
+        (default: current local time rounded to the minute — planning at
+        midnight would almost never find a running bus).  Degrades to
+        ``{"itineraries": [], "source": "unavailable"}`` with HTTP 200 when the
+        GTFS feed or walk graph is not loaded; invalid origin/destination or
+        date/time params return HTTP 422 with a plain ``{"detail": ...}`` body.
+        """
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        walk_graph: WalkGraph | None = getattr(application.state, "walk_graph", None)
+        if feed is None or walk_graph is None:
+            return {"itineraries": [], "source": "unavailable"}
+
+        origin = _resolve_plan_point(from_stop, from_lat, from_lng, "origin")
+        destination = _resolve_plan_point(to_stop, to_lat, to_lng, "destination")
+
+        now = _default_plan_now()
+        try:
+            plan_date: date_cls = now.date() if date is None else date_cls.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+        plan_time = time if time is not None else now.strftime("%H:%M")
+
+        try:
+            itineraries = plan_trip(
+                feed,
+                walk_graph,
+                origin,
+                destination,
+                plan_date,
+                departure_time=plan_time,
+            )
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {
+            "itineraries": [itinerary_to_dict(it) for it in itineraries],
+            "source": "gtfs",
+        }
+
     @application.websocket("/api/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         origin = websocket.headers.get("origin")
@@ -570,6 +628,63 @@ def _first_trip_for(route_id: str, feed: "GtfsFeed") -> str | None:
         if trip.route_id == route_id:
             return trip_id
     return None
+
+
+def _default_plan_now() -> datetime:
+    """Current time in Asia/Jakarta (UTC fallback), rounded down to the minute.
+
+    The plan endpoint defaults ``date`` to today and ``time`` to now when the
+    caller omits them.  Asia/Jakarta keeps the defaults on the TransJakarta
+    service day; the rest of the backend uses UTC, which could shift the
+    "today" boundary by up to 7 hours.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    except Exception:
+        now = datetime.now(timezone.utc)
+    return now.replace(second=0, microsecond=0)
+
+
+def _resolve_plan_point(
+    stop_id: str | None, lat: float | None, lng: float | None, label: str
+) -> dict[str, Any]:
+    """Normalize a plan origin/destination to the planner's point dict.
+
+    A stop id wins over coordinates; coordinates require both ``lat`` and
+    ``lng`` (missing ones are indistinguishable from "absent" here — FastAPI
+    already 422s non-float values).  Raises HTTP 422 with a plain
+    ``{"detail": ...}`` body when the caller supplied neither.
+    """
+    if stop_id is not None and stop_id != "":
+        return {"stop_id": stop_id}
+    if lat is not None and lng is not None:
+        return {"lat": lat, "lng": lng}
+    raise HTTPException(status_code=422, detail=f"{label} requires a stop id or lat/lng coordinates")
+
+
+def _load_or_build_walk_graph(feed: "GtfsFeed") -> "WalkGraph | None":
+    """Load the cached walk graph for ``feed``, or build one from it.
+
+    Prefers the offline JSON cache produced by ``scripts/build_walk_graph.py``
+    (``backend/walk_graph_cache.json``) so startup never re-derives street
+    distances.  When the cache is missing or invalid the graph is built
+    in-memory with ``walk_graph_from_feed`` — radius-limited (1 km) with a
+    latitude-band prefilter, still seconds for a full city feed.  Never raises:
+    a failure leaves the plan endpoint degraded to ``source: "unavailable"``.
+    """
+    cache_path = Path(__file__).resolve().parent / "walk_graph_cache.json"
+    cached = load_walk_graph(cache_path)
+    if cached is not None:
+        logger.info("Walk graph loaded from cache: %d edges", len(cached.edges))
+        return cached
+    try:
+        graph = walk_graph_from_feed(feed)
+        logger.info("Walk graph built from feed: %d edges", len(graph.edges))
+        return graph
+    except Exception as exc:
+        logger.warning("Walk graph build failed: %s", exc)
+        return None
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:

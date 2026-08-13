@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --pretty false",
     "check:journey": "node journey-check.mjs",
     "check:transcribe": "node transcribe-check.mjs",
+    "check:planner": "node planner-check.mjs",
     "check": "npm run typecheck && npm run build"
   },
   "dependencies": {
