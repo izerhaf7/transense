@@ -325,6 +325,34 @@ class _Label:
     board_time: int = 0
 
 
+@dataclass
+class _ReverseLabel:
+    """Latest-departure label for one stop in the reverse (arrive-by) search.
+
+    ``deadline`` is the latest time by which we must have *arrived* at the stop
+    to still reach the destination within the arrive-by deadline.  ``kind`` is
+    ``"initial"`` (destination, no successor), ``"walk"`` (must walk from this
+    stop to ``prev_stop``) or ``"bus"`` (must board ``trip_id`` at this stop and
+    ride to ``prev_stop``).  ``prev_stop`` therefore points to the
+    chronologically *next* stop, so the label chain from the origin is already
+    in travel order.
+    """
+
+    deadline: int
+    kind: str
+    prev_stop: str | None = None
+    # walk leg details (kind == "walk"): walk FROM this stop TO prev_stop
+    walk_start: int = 0
+    walk_seconds: int = 0
+    walk_distance: float = 0.0
+    walk_estimate: bool = False
+    # bus leg details (kind == "bus"): board here, ride to prev_stop
+    trip_id: str | None = None
+    board_stop: str | None = None
+    board_time: int = 0
+    alight_time: int = 0
+
+
 def _run_raptor(
     feed: GtfsFeed,
     walk_graph: WalkGraph | None,
@@ -529,6 +557,242 @@ def _estimate_street_m_from_stops(feed: GtfsFeed, from_stop: str, to_stop: str) 
 
 
 # ---------------------------------------------------------------------------
+# Reverse RAPTOR internals (arrive-by / latest-departure search)
+# ---------------------------------------------------------------------------
+#
+# The reverse search mirrors the forward search with time reversed: instead of
+# starting at the origin at T and minimizing arrival at the destination, it
+# starts at the destination stop at ``arrive_by - egress_walk`` and propagates
+# the deadline backward, *maximizing* each stop's latest feasible departure.
+# Walk/transfer durations are subtracted (to arrive at the target by deadline
+# one must leave the neighbour by ``deadline - walk``) and the alternative
+# generator bans the route of the *last* bus leg instead of the first.
+
+
+def _walk_neighbors_rev_map(graph: WalkGraph) -> dict[str, list[tuple[str, WalkEdge]]]:
+    """to_stop -> sorted [(from_stop, edge)] reverse adjacency for a walk graph."""
+    neighbors: dict[str, list[tuple[str, WalkEdge]]] = {}
+    for edge in graph.edges:
+        neighbors.setdefault(edge.to_stop, []).append((edge.from_stop, edge))
+    for stop_id in neighbors:
+        neighbors[stop_id].sort(key=lambda item: (item[0], item[1].distance_m))
+    return neighbors
+
+
+def _haversine_neighbors_rev(
+    feed: GtfsFeed, stop_id: str, radius_km: float = DEFAULT_RADIUS_KM
+) -> list[tuple[str, float]]:
+    """stop_id -> [(from_stop, walk_seconds)] reverse haversine fallback edges.
+
+    Lists every stop that can walk to ``stop_id`` within ``radius_km``,
+    mirroring :func:`_haversine_neighbors` in the opposite direction.
+    Deterministic order: stop id then distance.
+    """
+    target = feed.stops.get(stop_id)
+    if target is None:
+        return []
+    radius_m = radius_km * 1000.0
+    results: list[tuple[str, float]] = []
+    for candidate in feed.stops.values():
+        if candidate.stop_id == stop_id:
+            continue
+        straight = _haversine_m(candidate.lat, candidate.lng, target.lat, target.lng)
+        if straight < radius_m:
+            street = straight * WALK_PENALTY_FACTOR
+            results.append((candidate.stop_id, _estimate_walk_seconds(street)))
+    results.sort(key=lambda item: (item[0], item[1]))
+    return results
+
+
+def _run_reverse_raptor(
+    feed: GtfsFeed,
+    walk_graph: WalkGraph | None,
+    active_routes: dict[str, list[str]],
+    origin_stop: str,
+    destination_stop: str,
+    deadline_seconds: int,
+    banned_last_routes: set[str],
+    walk_neighbors_rev: dict[str, list[tuple[str, WalkEdge]]] | None,
+    haversine_rev_cache: dict[str, list[tuple[str, float]]],
+) -> dict[str, _ReverseLabel] | None:
+    """Run one reverse latest-departure RAPTOR search.
+
+    Propagates the arrive-by deadline backward from ``destination_stop``,
+    maximizing each stop's latest feasible departure, and returns the ``best``
+    label table, or ``None`` when the origin is unreachable within the
+    deadline.  ``banned_last_routes`` are excluded from round-1 (final-leg)
+    route scans only, mirroring how forward alternatives ban first-leg routes.
+    """
+    best: dict[str, _ReverseLabel] = {
+        destination_stop: _ReverseLabel(deadline=deadline_seconds, kind="initial")
+    }
+    marked: dict[str, _ReverseLabel] = {destination_stop: best[destination_stop]}
+
+    # Round 0 transfer relaxation: walking backward out of the destination
+    # (still zero bus trips) so a last bus can be boarded at a nearby stop.
+    _expand_transfers_reverse(
+        feed,
+        walk_graph,
+        destination_stop,
+        deadline_seconds,
+        best,
+        marked,
+        walk_neighbors_rev,
+        haversine_rev_cache,
+    )
+
+    max_rounds = len(active_routes) + _MAX_ROUND_PADDING
+    for round_index in range(max_rounds):
+        last_leg_round = round_index == 0
+        next_marked: dict[str, _ReverseLabel] = {}
+
+        # --- route scanning (reversed) --------------------------------------
+        for route_id in sorted(active_routes):
+            if last_leg_round and route_id in banned_last_routes:
+                continue
+            trip_ids = active_routes[route_id]
+            # Trips with no stop_times are skipped; stop_times are pre-sorted
+            # by stop_sequence by the GTFS loader.
+            for trip_id in trip_ids:
+                stop_times = feed.stop_times.get(trip_id)
+                if not stop_times:
+                    continue
+                _scan_trip_reverse(
+                    trip_id,
+                    stop_times,
+                    best,
+                    marked,
+                    next_marked,
+                )
+
+        # --- transfer / walk expansion (reversed) ---------------------------
+        for stop_id in sorted(next_marked):
+            label = next_marked[stop_id]
+            _expand_transfers_reverse(
+                feed,
+                walk_graph,
+                stop_id,
+                label.deadline,
+                best,
+                next_marked,
+                walk_neighbors_rev,
+                haversine_rev_cache,
+            )
+
+        if not next_marked:
+            break
+        marked = next_marked
+
+    if origin_stop not in best:
+        return None
+    return best
+
+
+def _scan_trip_reverse(
+    trip_id: str,
+    stop_times: list[GtfsStopTime],
+    best: dict[str, _ReverseLabel],
+    marked: dict[str, _ReverseLabel],
+    next_marked: dict[str, _ReverseLabel],
+) -> None:
+    """Scan one trip in reverse: alight at the latest marked stop whose arrival
+    is within its deadline, then relax every earlier boarding stop's latest
+    departure to the trip's departure time at that stop."""
+    latest_alight_index: int | None = None
+    for index in range(len(stop_times) - 1, -1, -1):
+        stop_time = stop_times[index]
+        label = marked.get(stop_time.stop_id)
+        arrival = _parse_time(stop_time.arrival_time)
+        if latest_alight_index is None and label is not None and label.deadline >= arrival:
+            latest_alight_index = index
+        if latest_alight_index is None or latest_alight_index <= index:
+            continue
+        departure = _parse_time(stop_time.departure_time)
+        current = best.get(stop_time.stop_id)
+        if current is not None and current.deadline >= departure:
+            continue
+        best[stop_time.stop_id] = _ReverseLabel(
+            deadline=departure,
+            kind="bus",
+            prev_stop=stop_times[latest_alight_index].stop_id,
+            trip_id=trip_id,
+            board_stop=stop_time.stop_id,
+            board_time=departure,
+            alight_time=_parse_time(stop_times[latest_alight_index].arrival_time),
+        )
+        next_marked[stop_time.stop_id] = best[stop_time.stop_id]
+
+
+def _expand_transfers_reverse(
+    feed: GtfsFeed,
+    walk_graph: WalkGraph | None,
+    stop_id: str,
+    deadline: int,
+    best: dict[str, _ReverseLabel],
+    marked: dict[str, _ReverseLabel],
+    walk_neighbors_rev: dict[str, list[tuple[str, WalkEdge]]] | None,
+    haversine_rev_cache: dict[str, list[tuple[str, float]]],
+) -> None:
+    """Relax walking/transfer edges *into* ``stop_id`` (deadline ``deadline``).
+
+    Reverse direction: to arrive at ``stop_id`` by ``deadline`` one must leave
+    the neighbouring stop by ``deadline - walk_seconds``, so walk durations are
+    subtracted instead of added.
+    """
+    # transfers.txt edges (directed).  transfer_type 3 = "not possible" blocks.
+    for (from_stop, to_stop), transfer in feed.transfers.items():
+        if to_stop != stop_id or transfer.transfer_type == "3":
+            continue
+        min_seconds = max(0, transfer.min_transfer_time)
+        latest = deadline - min_seconds
+        current = best.get(from_stop)
+        if current is not None and current.deadline >= latest:
+            continue
+        best[from_stop] = _ReverseLabel(
+            deadline=latest,
+            kind="walk",
+            prev_stop=stop_id,
+            walk_start=latest,
+            walk_seconds=min_seconds,
+            walk_distance=_transfer_distance(feed, from_stop, stop_id),
+            walk_estimate=True,
+        )
+        marked[from_stop] = best[from_stop]
+
+    # walk graph edges (or the deterministic haversine fallback), reversed.
+    edges: list[tuple[str, int, float, bool]] = []
+    if walk_graph is not None and walk_neighbors_rev is not None:
+        for from_stop, edge in walk_neighbors_rev.get(stop_id, []):
+            estimated = edge.method != METHOD_OSMNX
+            edges.append((from_stop, round(edge.duration_minutes * 60.0), edge.distance_m, estimated))
+    else:
+        cached = haversine_rev_cache.get(stop_id)
+        if cached is None:
+            cached = _haversine_neighbors_rev(feed, stop_id)
+            haversine_rev_cache[stop_id] = cached
+        edges = [
+            (from_stop, round(walk_seconds), _estimate_street_m_from_stops(feed, from_stop, stop_id), True)
+            for from_stop, walk_seconds in cached
+        ]
+
+    for from_stop, walk_seconds, distance_m, estimated in edges:
+        latest = deadline - walk_seconds
+        current = best.get(from_stop)
+        if current is not None and current.deadline >= latest:
+            continue
+        best[from_stop] = _ReverseLabel(
+            deadline=latest,
+            kind="walk",
+            prev_stop=stop_id,
+            walk_start=latest,
+            walk_seconds=walk_seconds,
+            walk_distance=distance_m,
+            walk_estimate=estimated,
+        )
+        marked[from_stop] = best[from_stop]
+
+
+# ---------------------------------------------------------------------------
 # Itinerary reconstruction
 # ---------------------------------------------------------------------------
 
@@ -636,6 +900,95 @@ def _legs_from_chain(
     return legs
 
 
+def _reconstruct_legs_reverse(
+    best: dict[str, _ReverseLabel],
+    origin_stop: str,
+) -> list[tuple[str, str, _ReverseLabel]]:
+    """Walk the reverse label chain from ``origin_stop`` toward the destination.
+
+    Reverse labels' ``prev_stop`` points at the chronologically next stop, so
+    the chain is already in travel order — no reversal needed.
+    """
+    chain: list[tuple[str, str, _ReverseLabel]] = []
+    current = origin_stop
+    while current is not None:
+        label = best.get(current)
+        if label is None:
+            break
+        nxt = label.prev_stop
+        if nxt is None:
+            break
+        chain.append((current, nxt, label))
+        current = nxt
+    return chain
+
+
+def _legs_from_chain_reverse(
+    feed: GtfsFeed,
+    best: dict[str, _ReverseLabel],
+    chain: list[tuple[str, str, _ReverseLabel]],
+) -> tuple[list[Leg], int]:
+    """Build frontend-facing Leg objects from a reverse label chain.
+
+    Returns ``(legs, arrival_at_dest_stop)`` where the second value is the raw
+    seconds at which the itinerary reaches the destination stop (before any
+    egress walk).
+    """
+    legs: list[Leg] = []
+    arrival_at_dest_stop = 0
+    for from_stop, to_stop, label in chain:
+        from_stop_obj = feed.stops.get(from_stop)
+        to_stop_obj = feed.stops.get(to_stop)
+        if label.kind == "walk":
+            if from_stop_obj is None or to_stop_obj is None:
+                continue
+            start = label.walk_start
+            end = start + label.walk_seconds
+            legs.append(
+                Leg(
+                    mode="WALK",
+                    from_point=Point.from_stop(from_stop_obj),
+                    to_point=Point.from_stop(to_stop_obj),
+                    duration_minutes=max(0, round(label.walk_seconds / 60.0)),
+                    distance_m=label.walk_distance,
+                    start_time=_format_time(start),
+                    end_time=_format_time(end),
+                    walk_estimate=label.walk_estimate,
+                )
+            )
+            arrival_at_dest_stop = end
+            continue
+        # bus leg
+        if to_stop_obj is None or label.board_stop is None:
+            continue
+        trip = feed.trips.get(label.trip_id or "")
+        route = feed.routes.get(trip.route_id) if trip is not None else None
+        board_stop = feed.stops.get(label.board_stop)
+        if trip is None or route is None or board_stop is None:
+            continue
+        duration = round((label.alight_time - label.board_time) / 60.0)
+        legs.append(
+            Leg(
+                mode="BUS",
+                from_point=Point.from_stop(board_stop),
+                to_point=Point.from_stop(to_stop_obj),
+                duration_minutes=max(0, duration),
+                distance_m=_bus_distance_m(feed, label.trip_id or "", label.board_stop or "", to_stop),
+                start_time=_format_time(label.board_time),
+                end_time=_format_time(label.alight_time),
+                route=RouteInfo(
+                    id=route.route_id,
+                    short_name=route.short_name,
+                    color=route.color or None,
+                ),
+                headsign=trip.headsign or None,
+                trip_id=label.trip_id,
+            )
+        )
+        arrival_at_dest_stop = label.alight_time
+    return legs, arrival_at_dest_stop
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -648,6 +1001,7 @@ def plan_trip(
     destination: dict | object,
     date: datetime.date | str,
     departure_time: str = "00:00",
+    arrive_by: str | None = None,
     max_itineraries: int = 3,
 ) -> list[Itinerary]:
     """Plan trips from ``origin`` to ``destination`` over ``feed``.
@@ -656,6 +1010,14 @@ def plan_trip(
     ``lat``/``lng`` keys.  A ``stop_id`` pins the point to that stop (no access
     walk); ``lat``/``lng`` snaps to the nearest stops and pads the itinerary
     with WALK access/egress legs.
+
+    ``departure_time`` (default ``"00:00"``) plans the *earliest* arrival from
+    that departure.  ``arrive_by`` (a time string ``"HH:MM"`` or ``"HH:MM:SS"``)
+    instead plans the *latest* departure that still arrives no later than that
+    time, via a reverse RAPTOR search.  When both a non-default
+    ``departure_time`` and ``arrive_by`` are given, ``arrive_by`` wins (the
+    ``departure_time`` is ignored).  ``arrive_by`` changes *which* itineraries
+    are returned, never their dict shape.
 
     Returns up to ``max_itineraries`` (default 3) deterministic alternatives
     ordered by total duration.  Returns ``[]`` when no route exists — never
@@ -670,6 +1032,20 @@ def plan_trip(
     active_routes = _active_trips_by_route(feed, date)
     if not active_routes:
         return []
+
+    if arrive_by is not None:
+        return _plan_with_arrive_by(
+            feed,
+            walk_graph,
+            origin_stop,
+            origin_walk,
+            destination_stop,
+            destination_walk,
+            active_routes,
+            arrive_by,
+            max_itineraries,
+        )
+
     departure_seconds = _parse_time(departure_time)
 
     walk_neighbors = _walk_neighbors_map(walk_graph) if walk_graph is not None else None
@@ -718,6 +1094,75 @@ def plan_trip(
         if first_bus is None or first_bus.route is None:
             break
         banned_first_routes.add(first_bus.route.id)
+
+    itineraries.sort(key=lambda it: (it.total_minutes, _itinerary_signature(it)))
+    return itineraries
+
+
+def _plan_with_arrive_by(
+    feed: GtfsFeed,
+    walk_graph: WalkGraph | None,
+    origin_stop: str,
+    origin_walk: AccessWalk | None,
+    destination_stop: str,
+    destination_walk: AccessWalk | None,
+    active_routes: dict[str, list[str]],
+    arrive_by: str,
+    max_itineraries: int,
+) -> list[Itinerary]:
+    """Latest-departure planning: itineraries arriving no later than ``arrive_by``.
+
+    The deadline applies at the *destination coordinate*, so the reverse search
+    starts at the destination stop at ``arrive_by - egress_walk`` and the
+    returned departure is the latest feasible origin stop time minus the access
+    walk.  Alternatives ban the route of the *last* bus leg (the reverse mirror
+    of ``banned_first_routes``).
+    """
+    deadline_seconds = _parse_time(arrive_by)
+    egress_seconds = destination_walk.walk_seconds() if destination_walk is not None else 0
+    raptor_deadline = deadline_seconds - egress_seconds
+
+    walk_neighbors_rev = _walk_neighbors_rev_map(walk_graph) if walk_graph is not None else None
+    haversine_rev_cache: dict[str, list[tuple[str, float]]] = {}
+
+    itineraries: list[Itinerary] = []
+    banned_last_routes: set[str] = set()
+    for _ in range(max_itineraries):
+        best = _run_reverse_raptor(
+            feed,
+            walk_graph,
+            active_routes,
+            origin_stop,
+            destination_stop,
+            raptor_deadline,
+            banned_last_routes,
+            walk_neighbors_rev,
+            haversine_rev_cache,
+        )
+        if best is None:
+            break
+        chain = _reconstruct_legs_reverse(best, origin_stop)
+        if not chain:
+            break
+        legs, arrival_at_dest_stop = _legs_from_chain_reverse(feed, best, chain)
+        if not legs:
+            break
+        # Latest feasible time at the origin stop; subtract the access walk to
+        # get the displayed departure at the user's actual origin coordinate.
+        departure_seconds = best[origin_stop].deadline
+        if origin_walk is not None:
+            departure_seconds -= origin_walk.walk_seconds()
+            legs.insert(0, origin_walk.access_leg(departure_seconds))
+        arrival_seconds = arrival_at_dest_stop
+        if destination_walk is not None:
+            legs.append(_egress_leg(destination_walk, arrival_at_dest_stop))
+            arrival_seconds += destination_walk.walk_seconds()
+        itineraries.append(Itinerary.build(legs, departure_seconds, arrival_seconds))
+
+        last_bus = next((leg for leg in reversed(legs) if leg.mode == "BUS"), None)
+        if last_bus is None or last_bus.route is None:
+            break
+        banned_last_routes.add(last_bus.route.id)
 
     itineraries.sort(key=lambda it: (it.total_minutes, _itinerary_signature(it)))
     return itineraries

@@ -377,3 +377,147 @@ def test_fewer_alternatives_when_only_one_first_route():
         max_itineraries=3,
     )
     assert len(itineraries) == 1
+
+
+# ---------------------------------------------------------------------------
+# arrive-by (latest-departure reverse search)
+# ---------------------------------------------------------------------------
+
+
+def test_arrive_by_returns_latest_departure():
+    feed = synthetic_feed()
+    # s1->s2 on a Monday is only served by T1 (08:00 -> 08:10); with an
+    # arrive-by deadline the latest feasible departure is exactly 08:00.
+    itineraries = plan_trip(
+        feed,
+        None,
+        {"stop_id": "s1"},
+        {"stop_id": "s2"},
+        MONDAY,
+        arrive_by="10:00",
+    )
+    assert len(itineraries) == 1
+    itinerary = itineraries[0]
+    assert [leg.mode for leg in itinerary.legs] == ["BUS"]
+    leg = _bus_leg(itinerary.legs[0])
+    assert leg.trip_id == "T1"
+    assert leg.start_time == "08:00"
+    assert leg.end_time == "08:10"
+    assert leg.end_time is not None and leg.end_time <= "10:00"
+    assert itinerary.total_minutes == 10
+
+
+def test_arrive_by_picks_latest_feasible_of_several():
+    feed = synthetic_feed()
+    # s1->s5 by 10:00: T3 (departs 08:05) is the latest departure; T1+T2
+    # (departs 08:00) and T4 (departs 08:00) are the deterministic alternatives.
+    itineraries = plan_trip(
+        feed,
+        None,
+        {"stop_id": "s1"},
+        {"stop_id": "s5"},
+        MONDAY,
+        arrive_by="10:00",
+        max_itineraries=3,
+    )
+    assert len(itineraries) == 3
+    totals = [it.total_minutes for it in itineraries]
+    assert totals == sorted(totals)
+
+    best = itineraries[0]
+    best_bus = _bus_leg(best.legs[0])
+    assert best_bus.route is not None
+    assert best_bus.route.short_name == "3"
+    assert best_bus.start_time == "08:05" and best_bus.end_time == "08:45"
+
+    # Every alternative must still arrive no later than the deadline.
+    for it in itineraries:
+        end_time = _bus_leg(it.legs[-1]).end_time
+        assert end_time is not None and end_time <= "10:00"
+
+    signatures = {tuple((leg.mode, leg.trip_id) for leg in it.legs) for it in itineraries}
+    assert len(signatures) == 3
+
+
+def test_arrive_by_no_route_returns_empty_list():
+    feed = synthetic_feed()
+    # s6 is served by no trip and is out of walk range from every other stop.
+    for walk_graph in (None, walk_graph_from_feed(feed, radius_km=1.0)):
+        result = plan_trip(
+            feed,
+            walk_graph,
+            {"stop_id": "s1"},
+            {"stop_id": "s6"},
+            MONDAY,
+            arrive_by="10:00",
+        )
+        assert result == []
+    # Unknown stops are also a clean empty result.
+    assert plan_trip(feed, None, {"stop_id": "s1"}, {"stop_id": "missing"}, MONDAY, arrive_by="10:00") == []
+    assert plan_trip(feed, None, {"stop_id": "missing"}, {"stop_id": "s1"}, MONDAY, arrive_by="10:00") == []
+
+
+def test_arrive_by_before_first_trip_returns_empty():
+    feed = synthetic_feed()
+    # Earliest weekday s1->s2 arrival is T1 at 08:10; a 07:00 deadline fits nothing.
+    assert plan_trip(feed, None, {"stop_id": "s1"}, {"stop_id": "s2"}, MONDAY, arrive_by="07:00") == []
+    # On Sunday only T5 runs (09:00 -> 09:10); an 08:30 deadline is too early.
+    assert plan_trip(feed, None, {"stop_id": "s1"}, {"stop_id": "s2"}, SUNDAY, arrive_by="08:30") == []
+
+
+def test_arrive_by_wins_over_departure_time():
+    feed = synthetic_feed()
+    arrive_only = plan_trip(
+        feed,
+        None,
+        {"stop_id": "s1"},
+        {"stop_id": "s5"},
+        MONDAY,
+        arrive_by="09:00",
+    )
+    both = plan_trip(
+        feed,
+        None,
+        {"stop_id": "s1"},
+        {"stop_id": "s5"},
+        MONDAY,
+        departure_time="08:00",
+        arrive_by="09:00",
+    )
+    # arrive_by wins: the reverse search result is identical and every arrival
+    # respects the deadline (a forward 08:00 departure would also surface T4's
+    # 09:10 arrival, which violates the deadline).
+    assert both == arrive_only
+    assert both, "arrive-by search must still find 09:00-compatible trips"
+    for it in both:
+        end_time = _bus_leg(it.legs[-1]).end_time
+        assert end_time is not None and end_time <= "09:00"
+
+
+def test_arrive_by_with_walk_access_egress():
+    feed = synthetic_feed()
+    origin = {"lat": -6.1985, "lng": 106.8010}  # snaps to s1 (~197 m)
+    itineraries = plan_trip(
+        feed,
+        None,
+        origin,
+        {"stop_id": "s5"},
+        MONDAY,
+        arrive_by="09:00",
+    )
+    assert itineraries, "walk access must not break arrive-by search"
+    itinerary = itineraries[0]
+    assert [leg.mode for leg in itinerary.legs] == ["WALK", "BUS"]
+    access, bus = itinerary.legs
+    access = _walk_leg(access)
+    bus = _bus_leg(bus)
+    # The access walk is subtracted from the latest origin-stop time: the walk
+    # ends exactly when the (latest) T3 board happens.
+    assert access.to_point.stop_id == "s1"
+    assert access.end_time == bus.start_time == "08:05"
+    assert bus.end_time is not None and bus.end_time <= "09:00"
+    assert access.walk_estimate is True
+    # Every alternative still arrives within the deadline.
+    for it in itineraries:
+        end_time = _bus_leg(it.legs[-1]).end_time
+        assert end_time is not None and end_time <= "09:00"
