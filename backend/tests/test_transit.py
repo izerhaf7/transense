@@ -24,6 +24,18 @@ def test_unknown_update_reference_is_rejected():
         TransitSimulator.create().update("missing-vehicle")
 
 
+def test_seed_contains_delay_incident_on_real_gtfs_route_and_normal_incident_is_unchanged():
+    snapshot = TransitSimulator.create().snapshot()
+    assert {route["id"] for route in snapshot["routes"]} == {"route-1", "1"}
+    delay = next(incident for incident in snapshot["incidents"] if incident["id"] == "incident-demo-delay-01")
+    assert delay["route_id"] == "1"
+    assert delay["status"] == "delay"
+    assert delay["cause"] and delay["action"] and delay["instruction"]
+    normal = next(incident for incident in snapshot["incidents"] if incident["id"] == "incident-demo-01")
+    assert normal["route_id"] == "route-1"
+    assert normal["status"] == "normal"
+
+
 def test_eta_and_incident_ids_must_be_unique_and_non_empty():
     dataset = TransitSimulator.create().snapshot()
     dataset["etas"][0]["id"] = ""

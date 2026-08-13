@@ -27,7 +27,10 @@ def test_websocket_update_and_reset(tmp_path):
             ack = websocket.receive_json()
             assert ack["type"] == "connection.ack"
             assert ack["protocol"] == "transit-demo.v1"
-            assert ack["state"]["routes"] == [{"id": "route-1", "name": "Koridor 1", "stop_ids": ["stop-kp", "stop-bun"]}]
+            assert ack["state"]["routes"] == [
+                {"id": "route-1", "name": "Koridor 1", "stop_ids": ["stop-kp", "stop-bun"]},
+                {"id": "1", "name": "Koridor 1", "stop_ids": ["stop-kp", "stop-bun"]},
+            ]
             assert ack["state"]["vehicles"][0]["id"] == "vehicle-kp-01"
             assert ack["state"]["vehicles"][0]["eta_minutes"] == 4
             websocket.send_json({"type": "transit.update", "vehicle_id": "vehicle-kp-01"})
@@ -72,6 +75,19 @@ def test_incident_history_and_pin_endpoints(tmp_path):
         assert pinned.json() == {"id": incident["event_id"], "pinned": True}
         stored = next(record for record in client.get("/api/incidents").json()["records"] if record["id"] == incident["event_id"])
         assert stored["pinned"] is True
+
+
+def test_incidents_endpoint_includes_seeded_delay_incident(tmp_path):
+    app = app_for(tmp_path)
+    with TestClient(app) as client:
+        records = client.get("/api/incidents").json()["records"]
+    delay = next(record for record in records if record["payload"]["id"] == "incident-demo-delay-01")
+    assert delay["payload"]["route_id"] == "1"
+    assert delay["payload"]["status"] == "delay"
+    assert delay["payload"]["cause"] and delay["payload"]["action"] and delay["payload"]["instruction"]
+    normal = next(record for record in records if record["payload"]["id"] == "incident-demo-01")
+    assert normal["payload"]["route_id"] == "route-1"
+    assert normal["payload"]["status"] == "normal"
 
 
 def test_websocket_journey_notifications_and_incident_persistence(tmp_path):

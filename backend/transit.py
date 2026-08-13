@@ -29,11 +29,25 @@ class TransitSimulator:
     def create(cls) -> "TransitSimulator":
         seed = {
             "stops": [{"id": "stop-kp", "name": "Halte Karet"}, {"id": "stop-bun", "name": "Halte Bundaran HI"}],
-            "routes": [{"id": "route-1", "name": "Koridor 1", "stop_ids": ["stop-kp", "stop-bun"]}],
+            "routes": [
+                {"id": "route-1", "name": "Koridor 1", "stop_ids": ["stop-kp", "stop-bun"]},
+                {"id": "1", "name": "Koridor 1", "stop_ids": ["stop-kp", "stop-bun"]},
+            ],
             "trips": [{"id": "trip-1", "route_id": "route-1", "vehicle_id": "vehicle-kp-01"}],
             "vehicles": [{"id": "vehicle-kp-01", "trip_id": "trip-1", "position": "stop-kp", "eta_minutes": 4}],
             "etas": [{"id": "eta-vehicle-kp-01", "vehicle_id": "vehicle-kp-01", "stop_id": "stop-bun", "minutes": 4}],
-            "incidents": [{"id": "incident-demo-01", "route_id": "route-1", "status": "normal", "message": "Layanan berjalan normal"}],
+            "incidents": [
+                {"id": "incident-demo-01", "route_id": "route-1", "status": "normal", "message": "Layanan berjalan normal"},
+                {
+                    "id": "incident-demo-delay-01",
+                    "route_id": "1",
+                    "status": "delay",
+                    "message": "Keterlambatan pada Koridor 1",
+                    "cause": "Pengecekan armada",
+                    "action": "Petugas melakukan pengecekan",
+                    "instruction": "Ikuti arahan petugas di halte",
+                },
+            ],
         }
         validate_dataset(seed)
         return cls(seed, deepcopy(seed))
