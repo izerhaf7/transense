@@ -26,3 +26,4 @@ backend/gtfs_cache.*
 .opencode
 .omo
 .claude
+.sisyphus
