@@ -196,7 +196,10 @@ def test_plan_no_route_keeps_gtfs_source(tmp_path):
             params={"from_stop": "s1", "to_stop": "s6", "date": MONDAY, "time": "08:00"},
         )
     assert response.status_code == 200
-    assert response.json() == {"itineraries": [], "source": "gtfs"}
+    body = response.json()
+    assert body["itineraries"] == []
+    assert body["source"] == "gtfs"
+    assert "incidents" in body
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +214,7 @@ def test_plan_unavailable_when_feed_not_loaded(tmp_path):
     with TestClient(app) as client:
         response = client.get("/api/journey/plan", params={"from_stop": "s1", "to_stop": "s2"})
     assert response.status_code == 200
-    assert response.json() == {"itineraries": [], "source": "unavailable"}
+    assert response.json() == {"itineraries": [], "source": "unavailable", "incidents": []}
 
 
 def test_plan_unavailable_when_walk_graph_missing(tmp_path):
@@ -222,7 +225,7 @@ def test_plan_unavailable_when_walk_graph_missing(tmp_path):
         _inject_feed(app, synthetic_feed())
         response = client.get("/api/journey/plan", params={"from_stop": "s1", "to_stop": "s2"})
     assert response.status_code == 200
-    assert response.json() == {"itineraries": [], "source": "unavailable"}
+    assert response.json() == {"itineraries": [], "source": "unavailable", "incidents": []}
 
 
 # ---------------------------------------------------------------------------
@@ -273,3 +276,141 @@ def test_plan_invalid_time_returns_422(tmp_path):
             params={"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "abc"},
         )
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# arrive-by search
+# ---------------------------------------------------------------------------
+
+
+def test_plan_arrive_by_param(tmp_path):
+    app = plan_app(tmp_path)
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        response = client.get(
+            "/api/journey/plan",
+            params={"from_stop": "s1", "to_stop": "s5", "date": MONDAY, "arrive_by": "10:00"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["itineraries"], "expected at least one itinerary for arrive_by"
+    for itinerary in body["itineraries"]:
+        last_leg = itinerary["legs"][-1]
+        assert last_leg["end_time"] <= "10:00"
+
+
+def test_plan_invalid_arrive_by_returns_422(tmp_path):
+    app = plan_app(tmp_path)
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        response = client.get(
+            "/api/journey/plan",
+            params={"from_stop": "s1", "to_stop": "s5", "date": MONDAY, "arrive_by": "abc"},
+        )
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# include_eta (deterministic simulated ETA)
+# ---------------------------------------------------------------------------
+
+
+def test_plan_include_eta_simulated_and_deterministic(tmp_path):
+    app = plan_app(tmp_path)
+    params = {"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00", "include_eta": "1"}
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        first = client.get("/api/journey/plan", params=params).json()
+        second = client.get("/api/journey/plan", params=params).json()
+    assert first["itineraries"]
+    bus_legs = [leg for it in first["itineraries"] for leg in it["legs"] if leg["mode"] == "BUS"]
+    assert bus_legs, "expected at least one BUS leg"
+    for leg in bus_legs:
+        assert isinstance(leg["delay_minutes"], int)
+        assert 1 <= leg["delay_minutes"] <= 15
+        assert isinstance(leg["live_eta_minutes"], int)
+        assert leg["live_eta_minutes"] == leg["duration_minutes"] + leg["delay_minutes"]
+        assert leg["eta_source"] == "simulated"
+    # Determinism: two identical requests produce identical ETA annotations.
+    assert second["itineraries"] == first["itineraries"]
+
+
+def test_plan_include_eta_omitted_keeps_backward_compat(tmp_path):
+    app = plan_app(tmp_path)
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        response = client.get(
+            "/api/journey/plan",
+            params={"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00"},
+        )
+    assert response.status_code == 200
+    for itinerary in response.json()["itineraries"]:
+        for leg in itinerary["legs"]:
+            if leg["mode"] == "BUS":
+                assert "delay_minutes" not in leg
+                assert "live_eta_minutes" not in leg
+                assert "eta_source" not in leg
+
+
+# ---------------------------------------------------------------------------
+# incidents
+# ---------------------------------------------------------------------------
+
+
+def test_plan_incidents_only_active_and_matched(tmp_path):
+    # The lifespan seeds both ``incident-demo-01`` (normal) and
+    # ``incident-demo-delay-01`` (delay, route "1"); R1's short_name is "1", so
+    # the delay incident is matched against the planned route.
+    app = plan_app(tmp_path)
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        response = client.get(
+            "/api/journey/plan",
+            params={"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00"},
+        )
+    assert response.status_code == 200
+    incidents = response.json()["incidents"]
+    ids = [inc.get("id") for inc in incidents]
+    assert "incident-demo-delay-01" in ids
+    assert "incident-demo-01" not in ids
+    delay = next(inc for inc in incidents if inc.get("id") == "incident-demo-delay-01")
+    assert delay["status"] == "delay"
+    assert delay["affects_route"] is True
+    assert delay["cause"] and delay["action"] and delay["instruction"]
+
+
+def test_plan_incident_unmatched_active_still_appears(tmp_path):
+    # Seed an active (diverted) incident on seed route "route-1" through the
+    # WebSocket (persisted by the server thread).  The planned route keys are
+    # {"R1", "1"} only, so "route-1" is unmatched — yet the banner must still
+    # surface it.
+    app = plan_app(tmp_path)
+    with TestClient(app) as client:
+        with client.websocket_connect("/api/ws", headers={"origin": "http://localhost:5173"}) as websocket:
+            websocket.receive_json()  # connection.ack
+            websocket.send_json({"type": "incident.update", "route_id": "route-1", "stage": 1})
+            event = websocket.receive_json()
+        assert event["status"] == "diverted"
+        _inject_plan_data(app, synthetic_feed())
+        response = client.get(
+            "/api/journey/plan",
+            params={"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00"},
+        )
+    assert response.status_code == 200
+    incidents = response.json()["incidents"]
+    unmatched = next(inc for inc in incidents if inc.get("route_id") == "route-1")
+    assert unmatched["status"] == "diverted"
+    assert unmatched["affects_route"] is False
+
+
+def test_plan_incidents_empty_when_store_missing(tmp_path):
+    app = plan_app(tmp_path)
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        app.state.store = None
+        response = client.get(
+            "/api/journey/plan",
+            params={"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00"},
+        )
+    assert response.status_code == 200
+    assert response.json()["incidents"] == []

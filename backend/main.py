@@ -64,21 +64,21 @@ async def lifespan(app: FastAPI):
         app.state.store = store
         store.cleanup(datetime.now(timezone.utc))
         if not store.list_records("incident"):
-            seed_incident = app.state.transit.snapshot()["incidents"][0]
             now = datetime.now(timezone.utc)
-            store.add(
-                "incident",
-                {
-                    **seed_incident,
-                    "cause": "Tidak ada gangguan pada simulasi seed.",
-                    "action": "Layanan berjalan sesuai skenario demo.",
-                    "instruction": "Tetap lihat pembaruan visual di aplikasi.",
-                    "updated_at": now.isoformat().replace("+00:00", "Z"),
-                    "simulated": True,
-                },
-                now,
-                record_id=f"seed-{seed_incident['id']}",
-            )
+            for seed_incident in app.state.transit.snapshot()["incidents"]:
+                store.add(
+                    "incident",
+                    {
+                        **seed_incident,
+                        "cause": seed_incident.get("cause", "Tidak ada gangguan pada simulasi seed."),
+                        "action": seed_incident.get("action", "Layanan berjalan sesuai skenario demo."),
+                        "instruction": seed_incident.get("instruction", "Tetap lihat pembaruan visual di aplikasi."),
+                        "updated_at": now.isoformat().replace("+00:00", "Z"),
+                        "simulated": True,
+                    },
+                    now,
+                    record_id=f"seed-{seed_incident['id']}",
+                )
         yield
     except Exception as error:
         app.state.persistence_error = str(error)
@@ -483,6 +483,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         to_lng: float | None = None,
         date: str | None = None,
         time: str | None = None,
+        arrive_by: str | None = None,
+        include_eta: bool = False,
     ) -> dict[str, Any]:
         """Plan up to three transit itineraries from an origin to a destination.
 
@@ -490,15 +492,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         (``from_lat``+``from_lng``, ``to_lat``+``to_lng``).  ``date`` is
         ``YYYY-MM-DD`` (default: today in Asia/Jakarta) and ``time`` is ``HH:MM``
         (default: current local time rounded to the minute — planning at
-        midnight would almost never find a running bus).  Degrades to
-        ``{"itineraries": [], "source": "unavailable"}`` with HTTP 200 when the
-        GTFS feed or walk graph is not loaded; invalid origin/destination or
-        date/time params return HTTP 422 with a plain ``{"detail": ...}`` body.
+        midnight would almost never find a running bus).  ``arrive_by``
+        (``HH:MM``) instead plans the latest departure that still arrives by
+        that deadline (``time`` is then ignored by the planner).  ``include_eta``
+        annotates every BUS leg with ``delay_minutes``, ``live_eta_minutes`` and
+        ``eta_source`` (``"simulated"`` when the realtime client is unavailable,
+        ``"realtime"`` otherwise).  The response also carries an ``incidents``
+        array: active (``delay``/``diverted``) incident records, matched to the
+        itineraries' routes, with ``normal``/``resolved`` records never included.
+        Degrades to ``{"itineraries": [], "source": "unavailable",
+        "incidents": []}`` with HTTP 200 when the GTFS feed or walk graph is not
+        loaded; invalid origin/destination or date/time params return HTTP 422
+        with a plain ``{"detail": ...}`` body.
         """
         feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
         walk_graph: WalkGraph | None = getattr(application.state, "walk_graph", None)
         if feed is None or walk_graph is None:
-            return {"itineraries": [], "source": "unavailable"}
+            return {"itineraries": [], "source": "unavailable", "incidents": []}
 
         origin = _resolve_plan_point(from_stop, from_lat, from_lng, "origin")
         destination = _resolve_plan_point(to_stop, to_lat, to_lng, "destination")
@@ -518,12 +528,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 destination,
                 plan_date,
                 departure_time=plan_time,
+                arrive_by=arrive_by,
             )
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+
+        itinerary_dicts = [itinerary_to_dict(it) for it in itineraries]
+        if include_eta:
+            _enrich_bus_legs_eta(
+                itinerary_dicts,
+                realtime_available=getattr(application.state, "realtime_client", None) is not None,
+            )
         return {
-            "itineraries": [itinerary_to_dict(it) for it in itineraries],
+            "itineraries": itinerary_dicts,
             "source": "gtfs",
+            "incidents": _incidents_for_plan(application, itinerary_dicts),
         }
 
     @application.websocket("/api/ws")
@@ -661,6 +680,94 @@ def _resolve_plan_point(
     if lat is not None and lng is not None:
         return {"lat": lat, "lng": lng}
     raise HTTPException(status_code=422, detail=f"{label} requires a stop id or lat/lng coordinates")
+
+
+def _time_bucket_for(hhmm: str | None) -> int:
+    """Hour-of-day bucket (``hour // 2``) for stable per-day simulated delays."""
+    try:
+        hour = int(str(hhmm).split(":", 1)[0])
+    except (TypeError, ValueError, IndexError):
+        return 0
+    return hour // 2
+
+
+def _simulated_delay_minutes(route_id: str, stop_id: str, time_bucket: int) -> int:
+    """Deterministic 1-15 minute simulated delay for a BUS leg.
+
+    A pure ``zlib.crc32`` of ``route_id|stop_id|time_bucket`` — never
+    ``hash()``, whose PYTHONHASHSEED randomization breaks stability across
+    process restarts — so two identical requests always yield identical delays.
+    The ``1 + ... % 15`` shape keeps the demo delay nonzero.
+    """
+    import zlib
+    key = f"{route_id}|{stop_id}|{time_bucket}".encode("utf-8")
+    return 1 + (zlib.crc32(key) % 15)
+
+
+def _enrich_bus_legs_eta(itineraries: list[dict], realtime_available: bool) -> None:
+    """Annotate every BUS leg with deterministic ETA fields, in place.
+
+    Only BUS legs with a known ``route`` and ``from.stop_id`` are annotated:
+    ``delay_minutes`` (simulated), ``live_eta_minutes`` (scheduled duration +
+    delay) and ``eta_source``.  A realtime client only changes the label — the
+    numeric delay stays deterministic so retries return identical payloads.
+    """
+    for itinerary in itineraries:
+        for leg in itinerary.get("legs", []):
+            if leg.get("mode") != "BUS":
+                continue
+            route = leg.get("route") or {}
+            route_id = route.get("id")
+            stop_id = (leg.get("from") or {}).get("stop_id")
+            if not route_id or not stop_id:
+                continue
+            delay_minutes = _simulated_delay_minutes(
+                route_id, stop_id, _time_bucket_for(leg.get("start_time"))
+            )
+            leg["delay_minutes"] = delay_minutes
+            leg["live_eta_minutes"] = int(leg.get("duration_minutes", 0)) + delay_minutes
+            leg["eta_source"] = "realtime" if realtime_available else "simulated"
+
+
+def _incidents_for_plan(application: FastAPI, itineraries: list[dict]) -> list[dict]:
+    """Active incidents for the plan response (``[]`` when no store)."""
+    store: DemoStore | None = getattr(application.state, "store", None)
+    if store is None:
+        return []
+    return _active_incidents(store, itineraries)
+
+
+def _active_incidents(store: DemoStore, itineraries: list[dict]) -> list[dict]:
+    """Active (``delay``/``diverted``) incident payloads for a plan.
+
+    ``normal``/``resolved`` records are never included.  Every active incident
+    is returned (banner behaviour): matched ones (route id or short name across
+    the itineraries' BUS legs) carry ``affects_route: true``.  Deterministic
+    order: ``updated_at`` desc, then record id asc.
+    """
+    route_keys: set[str] = set()
+    for itinerary in itineraries:
+        for leg in itinerary.get("legs", []):
+            if leg.get("mode") != "BUS":
+                continue
+            route = leg.get("route") or {}
+            if route.get("id"):
+                route_keys.add(route["id"])
+            if route.get("short_name"):
+                route_keys.add(route["short_name"])
+
+    active: list[dict] = []
+    for record in store.list_records("incident"):
+        payload = dict(record.get("payload") or {})
+        if payload.get("status") not in {"delay", "diverted"}:
+            continue
+        payload["affects_route"] = payload.get("route_id") in route_keys
+        if not payload.get("id"):
+            payload["id"] = record.get("id") or payload.get("event_id") or ""
+        active.append(payload)
+    active.sort(key=lambda incident: str(incident.get("id", "")))
+    active.sort(key=lambda incident: str(incident.get("updated_at", "")), reverse=True)
+    return active
 
 
 def _load_or_build_walk_graph(feed: "GtfsFeed") -> "WalkGraph | None":
