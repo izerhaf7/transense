@@ -3640,3 +3640,23 @@ input[aria-invalid='true'] {
   margin: 0;
   color: var(--brand-color-text-secondary);
 }
+
+.stop-popup__headsign {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stop-popup__times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.stop-popup__more {
+  align-self: center;
+  color: var(--brand-color-text-secondary);
+  font-size: 12px;
+}

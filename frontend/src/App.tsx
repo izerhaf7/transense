@@ -8,7 +8,7 @@ import {
   VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
-import MapboxMap, { type StopPopupData } from './MapboxMap'
+import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
 import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
@@ -1409,6 +1409,7 @@ function HomePage({
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
+  const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1573,6 +1574,23 @@ function HomePage({
     }
   }
 
+  const handleRailStationClick = async (stationId: string) => {
+    const station = railStations.find((s) => s.id === stationId)
+    if (!station) return
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(station.operator)}/${encodeURIComponent(station.code)}/schedule`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as { stop: { id: string; name: string; operator: string }; timetable: { route_code: string; color: string; headsign: string; platform?: string; times: string[] }[] }
+      setRailStationPopup({
+        stop: { id: data.stop.id, name: data.stop.name, operator: data.stop.operator, lng: station.lng, lat: station.lat },
+        timetable: data.timetable,
+      })
+    } catch (error) {
+      console.warn('Rail station schedule fetch failed.', error)
+      setRailStationPopup(null)
+    }
+  }
+
   return (
     <main className="page-content home-page">
       <header className={`home-topbar${mapExpanded ? ' home-topbar--minimized' : ''}`}>
@@ -1685,6 +1703,9 @@ function HomePage({
             onStopPopupClose={() => setStopInfo(null)}
             railLines={filteredRailLines}
             railStations={filteredRailStations}
+            railStationPopup={railStationPopup}
+            onRailStationClick={(id) => { void handleRailStationClick(id) }}
+            onRailStationPopupClose={() => setRailStationPopup(null)}
           />
         </div>
         <button
