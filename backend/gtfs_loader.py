@@ -14,7 +14,7 @@ from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GTFS_URL = "https://gtfs.transjakarta.co.id/files/file_gtfs.zip"
+DEFAULT_GTFS_URL = "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"
 REQUIRED_FILES = {"stops.txt", "routes.txt", "trips.txt", "stop_times.txt"}
 
 

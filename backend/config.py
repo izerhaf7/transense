@@ -27,7 +27,7 @@ class Settings:
     commute_api_url: str | None = None
     stt_provider: str = "mock"
     elevenlabs_api_key: str | None = None
-    gtfs_url: str = "https://gtfs.transjakarta.co.id/files/file_gtfs.zip"
+    gtfs_url: str = "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"
     gtfs_cache_path: str = "backend/gtfs_cache.zip"
     realtime_enabled: bool = False
     realtime_api_base: str = "https://tijeapi.transjakarta.co.id"
@@ -51,7 +51,7 @@ class Settings:
             commute_api_url=os.getenv("TRANSENSE_COMMUTE_API_URL") or None,
             stt_provider=os.getenv("TRANSENSE_STT_PROVIDER", "mock"),
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY") or None,
-            gtfs_url=os.getenv("TRANSENSE_GTFS_URL", "https://gtfs.transjakarta.co.id/files/file_gtfs.zip"),
+            gtfs_url=os.getenv("TRANSENSE_GTFS_URL", "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"),
             gtfs_cache_path=os.getenv("TRANSENSE_GTFS_CACHE_PATH", "backend/gtfs_cache.zip"),
             realtime_enabled=os.getenv("TRANSENSE_REALTIME_ENABLED", "").strip().lower() in ("1", "true", "yes"),
             realtime_api_base=os.getenv("TRANSENSE_REALTIME_API_BASE", "https://tijeapi.transjakarta.co.id"),

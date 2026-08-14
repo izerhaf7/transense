@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--gtfs-url",
-        default="https://gtfs.transjakarta.co.id/files/file_gtfs.zip",
+        default="https://ppid.transjakarta.co.id/informasi/berkala/gtfs",
         help="URL to download the GTFS zip from (ignored with --no-download).",
     )
     parser.add_argument(
