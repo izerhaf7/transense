@@ -27,3 +27,8 @@ backend/gtfs_cache.*
 .omo
 .claude
 .sisyphus
+
+# Python virtualenv
+.venv/
+venv/
+
