@@ -35,6 +35,37 @@ export interface WalkLine {
   to: { lng: number; lat: number }
 }
 
+export interface RailLine {
+  operator: string
+  code: string
+  name: string
+  color: string
+  mode_label: string
+  segments: [number, number][][]
+}
+
+export interface RailStation {
+  id: string
+  operator: string
+  code: string
+  name: string
+  lat: number
+  lng: number
+  lines: string[]
+}
+
+export interface RailStationPopupData {
+  stop: {
+    id: string
+    name: string
+    operator: string
+    lng: number
+    lat: number
+    official_name?: string
+    amenities?: { type: string; label: string; text: string }[]
+  }
+}
+
 interface MapStop extends Stop {
   wheelchair_boarding?: string
   platform_code?: string
@@ -57,6 +88,11 @@ function MapboxMap({
   routeColors,
   stopPopup,
   onStopPopupClose,
+  railLines,
+  railStations,
+  railStationPopup,
+  onRailStationClick,
+  onRailStationPopupClose,
 }: {
   stops: MapStop[]
   routeShapes?: RouteShape[]
@@ -67,18 +103,29 @@ function MapboxMap({
   routeColors?: Map<string, string>
   stopPopup?: StopPopupData | null
   onStopPopupClose?: () => void
+  railLines?: RailLine[]
+  railStations?: RailStation[]
+  railStationPopup?: RailStationPopupData | null
+  onRailStationClick?: (stationId: string) => void
+  onRailStationPopupClose?: () => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const stopMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const railStationMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
+  const railStationPopupRef = useRef<mapboxgl.Popup | null>(null)
   const firstFitDoneRef = useRef(false)
 
   const selectedRef = useRef(selectedRouteNames)
   selectedRef.current = selectedRouteNames
   const onStopClickRef = useRef(onStopClick)
   onStopClickRef.current = onStopClick
+  const onRailStationClickRef = useRef(onRailStationClick)
+  onRailStationClickRef.current = onRailStationClick
+  const onRailStationPopupCloseRef = useRef(onRailStationPopupClose)
+  onRailStationPopupCloseRef.current = onRailStationPopupClose
   const routeColorsRef = useRef(routeColors)
   routeColorsRef.current = routeColors
   const onStopPopupCloseRef = useRef(onStopPopupClose)
@@ -117,6 +164,8 @@ function MapboxMap({
       stopMarkersRef.current = []
       busMarkersRef.current.forEach((m) => m.remove())
       busMarkersRef.current = []
+      railStationMarkersRef.current.forEach((m) => m.remove())
+      railStationMarkersRef.current = []
       map.remove()
       mapRef.current = null
       firstFitDoneRef.current = false
@@ -187,6 +236,73 @@ function MapboxMap({
       })
     }
   }, [routeShapes, walkLegs])
+
+  // Rail lines (KCI/MRT/LRT) — always-on, distinct layer prefix.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    const wanted = new Set((railLines ?? []).map((l) => `${l.operator}:${l.code}`))
+    const style = map.getStyle()
+    for (const id of Object.keys(style.sources ?? {})) {
+      if (!id.startsWith('rail-')) continue
+      const key = id.slice('rail-'.length)
+      if (!wanted.has(key)) {
+        if (map.getLayer(`layer-${id}`)) map.removeLayer(`layer-${id}`)
+        if (map.getSource(id)) map.removeSource(id)
+      }
+    }
+
+    for (const line of railLines ?? []) {
+      const validSegments = line.segments.filter((seg) => seg.length >= 2)
+      if (validSegments.length === 0) continue
+      const sourceId = `rail-${line.operator}:${line.code}`
+      if (map.getSource(sourceId)) continue
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: { name: line.name },
+          geometry: { type: 'MultiLineString', coordinates: validSegments },
+        },
+      })
+      map.addLayer({
+        id: `layer-${sourceId}`,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': line.color, 'line-width': 4, 'line-opacity': 0.85 },
+      })
+    }
+  }, [railLines])
+
+  // Rail station markers (KCI/MRT/LRT) — clickable train icon, opens info popup.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    railStationMarkersRef.current.forEach((m) => m.remove())
+    railStationMarkersRef.current = []
+    for (const station of railStations ?? []) {
+      if (typeof station.lng !== 'number' || typeof station.lat !== 'number') continue
+      const el = document.createElement('button')
+      el.className = 'rail-station-marker'
+      el.type = 'button'
+      el.title = station.name
+      el.setAttribute('aria-label', `Stasiun ${station.name}`)
+      el.style.cssText = 'width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:#374151;border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
+      el.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="#fff" aria-hidden="true">' +
+        '<path d="M12 2c-4 0-8 .5-8 4v9.5A3.5 3.5 0 0 0 7.5 19L6 20.5v.5h2l1-1h6l1 1h2v-.5L16.5 19a3.5 3.5 0 0 0 3.5-3.5V6c0-3.5-4-4-8-4zM7 16a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm10 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm-1-4.5H8V6h8v5.5z"/>' +
+        '</svg>'
+      el.addEventListener('click', () => {
+        onRailStationClickRef.current?.(station.id)
+      })
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([station.lng, station.lat])
+        .addTo(map)
+      railStationMarkersRef.current.push(marker)
+    }
+  }, [railStations])
 
   // Stop markers: render only when zoomed in, or for selected route stops.
   const renderStops = () => {
@@ -338,6 +454,47 @@ function MapboxMap({
     })
     stopPopupRef.current = popup
   }, [stopPopup])
+
+  // Rail station info popup: shown near the clicked station.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const prev = railStationPopupRef.current
+    if (prev) {
+      prev.remove()
+      railStationPopupRef.current = null
+    }
+    if (!railStationPopup) return
+
+    const amenities = railStationPopup.stop.amenities ?? []
+    const amenityChips = amenities.length
+      ? amenities.map((a) => `<span class="stop-popup__amenity">${a.label}${a.text ? ` · ${a.text}` : ''}</span>`).join('')
+      : '<span class="stop-popup__empty">Information not available</span>'
+
+    const officialName = railStationPopup.stop.official_name
+      ? `<p class="stop-popup__official">${railStationPopup.stop.official_name}</p>`
+      : ''
+
+    const popupHTML = [
+      '<div class="stop-popup">',
+      '<div class="stop-popup__head">',
+      `<strong>${railStationPopup.stop.name}</strong>`,
+      '</div>',
+      officialName,
+      '<p class="stop-popup__label">FASILITAS</p>',
+      `<div class="stop-popup__amenities">${amenityChips}</div>`,
+      '</div>',
+    ].join('')
+
+    const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '280px', closeButton: true, closeOnClick: false })
+      .setLngLat([railStationPopup.stop.lng, railStationPopup.stop.lat])
+      .setHTML(popupHTML)
+      .addTo(map)
+    popup.on('close', () => {
+      onRailStationPopupCloseRef.current?.()
+    })
+    railStationPopupRef.current = popup
+  }, [railStationPopup])
 
   if (!MAPBOX_TOKEN) {
     return (

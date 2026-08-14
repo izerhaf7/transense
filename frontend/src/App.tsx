@@ -8,7 +8,7 @@ import {
   VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
-import MapboxMap, { type StopPopupData } from './MapboxMap'
+import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
 import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
@@ -1403,7 +1403,37 @@ function HomePage({
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [mapMode, setMapMode] = useState<'bus' | 'rail'>('bus')
+  const [selectedRailKeys, setSelectedRailKeys] = useState<Set<string>>(new Set())
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
+  const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
+  const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
+  const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/transit/lines/geometry`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[] }
+        setRailLines(data.lines)
+        setSelectedRailKeys(new Set(data.lines.map((l) => `${l.operator}:${l.code}`)))
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/transit/stations`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { stations: { id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[] }
+        setRailStations(data.stations)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1502,6 +1532,37 @@ function HomePage({
     return new Map(allRoutes.map((r) => [r.name, r.color]))
   }, [allRoutes])
 
+  const toggleRailLine = (key: string) => {
+    setSelectedRailKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const railAllSelected = railLines.length > 0 && selectedRailKeys.size === railLines.length
+
+  const toggleAllRail = () => {
+    if (railAllSelected) {
+      setSelectedRailKeys(new Set())
+    } else {
+      setSelectedRailKeys(new Set(railLines.map((l) => `${l.operator}:${l.code}`)))
+    }
+  }
+
+  const filteredRailLines = useMemo(() => {
+    if (mapMode !== 'rail') return []
+    if (selectedRailKeys.size === 0) return railLines
+    return railLines.filter((l) => selectedRailKeys.has(`${l.operator}:${l.code}`))
+  }, [mapMode, railLines, selectedRailKeys])
+
+  const filteredRailStations = useMemo(() => {
+    if (mapMode !== 'rail') return []
+    if (selectedRailKeys.size === 0) return railStations
+    return railStations.filter((s) => s.lines.some((lk) => selectedRailKeys.has(lk)))
+  }, [mapMode, railStations, selectedRailKeys])
+
   const handleStopClick = async (stopId: string) => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/info`)
@@ -1511,6 +1572,30 @@ function HomePage({
     } catch (error) {
       console.warn('Stop info fetch failed.', error)
       setStopInfo(null)
+    }
+  }
+
+  const handleRailStationClick = async (stationId: string) => {
+    const station = railStations.find((s) => s.id === stationId)
+    if (!station) return
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(station.operator)}/${encodeURIComponent(station.code)}/info`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as { stop: { id: string; name: string; operator: string; official_name?: string; amenities?: { type: string; label: string; text: string }[] } }
+      setRailStationPopup({
+        stop: {
+          id: data.stop.id,
+          name: data.stop.name,
+          operator: data.stop.operator,
+          official_name: data.stop.official_name,
+          amenities: data.stop.amenities,
+          lng: station.lng,
+          lat: station.lat,
+        },
+      })
+    } catch (error) {
+      console.warn('Rail station info fetch failed.', error)
+      setRailStationPopup(null)
     }
   }
 
@@ -1564,31 +1649,73 @@ function HomePage({
           {showFilter ? (
             <div className="map-filter-panel">
               <div className="map-filter-panel__header">
-                <strong>Pilih rute</strong>
-                <button className="secondary-button" type="button" onClick={toggleAll}>
-                  {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
+                <strong>Filter peta</strong>
+                <button className="secondary-button" type="button" onClick={mapMode === 'bus' ? toggleAll : toggleAllRail}>
+                  {mapMode === 'bus'
+                    ? (selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua')
+                    : (railAllSelected ? 'Hapus semua' : 'Pilih semua')}
                 </button>
               </div>
-              <div className="map-filter-panel__list">
-                {allRoutes.map((route) => (
-                  <label className="map-filter-checkbox" key={route.id}>
-                    <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
-                    <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
-                    <span>{route.name}</span>
-                  </label>
-                ))}
+              <div className="map-filter-modes" role="group" aria-label="Filter moda">
+                <label className="map-filter-mode">
+                  <input type="radio" name="map-mode" checked={mapMode === 'bus'} onChange={() => setMapMode('bus')} />
+                  <span className="map-filter-mode__tag">Bus</span>
+                </label>
+                <label className="map-filter-mode">
+                  <input type="radio" name="map-mode" checked={mapMode === 'rail'} onChange={() => setMapMode('rail')} />
+                  <span className="map-filter-mode__tag">Kereta</span>
+                </label>
               </div>
+              {mapMode === 'rail' ? (
+                <>
+                  <div className="map-filter-panel__line-head">
+                    <p className="map-filter-panel__section">LIN KERETA</p>
+                  </div>
+                  <div className="map-filter-rail-list">
+                    {railLines.map((line) => {
+                      const key = `${line.operator}:${line.code}`
+                      const checked = selectedRailKeys.has(key)
+                      return (
+                        <label className="map-filter-checkbox" key={key}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleRailLine(key)} />
+                          <span className="map-filter-checkbox__swatch" style={{ background: line.color }} aria-hidden="true" />
+                          <span className="map-filter-checkbox__rail-name">{line.name}</span>
+                          <span className="map-filter-checkbox__mode">{line.mode_label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="map-filter-panel__section">RUTE BUS</p>
+                  <div className="map-filter-panel__list">
+                    {allRoutes.map((route) => (
+                      <label className="map-filter-checkbox" key={route.id}>
+                        <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
+                        <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
+                        <span>{route.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : null}
           <MapboxMap
-            stops={displayStops}
-            routeShapes={filteredShapes}
-            buses={filteredBuses}
+            stops={mapMode === 'bus' ? displayStops : []}
+            routeShapes={mapMode === 'bus' ? filteredShapes : []}
+            buses={mapMode === 'bus' ? filteredBuses : []}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
-            stopPopup={stopInfo}
+            stopPopup={mapMode === 'bus' ? stopInfo : null}
             onStopClick={(id) => { void handleStopClick(id) }}
             onStopPopupClose={() => setStopInfo(null)}
+            railLines={filteredRailLines}
+            railStations={filteredRailStations}
+            railStationPopup={railStationPopup}
+            onRailStationClick={(id) => { void handleRailStationClick(id) }}
+            onRailStationPopupClose={() => setRailStationPopup(null)}
           />
         </div>
         <button
@@ -1652,23 +1779,49 @@ interface ScheduleStopGroup {
   color: string
   headsign: string
   direction: string
+  platform?: string
   times: string[]
 }
 
-interface StopScheduleData {
-  stop: { id: string; name: string; wheelchair_boarding?: string }
+interface ScheduleLiveEntry {
+  bus_id: string
+  route_code: string
+  eta_minutes: number
+  headsign: string
+}
+
+interface ScheduleDetailData {
+  stop: { id: string; name: string; operator?: string; wheelchair_boarding?: string }
   timetable: ScheduleStopGroup[]
-  live: { bus_id: string; route_code: string; eta_minutes: number; headsign: string }[]
+  live: ScheduleLiveEntry[]
+}
+
+interface RailLineInfo {
+  operator: string
+  operator_name: string
+  code: string
+  name: string
+  color: string
+  mode: string
+  mode_label: string
+}
+
+interface RailStopInfo {
+  id: string
+  code: string
+  name: string
 }
 
 function SchedulePage() {
+  const [mode, setMode] = useState<'bus' | 'rail'>('bus')
   const [routes, setRoutes] = useState<GtfsRouteInfo[]>([])
+  const [railLines, setRailLines] = useState<RailLineInfo[]>([])
   const [query, setQuery] = useState('')
   const [expandedRoute, setExpandedRoute] = useState<string | null>(null)
   const [routeStops, setRouteStops] = useState<Record<string, GtfsRouteStop[]>>({})
   const [loadingStops, setLoadingStops] = useState(false)
   const [selectedStop, setSelectedStop] = useState<{ id: string; name: string } | null>(null)
-  const [schedule, setSchedule] = useState<StopScheduleData | null>(null)
+  const [schedule, setSchedule] = useState<ScheduleDetailData | null>(null)
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [searchStops, setSearchStops] = useState<{ id: string; name: string }[]>([])
 
@@ -1685,11 +1838,24 @@ function SchedulePage() {
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/transit/lines`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { lines: RailLineInfo[] }
+        setRailLines(data.lines)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
     const trimmed = query.trim()
     if (!trimmed) {
       setSearchStops([])
       return
     }
+    if (mode !== 'bus') return
     const controller = new AbortController()
     fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal })
       .then(async (res) => {
@@ -1699,7 +1865,7 @@ function SchedulePage() {
       })
       .catch(() => {})
     return () => controller.abort()
-  }, [query])
+  }, [query, mode])
 
   const toggleRoute = async (routeId: string) => {
     if (expandedRoute === routeId) {
@@ -1719,17 +1885,54 @@ function SchedulePage() {
     }
   }
 
-  const openStopSchedule = async (stopId: string, stopName: string) => {
+  const toggleRailLine = async (key: string) => {
+    if (expandedRoute === key) {
+      setExpandedRoute(null)
+      return
+    }
+    setExpandedRoute(key)
+    if (routeStops[key]) return
+    setLoadingStops(true)
+    try {
+      const [operator, code] = key.split(':')
+      const res = await fetch(`${apiBaseUrl}/api/transit/line/${encodeURIComponent(operator)}/${encodeURIComponent(code)}/stations`)
+      if (!res.ok) return
+      const data = await res.json() as { stations: RailStopInfo[] }
+      const stops: GtfsRouteStop[] = data.stations.map((s) => ({ id: s.id, name: s.name }))
+      setRouteStops((prev) => ({ ...prev, [key]: stops }))
+    } catch { /* skip */ } finally {
+      setLoadingStops(false)
+    }
+  }
+
+  const openBusStopSchedule = async (stopId: string, stopName: string) => {
     setSelectedStop({ id: stopId, name: stopName })
     setSchedule(null)
     setLoadingSchedule(true)
     try {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/schedule`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as StopScheduleData
+      const data = await res.json() as { stop: { id: string; name: string; wheelchair_boarding?: string }; timetable: ScheduleStopGroup[]; live: ScheduleLiveEntry[] }
       setSchedule(data)
     } catch (error) {
       console.warn('Stop schedule fetch failed.', error)
+    } finally {
+      setLoadingSchedule(false)
+    }
+  }
+
+  const openRailStopSchedule = async (stationId: string, stationName: string) => {
+    setSelectedStop({ id: stationId, name: stationName })
+    setSchedule(null)
+    setLoadingSchedule(true)
+    try {
+      const [operator, code] = stationId.split('-')
+      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(operator)}/${encodeURIComponent(code)}/schedule`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as { stop: { id: string; name: string; operator: string }; timetable: ScheduleStopGroup[] }
+      setSchedule({ stop: data.stop, timetable: data.timetable, live: [] })
+    } catch (error) {
+      console.warn('Rail schedule fetch failed.', error)
     } finally {
       setLoadingSchedule(false)
     }
@@ -1745,79 +1948,155 @@ function SchedulePage() {
     )
   }, [routes, query])
 
+  const filteredRailLines = useMemo(() => {
+    const trimmed = query.trim().toLocaleLowerCase('id-ID')
+    if (!trimmed) return railLines
+    return railLines.filter((l) =>
+      l.name.toLocaleLowerCase('id-ID').includes(trimmed)
+      || l.code.toLocaleLowerCase('id-ID').includes(trimmed)
+      || l.mode_label.toLocaleLowerCase('id-ID').includes(trimmed)
+    )
+  }, [railLines, query])
+
   const isSearching = query.trim().length > 0
+
+  const detailView = (
+    <section className="schedule-detail" aria-label={`Jadwal halte ${selectedStop?.name}`}>
+      <div className="schedule-detail__header">
+        <button type="button" className="schedule-detail__back" onClick={() => setSelectedStop(null)}>← Kembali</button>
+        <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal">✕</button>
+      </div>
+      <div>
+        <p className="eyebrow">JADWAL KEDATANGAN</p>
+        <h3>{selectedStop?.name}</h3>
+      </div>
+      {loadingSchedule ? <p className="schedule-routes__loading">Memuat jadwal…</p> : null}
+      {schedule && schedule.live.length > 0 ? (
+        <div className="schedule-detail__live">
+          <p className="eyebrow">LIVE — BUS MENDEKAT</p>
+          {schedule.live.map((bus) => (
+            <div className="schedule-detail__live-row" key={`${bus.bus_id}-${bus.route_code}`}>
+              <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? '#1677ff' }}>{bus.route_code}</span>
+              <span className="schedule-detail__live-eta">{bus.eta_minutes} menit</span>
+              <span className="schedule-detail__live-headsign">{bus.headsign}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {schedule && schedule.timetable.length > 0 ? (
+        <div className="schedule-detail__timetable">
+          <p className="eyebrow">JADWAL PER RUTE</p>
+          {schedule.timetable.map((group, index) => (
+            <div className="schedule-detail__group" key={`${group.route_code}-${group.headsign}-${index}`}>
+              <div className="schedule-detail__group-head">
+                <span className="schedule-route__badge" style={{ background: group.color }}>{group.route_code}</span>
+                <span className="schedule-detail__group-headsign">{group.headsign}</span>
+                {group.platform ? <span className="schedule-detail__platform">Peron {group.platform}</span> : null}
+              </div>
+              <div className="schedule-detail__times">
+                {group.times.map((time) => <span className="schedule-detail__time" key={time}>{time}</span>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {schedule && schedule.timetable.length === 0 && schedule.live.length === 0 && !loadingSchedule ? (
+        <p className="schedule-routes__loading">Tidak ada jadwal untuk halte ini.</p>
+      ) : null}
+    </section>
+  )
 
   if (selectedStop) {
     return (
       <main className="page-content inner-page">
-        <section className="schedule-detail" aria-label={`Jadwal halte ${selectedStop.name}`}>
-          <div className="schedule-detail__header">
-            <button type="button" className="schedule-detail__back" onClick={() => setSelectedStop(null)}>← Kembali</button>
-            <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal">✕</button>
-          </div>
-          <div>
-            <p className="eyebrow">JADWAL KEDATANGAN</p>
-            <h3>{selectedStop.name}</h3>
-          </div>
-          {loadingSchedule ? <p className="schedule-routes__loading">Memuat jadwal…</p> : null}
-          {schedule && schedule.live.length > 0 ? (
-            <div className="schedule-detail__live">
-              <p className="eyebrow">LIVE — BUS MENDEKAT</p>
-              {schedule.live.map((bus) => (
-                <div className="schedule-detail__live-row" key={`${bus.bus_id}-${bus.route_code}`}>
-                  <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? '#1677ff' }}>{bus.route_code}</span>
-                  <span className="schedule-detail__live-eta">{bus.eta_minutes} menit</span>
-                  <span className="schedule-detail__live-headsign">{bus.headsign}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {schedule && schedule.timetable.length > 0 ? (
-            <div className="schedule-detail__timetable">
-              <p className="eyebrow">JADWAL PER RUTE</p>
-              {schedule.timetable.map((group) => (
-                <div className="schedule-detail__group" key={`${group.route_code}-${group.headsign}`}>
-                  <div className="schedule-detail__group-head">
-                    <span className="schedule-route__badge" style={{ background: group.color }}>{group.route_code}</span>
-                    <span className="schedule-detail__group-headsign">{group.headsign}</span>
-                  </div>
-                  <div className="schedule-detail__times">
-                    {group.times.map((time) => <span className="schedule-detail__time" key={time}>{time}</span>)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {schedule && schedule.timetable.length === 0 && schedule.live.length === 0 && !loadingSchedule ? (
-            <p className="schedule-routes__loading">Tidak ada jadwal untuk halte ini.</p>
-          ) : null}
-        </section>
+        {detailView}
       </main>
     )
   }
 
-  return (
-    <main className="page-content inner-page">
-      <section className="page-intro">
-        <p className="eyebrow">JADWAL TRANSJAKARTA / GTFS + LIVE</p>
-        <h2>Jadwal halte</h2>
-        <p>Pilih trayek, buka halte, lalu lihat jadwal kedatangan per rute plus ETA live bila ada bus di dekatnya.</p>
-      </section>
+  const railList = (
+    <section className="schedule-routes" aria-label="Daftar lin kereta">
+      {filteredRailLines.map((line) => {
+        const key = `${line.operator}:${line.code}`
+        const expanded = expandedRoute === key
+        const stops = routeStops[key]
+        return (
+          <div className="schedule-route" key={key}>
+            <button
+              type="button"
+              className="schedule-route__head"
+              aria-expanded={expanded}
+              onClick={() => { void toggleRailLine(key) }}
+            >
+              <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
+              <span className="schedule-route__name">{line.name}</span>
+              <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
+              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+            </button>
+            {expanded ? (
+              <div className="schedule-route__stops">
+                {stops ? stops.map((stop) => (
+                  <button
+                    key={stop.id}
+                    type="button"
+                    className="schedule-stop-row"
+                    onClick={() => { void openRailStopSchedule(stop.id, stop.name) }}
+                  >
+                    <span className="schedule-stop-row__name">{stop.name}</span>
+                    <span className="schedule-stop-row__cta">Jadwal →</span>
+                  </button>
+                )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+    </section>
+  )
 
-      <section className="schedule-search" role="search">
-        <label className="sr-only" htmlFor="schedule-search">Cari halte atau trayek</label>
-        <span className="schedule-search__icon" aria-hidden="true">⌕</span>
-        <input
-          id="schedule-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Cari halte atau trayek"
-        />
-      </section>
+  const busList = (
+    <section className="schedule-routes" aria-label="Daftar trayek">
+      {(isSearching ? filteredRoutes : routes).map((route) => {
+        const expanded = expandedRoute === route.id
+        const stops = routeStops[route.id]
+        return (
+          <div className="schedule-route" key={route.id}>
+            <button
+              type="button"
+              className="schedule-route__head"
+              aria-expanded={expanded}
+              onClick={() => { void toggleRoute(route.id) }}
+            >
+              <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
+              <span className="schedule-route__name">{route.long_name}</span>
+              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+            </button>
+            {expanded ? (
+              <div className="schedule-route__stops">
+                {stops ? stops.map((stop) => (
+                  <button
+                    key={stop.id}
+                    type="button"
+                    className="schedule-stop-row"
+                    onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
+                  >
+                    <span className="schedule-stop-row__name">{stop.name}</span>
+                    <span className="schedule-stop-row__cta">Jadwal →</span>
+                  </button>
+                )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+    </section>
+  )
 
-      {isSearching ? (
-        <section className="schedule-search-results" aria-label="Hasil pencarian">
-          <p className="eyebrow">HASIL PENCARIAN</p>
+  const searchResults = (
+    <section className="schedule-search-results" aria-label="Hasil pencarian">
+      <p className="eyebrow">HASIL PENCARIAN</p>
+      {mode === 'bus' ? (
+        <>
           {filteredRoutes.map((route) => {
             const expanded = expandedRoute === route.id
             const stops = routeStops[route.id]
@@ -1841,7 +2120,7 @@ function SchedulePage() {
                         key={stop.id}
                         type="button"
                         className="schedule-stop-row"
-                        onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+                        onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
                       >
                         <span className="schedule-stop-row__name">{stop.name}</span>
                         <span className="schedule-stop-row__cta">Jadwal →</span>
@@ -1857,7 +2136,7 @@ function SchedulePage() {
               key={`stop-${stop.id}`}
               type="button"
               className="schedule-stop-row"
-              onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+              onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
             >
               <span className="schedule-result-tag schedule-result-tag--stop">HALTE</span>
               <span className="schedule-stop-row__name">{stop.name}</span>
@@ -1865,22 +2144,24 @@ function SchedulePage() {
             </button>
           ))}
           {filteredRoutes.length === 0 && searchStops.length === 0 ? <p className="schedule-routes__loading">Tidak ada halte atau trayek yang cocok.</p> : null}
-        </section>
+        </>
       ) : (
-        <section className="schedule-routes" aria-label="Daftar trayek">
-          {routes.map((route) => {
-            const expanded = expandedRoute === route.id
-            const stops = routeStops[route.id]
+        <>
+          {filteredRailLines.map((line) => {
+            const key = `${line.operator}:${line.code}`
+            const expanded = expandedRoute === key
+            const stops = routeStops[key]
             return (
-              <div className="schedule-route" key={route.id}>
+              <div className="schedule-route" key={`rail-${key}`}>
                 <button
                   type="button"
                   className="schedule-route__head"
                   aria-expanded={expanded}
-                  onClick={() => { void toggleRoute(route.id) }}
+                  onClick={() => { void toggleRailLine(key) }}
                 >
-                  <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
-                  <span className="schedule-route__name">{route.long_name}</span>
+                  <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
+                  <span className="schedule-route__name">{line.name}</span>
+                  <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
                   <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
                 </button>
                 {expanded ? (
@@ -1890,19 +2171,64 @@ function SchedulePage() {
                         key={stop.id}
                         type="button"
                         className="schedule-stop-row"
-                        onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+                        onClick={() => { void openRailStopSchedule(stop.id, stop.name) }}
                       >
                         <span className="schedule-stop-row__name">{stop.name}</span>
                         <span className="schedule-stop-row__cta">Jadwal →</span>
                       </button>
-                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
+                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
                   </div>
                 ) : null}
               </div>
             )
           })}
-        </section>
+          {filteredRailLines.length === 0 ? <p className="schedule-routes__loading">Tidak ada lin yang cocok.</p> : null}
+        </>
       )}
+    </section>
+  )
+
+  return (
+    <main className="page-content inner-page">
+      <section className="page-intro">
+        <p className="eyebrow">JADWAL TRANSJAKARTA & KERETA / GTFS + LIVE</p>
+        <h2>Jadwal halte & stasiun</h2>
+        <p>Pilih moda, buka trayek/lin, lalu lihat jadwal kedatangan per rute plus ETA live bila tersedia.</p>
+      </section>
+
+      <div className="schedule-mode-toggle" role="tablist" aria-label="Pilih moda">
+        <button
+          type="button"
+          className={`schedule-mode-btn${mode === 'bus' ? ' schedule-mode-btn--active' : ''}`}
+          onClick={() => { setMode('bus'); setExpandedRoute(null) }}
+          aria-selected={mode === 'bus'}
+          role="tab"
+        >
+          Bus
+        </button>
+        <button
+          type="button"
+          className={`schedule-mode-btn${mode === 'rail' ? ' schedule-mode-btn--active' : ''}`}
+          onClick={() => { setMode('rail'); setExpandedRoute(null) }}
+          aria-selected={mode === 'rail'}
+          role="tab"
+        >
+          Kereta
+        </button>
+      </div>
+
+      <section className="schedule-search" role="search">
+        <label className="sr-only" htmlFor="schedule-search">{mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}</label>
+        <span className="schedule-search__icon" aria-hidden="true">⌕</span>
+        <input
+          id="schedule-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}
+        />
+      </section>
+
+      {isSearching ? searchResults : (mode === 'rail' ? railList : busList)}
     </main>
   )
 }
