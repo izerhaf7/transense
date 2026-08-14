@@ -288,15 +288,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
         if feed is None:
             raise HTTPException(status_code=503, detail="GTFS feed not loaded")
-        trip_id = _first_trip_for(route_id, feed)
-        if not trip_id:
+        shape_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for trip in feed.trips.values():
+            if trip.route_id == route_id and trip.shape_id and trip.shape_id not in seen_ids:
+                seen_ids.add(trip.shape_id)
+                shape_ids.append(trip.shape_id)
+        if not shape_ids:
             raise HTTPException(status_code=404, detail="route not found")
-        trip = feed.trips.get(trip_id)
-        if not trip or not trip.shape_id:
-            return {"coordinates": [], "source": "gtfs"}
-        points = feed.shapes.get(trip.shape_id, [])
+        lines: list[list[list[float]]] = []
+        seen_geoms: set[tuple[tuple[float, float], ...]] = set()
+        for shape_id in shape_ids:
+            points = feed.shapes.get(shape_id, [])
+            if len(points) < 2:
+                continue
+            coords = [[pt.lng, pt.lat] for pt in points]
+            geom_key = tuple((round(pt.lat, 5), round(pt.lng, 5)) for pt in points)
+            if geom_key in seen_geoms:
+                continue
+            seen_geoms.add(geom_key)
+            lines.append(coords)
         return {
-            "coordinates": [[pt.lng, pt.lat] for pt in points],
+            "coordinates": lines[0] if lines else [],
+            "lines": lines,
             "source": "gtfs",
         }
 
@@ -695,13 +709,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return
 
     return application
-
-
-def _first_trip_for(route_id: str, feed: "GtfsFeed") -> str | None:
-    for trip_id, trip in feed.trips.items():
-        if trip.route_id == route_id:
-            return trip_id
-    return None
 
 
 def _default_plan_now() -> datetime:

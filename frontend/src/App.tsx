@@ -1509,8 +1509,12 @@ function HomePage({
         try {
           const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
           if (!shapeRes.ok) continue
-          const shapeData = await shapeRes.json() as { coordinates: [number, number][] }
-          if (shapeData.coordinates.length) shapes.push({ id: route.id, name: route.name, color: route.color, coordinates: shapeData.coordinates })
+          const shapeData = await shapeRes.json() as { coordinates: [number, number][]; lines?: [number, number][][] }
+          const lines = shapeData.lines?.length ? shapeData.lines : (shapeData.coordinates.length ? [shapeData.coordinates] : [])
+          lines.forEach((coords, i) => {
+            if (coords.length < 2) return
+            shapes.push({ id: `${route.id}#${i}`, name: route.name, color: route.color, coordinates: coords })
+          })
         } catch { /* skip */ }
       }
       setRouteShapes(shapes)
