@@ -1747,6 +1747,55 @@ function SchedulePage() {
 
   const isSearching = query.trim().length > 0
 
+  if (selectedStop) {
+    return (
+      <main className="page-content inner-page">
+        <section className="schedule-detail" aria-label={`Jadwal halte ${selectedStop.name}`}>
+          <div className="schedule-detail__header">
+            <button type="button" className="schedule-detail__back" onClick={() => setSelectedStop(null)}>← Kembali</button>
+            <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal">✕</button>
+          </div>
+          <div>
+            <p className="eyebrow">JADWAL KEDATANGAN</p>
+            <h3>{selectedStop.name}</h3>
+          </div>
+          {loadingSchedule ? <p className="schedule-routes__loading">Memuat jadwal…</p> : null}
+          {schedule && schedule.live.length > 0 ? (
+            <div className="schedule-detail__live">
+              <p className="eyebrow">LIVE — BUS MENDEKAT</p>
+              {schedule.live.map((bus) => (
+                <div className="schedule-detail__live-row" key={`${bus.bus_id}-${bus.route_code}`}>
+                  <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? '#1677ff' }}>{bus.route_code}</span>
+                  <span className="schedule-detail__live-eta">{bus.eta_minutes} menit</span>
+                  <span className="schedule-detail__live-headsign">{bus.headsign}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {schedule && schedule.timetable.length > 0 ? (
+            <div className="schedule-detail__timetable">
+              <p className="eyebrow">JADWAL PER RUTE</p>
+              {schedule.timetable.map((group) => (
+                <div className="schedule-detail__group" key={`${group.route_code}-${group.headsign}`}>
+                  <div className="schedule-detail__group-head">
+                    <span className="schedule-route__badge" style={{ background: group.color }}>{group.route_code}</span>
+                    <span className="schedule-detail__group-headsign">{group.headsign}</span>
+                  </div>
+                  <div className="schedule-detail__times">
+                    {group.times.map((time) => <span className="schedule-detail__time" key={time}>{time}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {schedule && schedule.timetable.length === 0 && schedule.live.length === 0 && !loadingSchedule ? (
+            <p className="schedule-routes__loading">Tidak ada jadwal untuk halte ini.</p>
+          ) : null}
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
@@ -1766,24 +1815,36 @@ function SchedulePage() {
         />
       </section>
 
-      {isSearching && searchStops.length > 0 ? (
-        <section className="schedule-search-results" aria-label="Hasil pencarian halte">
-          <p className="eyebrow">HALTE DITEMUKAN</p>
+      {isSearching ? (
+        <section className="schedule-search-results" aria-label="Hasil pencarian">
+          <p className="eyebrow">HASIL PENCARIAN</p>
+          {filteredRoutes.map((route) => (
+            <button
+              key={`route-${route.id}`}
+              type="button"
+              className="schedule-stop-row"
+              onClick={() => { void toggleRoute(route.id) }}
+            >
+              <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
+              <span className="schedule-stop-row__name schedule-stop-row__name--route">{route.long_name}</span>
+              <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
+            </button>
+          ))}
           {searchStops.map((stop) => (
             <button
-              key={stop.id}
+              key={`stop-${stop.id}`}
               type="button"
               className="schedule-stop-row"
               onClick={() => { void openStopSchedule(stop.id, stop.name) }}
             >
+              <span className="schedule-result-tag schedule-result-tag--stop">HALTE</span>
               <span className="schedule-stop-row__name">{stop.name}</span>
               <span className="schedule-stop-row__cta">Jadwal →</span>
             </button>
           ))}
+          {filteredRoutes.length === 0 && searchStops.length === 0 ? <p className="schedule-routes__loading">Tidak ada halte atau trayek yang cocok.</p> : null}
         </section>
-      ) : null}
-
-      {!isSearching ? (
+      ) : (
         <section className="schedule-routes" aria-label="Daftar trayek">
           {routes.map((route) => {
             const expanded = expandedRoute === route.id
@@ -1819,84 +1880,7 @@ function SchedulePage() {
             )
           })}
         </section>
-      ) : (
-        <section className="schedule-routes" aria-label="Trayek cocok">
-          {filteredRoutes.map((route) => (
-            <div className="schedule-route" key={route.id}>
-              <button
-                type="button"
-                className="schedule-route__head"
-                aria-expanded={expandedRoute === route.id}
-                onClick={() => { void toggleRoute(route.id) }}
-              >
-                <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
-                <span className="schedule-route__name">{route.long_name}</span>
-                <span className="schedule-route__toggle" aria-hidden="true">{expandedRoute === route.id ? '−' : '+'}</span>
-              </button>
-              {expandedRoute === route.id ? (
-                <div className="schedule-route__stops">
-                  {(routeStops[route.id] ?? []).map((stop) => (
-                    <button
-                      key={stop.id}
-                      type="button"
-                      className="schedule-stop-row"
-                      onClick={() => { void openStopSchedule(stop.id, stop.name) }}
-                    >
-                      <span className="schedule-stop-row__name">{stop.name}</span>
-                      <span className="schedule-stop-row__cta">Jadwal →</span>
-                    </button>
-                  ))}
-                  {loadingStops && !routeStops[route.id] ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </section>
       )}
-
-      {selectedStop ? (
-        <section className="schedule-detail" aria-label={`Jadwal halte ${selectedStop.name}`}>
-          <div className="schedule-detail__header">
-            <div>
-              <p className="eyebrow">JADWAL KEDATANGAN</p>
-              <h3>{selectedStop.name}</h3>
-            </div>
-            <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal">✕</button>
-          </div>
-          {loadingSchedule ? <p className="schedule-routes__loading">Memuat jadwal…</p> : null}
-          {schedule && schedule.live.length > 0 ? (
-            <div className="schedule-detail__live">
-              <p className="eyebrow">LIVE — BUS MENDEKAT</p>
-              {schedule.live.map((bus) => (
-                <div className="schedule-detail__live-row" key={`${bus.bus_id}-${bus.route_code}`}>
-                  <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? '#1677ff' }}>{bus.route_code}</span>
-                  <span className="schedule-detail__live-eta">{bus.eta_minutes} menit</span>
-                  <span className="schedule-detail__live-headsign">{bus.headsign}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {schedule && schedule.timetable.length > 0 ? (
-            <div className="schedule-detail__timetable">
-              <p className="eyebrow">JADWAL PER RUTE</p>
-              {schedule.timetable.map((group) => (
-                <div className="schedule-detail__group" key={`${group.route_code}-${group.headsign}`}>
-                  <div className="schedule-detail__group-head">
-                    <span className="schedule-route__badge" style={{ background: group.color }}>{group.route_code}</span>
-                    <span className="schedule-detail__group-headsign">{group.headsign}</span>
-                  </div>
-                  <div className="schedule-detail__times">
-                    {group.times.map((time) => <span className="schedule-detail__time" key={time}>{time}</span>)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {schedule && schedule.timetable.length === 0 && schedule.live.length === 0 && !loadingSchedule ? (
-            <p className="schedule-routes__loading">Tidak ada jadwal untuk halte ini.</p>
-          ) : null}
-        </section>
-      ) : null}
     </main>
   )
 }
