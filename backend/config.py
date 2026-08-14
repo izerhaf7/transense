@@ -31,6 +31,7 @@ class Settings:
     gtfs_cache_path: str = "backend/gtfs_cache.zip"
     commute_api_base: str = "https://api.commute.shiorilabs.id"
     commute_enabled: bool = True
+    rail_geometry_path: str = "backend/data/rail_geometry.json"
     realtime_enabled: bool = False
     realtime_api_base: str = "https://tijeapi.transjakarta.co.id"
     realtime_poll_interval: int = 15
@@ -57,6 +58,7 @@ class Settings:
             gtfs_cache_path=os.getenv("TRANSENSE_GTFS_CACHE_PATH", "backend/gtfs_cache.zip"),
             commute_api_base=os.getenv("TRANSENSE_COMMUTE_API_BASE", "https://api.commute.shiorilabs.id"),
             commute_enabled=os.getenv("TRANSENSE_COMMUTE_ENABLED", "1").strip().lower() in ("1", "true", "yes"),
+            rail_geometry_path=os.getenv("TRANSENSE_RAIL_GEOMETRY_PATH", "backend/data/rail_geometry.json"),
             realtime_enabled=os.getenv("TRANSENSE_REALTIME_ENABLED", "").strip().lower() in ("1", "true", "yes"),
             realtime_api_base=os.getenv("TRANSENSE_REALTIME_API_BASE", "https://tijeapi.transjakarta.co.id"),
             realtime_poll_interval=int(os.getenv("TRANSENSE_REALTIME_POLL_INTERVAL", "15")),

@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     app.state.commute_feed: CommuteFeed | None = None
     app.state.commute_error: str | None = None
     app.state.commute_line_geometry: dict[str, list[dict[str, Any]]] = {}
+    app.state.rail_geometry: dict[str, list[list[list[float]]]] = {}
 
     settings: Settings = app.state.settings
     try:
@@ -62,6 +63,19 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             app.state.commute_error = str(exc)
             logger.warning("Commute feed not available: %s", exc)
+
+    try:
+        geometry_path = Path(settings.rail_geometry_path)
+        if geometry_path.is_file():
+            raw = json.loads(geometry_path.read_text(encoding="utf-8"))
+            for line in raw.get("lines", []):
+                key = f"{line.get('operator')}:{line.get('code')}"
+                segments = line.get("segments") or []
+                if key and segments:
+                    app.state.rail_geometry[key] = segments
+            logger.info("Rail geometry loaded: %d lines", len(app.state.rail_geometry))
+    except Exception as exc:
+        logger.warning("Rail geometry not available: %s", exc)
 
     if settings.realtime_enabled:
         try:
@@ -512,6 +526,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
         if feed is None:
             return {"lines": [], "source": "unavailable"}
+        rail_geometry: dict[str, list[list[list[float]]]] = getattr(application.state, "rail_geometry", {})
         cache: dict[str, list[dict[str, Any]]] = getattr(application.state, "commute_line_geometry", None)
         if cache is None:
             cache = {}
@@ -519,18 +534,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         result = []
         for line in feed.lines:
             key = f"{line.operator}:{line.code}"
-            if key not in cache:
-                cache[key] = _commute_line_stations(application, line)
-            stations = cache[key]
-            coords = [[s["lng"], s["lat"]] for s in stations if s.get("lng") is not None and s.get("lat") is not None]
             color = f"#{line.color}" if line.color and not line.color.startswith("#") else (line.color or "#1677ff")
+            segments: list[list[list[float]]] = []
+            source = "commute"
+            if key in rail_geometry:
+                segments = rail_geometry[key]
+                source = "ritj-2021"
+            else:
+                if key not in cache:
+                    cache[key] = _commute_line_stations(application, line)
+                stations = cache[key]
+                coords = [[s["lng"], s["lat"]] for s in stations if s.get("lng") is not None and s.get("lat") is not None]
+                if len(coords) >= 2:
+                    segments = [coords]
             result.append({
                 "operator": line.operator,
                 "code": line.code,
                 "name": line.name,
                 "color": color,
                 "mode_label": mode_label(line.mode),
-                "coordinates": coords,
+                "segments": segments,
+                "source": source,
             })
         return {"lines": result, "source": "commute"}
 

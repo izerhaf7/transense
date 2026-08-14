@@ -41,7 +41,7 @@ export interface RailLine {
   name: string
   color: string
   mode_label: string
-  coordinates: [number, number][]
+  segments: [number, number][][]
 }
 
 export interface RailStation {
@@ -231,7 +231,8 @@ function MapboxMap({
     }
 
     for (const line of railLines ?? []) {
-      if (line.coordinates.length < 2) continue
+      const validSegments = line.segments.filter((seg) => seg.length >= 2)
+      if (validSegments.length === 0) continue
       const sourceId = `rail-${line.operator}:${line.code}`
       if (map.getSource(sourceId)) continue
       map.addSource(sourceId, {
@@ -239,7 +240,7 @@ function MapboxMap({
         data: {
           type: 'Feature',
           properties: { name: line.name },
-          geometry: { type: 'LineString', coordinates: line.coordinates },
+          geometry: { type: 'MultiLineString', coordinates: validSegments },
         },
       })
       map.addLayer({

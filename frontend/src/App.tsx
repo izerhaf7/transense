@@ -1406,7 +1406,7 @@ function HomePage({
   const [showBus, setShowBus] = useState(true)
   const [showRail, setShowRail] = useState(true)
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
-  const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; coordinates: [number, number][] }[]>([])
+  const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
 
   useEffect(() => {
@@ -1414,7 +1414,7 @@ function HomePage({
     fetch(`${apiBaseUrl}/api/transit/lines/geometry`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) return
-        const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; coordinates: [number, number][] }[] }
+        const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[] }
         setRailLines(data.lines)
       })
       .catch(() => {})
