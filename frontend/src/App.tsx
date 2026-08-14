@@ -1405,6 +1405,7 @@ function HomePage({
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [showBus, setShowBus] = useState(true)
   const [showRail, setShowRail] = useState(true)
+  const [selectedRailKeys, setSelectedRailKeys] = useState<Set<string>>(new Set())
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
@@ -1416,6 +1417,7 @@ function HomePage({
         if (!res.ok) return
         const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[] }
         setRailLines(data.lines)
+        setSelectedRailKeys(new Set(data.lines.map((l) => `${l.operator}:${l.code}`)))
       })
       .catch(() => {})
     return () => controller.abort()
@@ -1530,6 +1532,35 @@ function HomePage({
     return new Map(allRoutes.map((r) => [r.name, r.color]))
   }, [allRoutes])
 
+  const toggleRailLine = (key: string) => {
+    setSelectedRailKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const railAllSelected = railLines.length > 0 && selectedRailKeys.size === railLines.length
+
+  const toggleAllRail = () => {
+    if (railAllSelected) {
+      setSelectedRailKeys(new Set())
+    } else {
+      setSelectedRailKeys(new Set(railLines.map((l) => `${l.operator}:${l.code}`)))
+    }
+  }
+
+  const filteredRailLines = useMemo(() => {
+    if (!showRail || selectedRailKeys.size === 0) return []
+    return railLines.filter((l) => selectedRailKeys.has(`${l.operator}:${l.code}`))
+  }, [showRail, railLines, selectedRailKeys])
+
+  const filteredRailStations = useMemo(() => {
+    if (!showRail || selectedRailKeys.size === 0) return []
+    return railStations.filter((s) => s.lines.some((lk) => selectedRailKeys.has(lk)))
+  }, [showRail, railStations, selectedRailKeys])
+
   const handleStopClick = async (stopId: string) => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/info`)
@@ -1607,6 +1638,30 @@ function HomePage({
                   <span className="map-filter-mode__tag map-filter-mode__tag--rail">Kereta</span>
                 </label>
               </div>
+              {showRail ? (
+                <>
+                  <div className="map-filter-panel__line-head">
+                    <p className="map-filter-panel__section">LIN KERETA</p>
+                    <button className="map-filter-panel__select-all" type="button" onClick={toggleAllRail}>
+                      {railAllSelected ? 'Hapus semua' : 'Pilih semua'}
+                    </button>
+                  </div>
+                  <div className="map-filter-rail-list">
+                    {railLines.map((line) => {
+                      const key = `${line.operator}:${line.code}`
+                      const checked = selectedRailKeys.has(key)
+                      return (
+                        <label className="map-filter-checkbox" key={key}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleRailLine(key)} />
+                          <span className="map-filter-checkbox__swatch" style={{ background: line.color }} aria-hidden="true" />
+                          <span className="map-filter-checkbox__rail-name">{line.name}</span>
+                          <span className="map-filter-checkbox__mode">{line.mode_label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : null}
               <p className="map-filter-panel__section">RUTE BUS</p>
               <div className="map-filter-panel__list">
                 {allRoutes.map((route) => (
@@ -1628,8 +1683,8 @@ function HomePage({
             stopPopup={showBus ? stopInfo : null}
             onStopClick={(id) => { void handleStopClick(id) }}
             onStopPopupClose={() => setStopInfo(null)}
-            railLines={showRail ? railLines : []}
-            railStations={showRail ? railStations : []}
+            railLines={filteredRailLines}
+            railStations={filteredRailStations}
           />
         </div>
         <button
