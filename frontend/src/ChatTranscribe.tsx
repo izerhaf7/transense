@@ -55,6 +55,7 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
 
   const scribe = useScribe({
     modelId: 'scribe_v2_realtime',
+    languageCode: 'id',
     commitStrategy: CommitStrategy.VAD,
     vadSilenceThresholdSecs: 1.5,
     onError: (error: Error | Event) => {
