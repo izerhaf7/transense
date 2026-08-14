@@ -29,6 +29,8 @@ class Settings:
     elevenlabs_api_key: str | None = None
     gtfs_url: str = "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"
     gtfs_cache_path: str = "backend/gtfs_cache.zip"
+    commute_api_base: str = "https://api.commute.shiorilabs.id"
+    commute_enabled: bool = True
     realtime_enabled: bool = False
     realtime_api_base: str = "https://tijeapi.transjakarta.co.id"
     realtime_poll_interval: int = 15
@@ -53,6 +55,8 @@ class Settings:
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY") or None,
             gtfs_url=os.getenv("TRANSENSE_GTFS_URL", "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"),
             gtfs_cache_path=os.getenv("TRANSENSE_GTFS_CACHE_PATH", "backend/gtfs_cache.zip"),
+            commute_api_base=os.getenv("TRANSENSE_COMMUTE_API_BASE", "https://api.commute.shiorilabs.id"),
+            commute_enabled=os.getenv("TRANSENSE_COMMUTE_ENABLED", "1").strip().lower() in ("1", "true", "yes"),
             realtime_enabled=os.getenv("TRANSENSE_REALTIME_ENABLED", "").strip().lower() in ("1", "true", "yes"),
             realtime_api_base=os.getenv("TRANSENSE_REALTIME_API_BASE", "https://tijeapi.transjakarta.co.id"),
             realtime_poll_interval=int(os.getenv("TRANSENSE_REALTIME_POLL_INTERVAL", "15")),

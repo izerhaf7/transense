@@ -35,6 +35,15 @@ export interface WalkLine {
   to: { lng: number; lat: number }
 }
 
+export interface RailLine {
+  operator: string
+  code: string
+  name: string
+  color: string
+  mode_label: string
+  coordinates: [number, number][]
+}
+
 interface MapStop extends Stop {
   wheelchair_boarding?: string
   platform_code?: string
@@ -57,6 +66,7 @@ function MapboxMap({
   routeColors,
   stopPopup,
   onStopPopupClose,
+  railLines,
 }: {
   stops: MapStop[]
   routeShapes?: RouteShape[]
@@ -67,6 +77,7 @@ function MapboxMap({
   routeColors?: Map<string, string>
   stopPopup?: StopPopupData | null
   onStopPopupClose?: () => void
+  railLines?: RailLine[]
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -187,6 +198,44 @@ function MapboxMap({
       })
     }
   }, [routeShapes, walkLegs])
+
+  // Rail lines (KCI/MRT/LRT) — always-on, distinct layer prefix.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    const wanted = new Set((railLines ?? []).map((l) => `${l.operator}:${l.code}`))
+    const style = map.getStyle()
+    for (const id of Object.keys(style.sources ?? {})) {
+      if (!id.startsWith('rail-')) continue
+      const key = id.slice('rail-'.length)
+      if (!wanted.has(key)) {
+        if (map.getLayer(`layer-${id}`)) map.removeLayer(`layer-${id}`)
+        if (map.getSource(id)) map.removeSource(id)
+      }
+    }
+
+    for (const line of railLines ?? []) {
+      if (line.coordinates.length < 2) continue
+      const sourceId = `rail-${line.operator}:${line.code}`
+      if (map.getSource(sourceId)) continue
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: { name: line.name },
+          geometry: { type: 'LineString', coordinates: line.coordinates },
+        },
+      })
+      map.addLayer({
+        id: `layer-${sourceId}`,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': line.color, 'line-width': 4, 'line-opacity': 0.85 },
+      })
+    }
+  }, [railLines])
 
   // Stop markers: render only when zoomed in, or for selected route stops.
   const renderStops = () => {

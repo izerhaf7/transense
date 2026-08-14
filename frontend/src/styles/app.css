@@ -1387,6 +1387,32 @@ input[aria-invalid='true'] {
 
 /* ---- Schedule halte (GTFS + live) ---- */
 
+.schedule-mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--brand-space-xxs);
+  margin-bottom: var(--brand-space-base);
+  padding: var(--brand-space-xxs);
+  background: var(--brand-color-bg-subtle, #f5f7fa);
+  border-radius: var(--brand-radius-pill);
+}
+
+.schedule-mode-btn {
+  min-height: var(--brand-control-height-base);
+  padding: 0 var(--brand-space-base);
+  color: var(--brand-color-text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--brand-radius-pill);
+  font-weight: var(--brand-font-weight-strong);
+  cursor: pointer;
+}
+
+.schedule-mode-btn--active {
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+}
+
 .schedule-search {
   position: relative;
   display: flex;
@@ -1534,6 +1560,19 @@ input[aria-invalid='true'] {
   color: var(--brand-color-text);
   background: var(--brand-color-bg-subtle, #f5f7fa);
   border: var(--brand-border-width) solid var(--brand-color-border);
+}
+
+.schedule-result-tag--rail {
+  color: #fff;
+  background: #64748b;
+  border: var(--brand-border-width) solid #64748b;
+}
+
+.schedule-detail__platform {
+  margin-left: auto;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  white-space: nowrap;
 }
 
 .schedule-routes__loading {
