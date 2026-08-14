@@ -15,7 +15,7 @@ from starlette.websockets import WebSocketDisconnect
 from .config import Settings
 from .conversation import (ConversationError, create_conversation, delete_conversation,
                            list_conversations, update_conversation)
-from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label
+from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label, service_active_on
 from .persistence import DemoStore
 from .planner import itinerary_to_dict, plan_trip
 from .notifications import NotificationEngine
@@ -283,6 +283,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             })
         return {"routes": result, "source": "gtfs"}
 
+    @application.get("/api/gtfs/route/{route_id}/stops", response_model=None)
+    async def gtfs_route_stops(route_id: str) -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            raise HTTPException(status_code=503, detail="GTFS feed not loaded")
+        if route_id not in feed.routes:
+            raise HTTPException(status_code=404, detail="route not found")
+        stops = _route_station_stops(feed, route_id)
+        return {"stops": stops, "source": "gtfs"}
+
     @application.get("/api/gtfs/route/{route_id}/shape", response_model=None)
     async def gtfs_route_shape(route_id: str) -> dict[str, Any]:
         feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
@@ -363,6 +373,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             "routes": routes_info,
             "arrivals": arrivals,
+            "source": "gtfs",
+        }
+
+    @application.get("/api/gtfs/stop/{stop_id}/schedule", response_model=None)
+    async def gtfs_stop_schedule(stop_id: str) -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            raise HTTPException(status_code=503, detail="GTFS feed not loaded")
+        stop = feed.stops.get(stop_id)
+        if stop is None:
+            raise HTTPException(status_code=404, detail="stop not found")
+
+        today = date_cls.today()
+        timetable = _stop_timetable(feed, stop_id, today)
+
+        client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
+        live: list[dict[str, Any]] = []
+        if client is not None:
+            try:
+                buses = client.get_buses(lat=stop.lat, lng=stop.lng, radius_km=3.0)
+                for bus in buses:
+                    eta = _bus_eta_to_stop(bus, stop_id)
+                    if eta is None:
+                        continue
+                    live.append({
+                        "bus_id": bus.bus_id,
+                        "route_code": bus.route_code,
+                        "eta_minutes": eta,
+                        "headsign": _headsign_for_bus(feed, bus.trip_id, bus.route_code) if bus.trip_id else bus.route_code,
+                    })
+            except TjApiError:
+                live = []
+        live.sort(key=lambda a: a["eta_minutes"])
+
+        return {
+            "stop": {
+                "id": stop.stop_id,
+                "name": stop.name,
+                "lat": stop.lat,
+                "lng": stop.lng,
+                "wheelchair_boarding": stop.wheelchair_boarding,
+            },
+            "timetable": timetable,
+            "live": live,
             "source": "gtfs",
         }
 
@@ -941,6 +995,78 @@ def _stop_route_codes(feed: "GtfsFeed", stop_id: str) -> list[str]:
 def _route_by_code(feed: "GtfsFeed", route_code: str):
     routes = feed.routes_by_short_name.get(_normalize_short(route_code), [])
     return routes[0] if routes else None
+
+
+def _stop_platform_ids(feed: "GtfsFeed", stop_id: str) -> set[str]:
+    stop = feed.stops.get(stop_id)
+    if stop is None:
+        return {stop_id}
+    if stop.location_type == "1" or not stop.parent_station:
+        station_id = stop.stop_id
+    else:
+        station_id = stop.parent_station
+    platform_ids = {station_id}
+    for sid, s in feed.stops.items():
+        if s.parent_station == station_id:
+            platform_ids.add(sid)
+    return platform_ids
+
+
+def _route_station_stops(feed: "GtfsFeed", route_id: str) -> list[dict[str, Any]]:
+    stop_ids = feed.stop_ids_by_route.get(route_id, [])
+    ordered: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for sid in stop_ids:
+        s = feed.stops.get(sid)
+        if s is None:
+            continue
+        station_id = s.stop_id if (s.location_type == "1" or not s.parent_station) else s.parent_station
+        if not station_id or station_id in seen:
+            continue
+        station = feed.stops.get(station_id)
+        seen.add(station_id)
+        ordered.append({
+            "id": station_id,
+            "name": station.name if station else station_id,
+            "lat": station.lat if station else s.lat,
+            "lng": station.lng if station else s.lng,
+        })
+    return ordered
+
+
+def _stop_timetable(feed: "GtfsFeed", stop_id: str, date: date_cls) -> list[dict[str, Any]]:
+    platform_ids = _stop_platform_ids(feed, stop_id)
+    grouped: dict[tuple[str, str, str], list[str]] = {}
+    for trip_id, stop_times in feed.stop_times.items():
+        trip = feed.trips.get(trip_id)
+        if trip is None:
+            continue
+        if trip.service_id and not service_active_on(feed, trip.service_id, date):
+            continue
+        route = feed.routes.get(trip.route_id)
+        if route is None:
+            continue
+        for st in stop_times:
+            if st.stop_id not in platform_ids:
+                continue
+            arrival = st.arrival_time[:5]
+            if not arrival:
+                continue
+            key = (route.short_name, trip.headsign, str(trip.direction_id))
+            grouped.setdefault(key, []).append(arrival)
+
+    result: list[dict[str, Any]] = []
+    for (short_name, headsign, direction), times in grouped.items():
+        route = _route_by_code(feed, short_name)
+        result.append({
+            "route_code": short_name,
+            "color": f"#{route.color}" if route and route.color else "#1677ff",
+            "headsign": headsign,
+            "direction": direction,
+            "times": sorted(times),
+        })
+    result.sort(key=lambda r: (r["route_code"], r["headsign"]))
+    return result
 
 
 def _bus_eta_to_stop(bus: "RealtimeBus", stop_id: str) -> int | None:

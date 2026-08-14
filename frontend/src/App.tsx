@@ -3,7 +3,6 @@ import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 're
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
 import {
-  areVibrationPatternsDistinct,
   cloneTransitState,
   SEEDED_TRANSIT_STATE,
   VIBRATION_PATTERNS,
@@ -177,13 +176,6 @@ interface IncidentRecord {
   updatedAt: string
   pinned: boolean
   simulated: boolean
-}
-
-interface OptionalStaticData {
-  stops: Stop[]
-  routes: Route[]
-  timetableCount: number
-  sourceLabel: string
 }
 
 interface BackendConnection {
@@ -1029,76 +1021,6 @@ function useBackendConnection(): BackendConnection {
   }
 }
 
-function mapOptionalStaticData(value: unknown): OptionalStaticData | null {
-  if (!isRecord(value)) return null
-  const payload = isRecord(value.data) ? value.data : value
-  const source = typeof value.source === 'string' ? value.source : ''
-  const attribution = typeof value.attribution === 'string' ? value.attribution : ''
-  const rawStops = Array.isArray(payload.stops) ? payload.stops : payload.stations
-  const rawRoutes = Array.isArray(payload.routes) ? payload.routes : payload.lines
-  const rawTimetables = payload.timetables
-  if (!Array.isArray(rawStops) || !Array.isArray(rawRoutes) || !Array.isArray(rawTimetables) || !rawTimetables.length) return null
-
-  const stops = rawStops.flatMap((candidate): Stop[] => {
-    if (!isRecord(candidate)) return []
-    const id = typeof candidate.id === 'string' ? candidate.id : typeof candidate.station_id === 'string' ? candidate.station_id : ''
-    const name = typeof candidate.name === 'string' ? candidate.name : typeof candidate.station_name === 'string' ? candidate.station_name : ''
-    return id && name ? [{ id, name }] : []
-  })
-  const routes = rawRoutes.flatMap((candidate): Route[] => {
-    if (!isRecord(candidate)) return []
-    const id = typeof candidate.id === 'string' ? candidate.id : typeof candidate.line_id === 'string' ? candidate.line_id : ''
-    const name = typeof candidate.name === 'string' ? candidate.name : typeof candidate.line_name === 'string' ? candidate.line_name : ''
-    const rawStopIds = Array.isArray(candidate.stop_ids) ? candidate.stop_ids : candidate.station_ids
-    const stopIds = Array.isArray(rawStopIds) ? rawStopIds.filter((stopId): stopId is string => typeof stopId === 'string') : []
-    return id && name && stopIds.length ? [{ id, name, stop_ids: stopIds }] : []
-  })
-  if (!stops.length || !routes.length || routes.some((route) => route.stop_ids.some((stopId) => !stops.some((stop) => stop.id === stopId)))) {
-    return null
-  }
-
-  const sourceLabel = source === 'seed' ? 'Seed demo' : attribution || 'Commute Data Platform · ODbL-1.0'
-  return { stops, routes, timetableCount: rawTimetables.length, sourceLabel }
-}
-
-function useOptionalStaticData(fallbackState: TransitState): { state: TransitState; detail: string; source: 'seed' | 'optional' | 'fallback' } {
-  const configuredSource = `${apiBaseUrl}/api/schedule`
-  const [result, setResult] = useState<{ data: OptionalStaticData | null; detail: string; source: 'seed' | 'optional' | 'fallback' }>(() => ({
-    data: null,
-    detail: 'Memeriksa sumber jadwal statis melalui backend demo…',
-    source: 'fallback',
-  }))
-
-  useEffect(() => {
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 4000)
-    fetch(configuredSource, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return mapOptionalStaticData(await response.json())
-      })
-      .then((data) => {
-        if (!data) throw new Error('mapping stasiun/lin tidak valid')
-         const source = data.sourceLabel === 'Seed demo' ? 'seed' : 'optional'
-         setResult({ data, detail: `${data.sourceLabel} digunakan untuk ${data.timetableCount} timetable statis.`, source })
-      })
-      .catch((error: unknown) => {
-        const detail = error instanceof DOMException && error.name === 'AbortError'
-          ? 'Commute API melewati batas waktu; memakai seed demo.'
-          : `Commute API gagal; memakai seed demo (${error instanceof Error ? error.message : 'respons tidak dikenal'}).`
-        setResult({ data: null, detail, source: 'fallback' })
-      })
-      .finally(() => window.clearTimeout(timeout))
-    return () => {
-      controller.abort()
-      window.clearTimeout(timeout)
-    }
-  }, [configuredSource])
-
-  const state = result.data ? { ...fallbackState, stops: result.data.stops, routes: result.data.routes } : fallbackState
-  return { state, detail: result.detail, source: result.source }
-}
-
 function NotificationRenderer({ notification, onDismiss }: { notification: NotificationRecord | null; onDismiss: () => void }) {
   const [flashVisible, setFlashVisible] = useState(false)
 
@@ -1713,74 +1635,274 @@ function HomePage({
   )
 }
 
-function SchedulePage({
-  transitState,
-  sourceDetail,
-  source,
-  simulationDetail,
-  onUpdate,
-  onReset,
-  onSimulateNotification,
-}: {
-  transitState: TransitState
-  sourceDetail: string
-  source: 'seed' | 'optional' | 'fallback'
-  simulationDetail: string
-  onUpdate: () => void
-  onReset: () => void
-  onSimulateNotification: (kind: Exclude<NotificationKind, 'off_route'>) => void
-}) {
-  const vibrationPatternsReady = areVibrationPatternsDistinct()
+interface GtfsRouteInfo {
+  id: string
+  name: string
+  long_name: string
+  color: string
+}
+
+interface GtfsRouteStop {
+  id: string
+  name: string
+}
+
+interface ScheduleStopGroup {
+  route_code: string
+  color: string
+  headsign: string
+  direction: string
+  times: string[]
+}
+
+interface StopScheduleData {
+  stop: { id: string; name: string; wheelchair_boarding?: string }
+  timetable: ScheduleStopGroup[]
+  live: { bus_id: string; route_code: string; eta_minutes: number; headsign: string }[]
+}
+
+function SchedulePage() {
+  const [routes, setRoutes] = useState<GtfsRouteInfo[]>([])
+  const [query, setQuery] = useState('')
+  const [expandedRoute, setExpandedRoute] = useState<string | null>(null)
+  const [routeStops, setRouteStops] = useState<Record<string, GtfsRouteStop[]>>({})
+  const [loadingStops, setLoadingStops] = useState(false)
+  const [selectedStop, setSelectedStop] = useState<{ id: string; name: string } | null>(null)
+  const [schedule, setSchedule] = useState<StopScheduleData | null>(null)
+  const [loadingSchedule, setLoadingSchedule] = useState(false)
+  const [searchStops, setSearchStops] = useState<{ id: string; name: string }[]>([])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { routes: { id: string; name: string; long_name: string; color: string }[] }
+        setRoutes(data.routes)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (!trimmed) {
+      setSearchStops([])
+      return
+    }
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { stops: { id: string; name: string }[] }
+        if (!controller.signal.aborted) setSearchStops(data.stops)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [query])
+
+  const toggleRoute = async (routeId: string) => {
+    if (expandedRoute === routeId) {
+      setExpandedRoute(null)
+      return
+    }
+    setExpandedRoute(routeId)
+    if (routeStops[routeId]) return
+    setLoadingStops(true)
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(routeId)}/stops`)
+      if (!res.ok) return
+      const data = await res.json() as { stops: GtfsRouteStop[] }
+      setRouteStops((prev) => ({ ...prev, [routeId]: data.stops }))
+    } catch { /* skip */ } finally {
+      setLoadingStops(false)
+    }
+  }
+
+  const openStopSchedule = async (stopId: string, stopName: string) => {
+    setSelectedStop({ id: stopId, name: stopName })
+    setSchedule(null)
+    setLoadingSchedule(true)
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/schedule`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as StopScheduleData
+      setSchedule(data)
+    } catch (error) {
+      console.warn('Stop schedule fetch failed.', error)
+    } finally {
+      setLoadingSchedule(false)
+    }
+  }
+
+  const filteredRoutes = useMemo(() => {
+    const trimmed = query.trim().toLocaleLowerCase('id-ID')
+    if (!trimmed) return routes
+    return routes.filter((r) =>
+      r.name.toLocaleLowerCase('id-ID').includes(trimmed)
+      || r.long_name.toLocaleLowerCase('id-ID').includes(trimmed)
+      || r.id.toLocaleLowerCase('id-ID').includes(trimmed)
+    )
+  }, [routes, query])
+
+  const isSearching = query.trim().length > 0
+
+  if (selectedStop) {
+    return (
+      <main className="page-content inner-page">
+        <section className="schedule-detail" aria-label={`Jadwal halte ${selectedStop.name}`}>
+          <div className="schedule-detail__header">
+            <button type="button" className="schedule-detail__back" onClick={() => setSelectedStop(null)}>← Kembali</button>
+            <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal">✕</button>
+          </div>
+          <div>
+            <p className="eyebrow">JADWAL KEDATANGAN</p>
+            <h3>{selectedStop.name}</h3>
+          </div>
+          {loadingSchedule ? <p className="schedule-routes__loading">Memuat jadwal…</p> : null}
+          {schedule && schedule.live.length > 0 ? (
+            <div className="schedule-detail__live">
+              <p className="eyebrow">LIVE — BUS MENDEKAT</p>
+              {schedule.live.map((bus) => (
+                <div className="schedule-detail__live-row" key={`${bus.bus_id}-${bus.route_code}`}>
+                  <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? '#1677ff' }}>{bus.route_code}</span>
+                  <span className="schedule-detail__live-eta">{bus.eta_minutes} menit</span>
+                  <span className="schedule-detail__live-headsign">{bus.headsign}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {schedule && schedule.timetable.length > 0 ? (
+            <div className="schedule-detail__timetable">
+              <p className="eyebrow">JADWAL PER RUTE</p>
+              {schedule.timetable.map((group) => (
+                <div className="schedule-detail__group" key={`${group.route_code}-${group.headsign}`}>
+                  <div className="schedule-detail__group-head">
+                    <span className="schedule-route__badge" style={{ background: group.color }}>{group.route_code}</span>
+                    <span className="schedule-detail__group-headsign">{group.headsign}</span>
+                  </div>
+                  <div className="schedule-detail__times">
+                    {group.times.map((time) => <span className="schedule-detail__time" key={time}>{time}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {schedule && schedule.timetable.length === 0 && schedule.live.length === 0 && !loadingSchedule ? (
+            <p className="schedule-routes__loading">Tidak ada jadwal untuk halte ini.</p>
+          ) : null}
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
-        <p className="eyebrow">JADWAL TRANSJAKARTA / DEMO</p>
-        <h2>Jadwal & armada</h2>
-        <p>Posisi, rute, dan ETA ini adalah simulasi seeded. Tidak mewakili feed TransJakarta live.</p>
+        <p className="eyebrow">JADWAL TRANSJAKARTA / GTFS + LIVE</p>
+        <h2>Jadwal halte</h2>
+        <p>Pilih trayek, buka halte, lalu lihat jadwal kedatangan per rute plus ETA live bila ada bus di dekatnya.</p>
       </section>
-      <div className="source-note" role="status">
-        <strong>{source === 'optional' ? 'SUMBER STATIS OPSIONAL' : 'SUMBER SEED DEMO'}</strong>
-        <span>{sourceDetail}</span>
-        {source === 'optional' ? <span>Data static source: Commute Data Platform · ODbL-1.0. Posisi live, ETA, dan insiden tetap simulasi lokal.</span> : null}
-      </div>
-      <section className="schedule-list" aria-label="Jadwal armada seeded">
-        {transitState.vehicles.map((vehicle) => {
-          const trip = transitState.trips.find((candidate) => candidate.id === vehicle.trip_id)
-          const route = trip ? transitState.routes.find((candidate) => candidate.id === trip.route_id) : undefined
-          const position = transitState.stops.find((stop) => stop.id === vehicle.position)
-          const eta = transitState.etas.find((candidate) => candidate.vehicle_id === vehicle.id)
-          const destination = eta ? transitState.stops.find((stop) => stop.id === eta.stop_id) : undefined
-          return (
-            <article className="schedule-card" key={vehicle.id}>
-              <div className="schedule-card__topline">
-                <span className="state-badge state-badge--warning">SIMULASI</span>
-                <span>{vehicle.id}</span>
+
+      <section className="schedule-search" role="search">
+        <label className="sr-only" htmlFor="schedule-search">Cari halte atau trayek</label>
+        <span className="schedule-search__icon" aria-hidden="true">⌕</span>
+        <input
+          id="schedule-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Cari halte atau trayek"
+        />
+      </section>
+
+      {isSearching ? (
+        <section className="schedule-search-results" aria-label="Hasil pencarian">
+          <p className="eyebrow">HASIL PENCARIAN</p>
+          {filteredRoutes.map((route) => {
+            const expanded = expandedRoute === route.id
+            const stops = routeStops[route.id]
+            return (
+              <div className="schedule-route" key={`route-${route.id}`}>
+                <button
+                  type="button"
+                  className="schedule-route__head"
+                  aria-expanded={expanded}
+                  onClick={() => { void toggleRoute(route.id) }}
+                >
+                  <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
+                  <span className="schedule-route__name">{route.long_name}</span>
+                  <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
+                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+                </button>
+                {expanded ? (
+                  <div className="schedule-route__stops">
+                    {stops ? stops.map((stop) => (
+                      <button
+                        key={stop.id}
+                        type="button"
+                        className="schedule-stop-row"
+                        onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+                      >
+                        <span className="schedule-stop-row__name">{stop.name}</span>
+                        <span className="schedule-stop-row__cta">Jadwal →</span>
+                      </button>
+                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
+                  </div>
+                ) : null}
               </div>
-              <h3>{route?.name || 'Rute tidak tersedia'}</h3>
-              <div className="schedule-card__route">
-                <span>{position?.name || vehicle.position}</span>
-                <span aria-hidden="true">→</span>
-                <span>{destination?.name || 'Tujuan seeded'}</span>
+            )
+          })}
+          {searchStops.map((stop) => (
+            <button
+              key={`stop-${stop.id}`}
+              type="button"
+              className="schedule-stop-row"
+              onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+            >
+              <span className="schedule-result-tag schedule-result-tag--stop">HALTE</span>
+              <span className="schedule-stop-row__name">{stop.name}</span>
+              <span className="schedule-stop-row__cta">Jadwal →</span>
+            </button>
+          ))}
+          {filteredRoutes.length === 0 && searchStops.length === 0 ? <p className="schedule-routes__loading">Tidak ada halte atau trayek yang cocok.</p> : null}
+        </section>
+      ) : (
+        <section className="schedule-routes" aria-label="Daftar trayek">
+          {routes.map((route) => {
+            const expanded = expandedRoute === route.id
+            const stops = routeStops[route.id]
+            return (
+              <div className="schedule-route" key={route.id}>
+                <button
+                  type="button"
+                  className="schedule-route__head"
+                  aria-expanded={expanded}
+                  onClick={() => { void toggleRoute(route.id) }}
+                >
+                  <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
+                  <span className="schedule-route__name">{route.long_name}</span>
+                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+                </button>
+                {expanded ? (
+                  <div className="schedule-route__stops">
+                    {stops ? stops.map((stop) => (
+                      <button
+                        key={stop.id}
+                        type="button"
+                        className="schedule-stop-row"
+                        onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+                      >
+                        <span className="schedule-stop-row__name">{stop.name}</span>
+                        <span className="schedule-stop-row__cta">Jadwal →</span>
+                      </button>
+                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
+                  </div>
+                ) : null}
               </div>
-              <div className="schedule-card__eta"><strong>{eta?.minutes ?? vehicle.eta_minutes}</strong><span>menit ETA</span></div>
-            </article>
-          )
-        })}
-      </section>
-      <section className="simulation-controls" aria-label="Kontrol schedule demo">
-        <p className="simulation-controls__detail" role="status">{simulationDetail}</p>
-        <div className="simulation-controls__actions">
-          <button className="secondary-button" type="button" onClick={onUpdate}>Maju 1 menit</button>
-          <button className="secondary-button" type="button" onClick={onReset}>Reset ke seed</button>
-        </div>
-        <div className="schedule-test-actions">
-          <p className="eyebrow">UJI KANAL NOTIFIKASI / SIMULASI</p>
-          <p className="simulation-controls__detail">{vibrationPatternsReady ? '3 pola getar terdokumentasi berbeda; visual tetap utama.' : 'Pola getar perlu diperiksa sebelum demo.'}</p>
-          <button className="secondary-button" type="button" onClick={() => onSimulateNotification('vehicle_approaching')}>Uji armada mendekat</button>
-          <button className="secondary-button" type="button" onClick={() => onSimulateNotification('destination_approaching')}>Uji halte tujuan</button>
-          <button className="secondary-button" type="button" onClick={() => onSimulateNotification('incident')}>Uji insiden</button>
-        </div>
-      </section>
+            )
+          })}
+        </section>
+      )}
     </main>
   )
 }
@@ -1877,7 +1999,6 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   const [screen, setScreen] = useState<Screen>('home')
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
-  const optionalData = useOptionalStaticData(backend.transitState || SEEDED_TRANSIT_STATE)
   const unreadNotifications = backend.notifications.filter((notification) => !dismissedNotificationIds.includes(notification.id))
   const unreadCount = unreadNotifications.length
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
@@ -1907,7 +2028,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
       {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} /> : null}
-      {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
+      {screen === 'schedule' ? <SchedulePage /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
