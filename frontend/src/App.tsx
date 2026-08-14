@@ -1476,11 +1476,13 @@ function HomePage({
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
-  const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string }[]>([])
+  const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string; stop_ids: string[] }[]>([])
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [stopInfo, setStopInfo] = useState<{ stop: { id: string; name: string; wheelchair_boarding?: string }; routes: { route_code: string; color: string }[]; arrivals: { bus_id: string; route_code: string; eta_minutes: number }[] } | null>(null)
+  const [stopInfoLoading, setStopInfoLoading] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1499,7 +1501,7 @@ function HomePage({
     const load = async () => {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
       if (!res.ok) return
-      const data = await res.json() as { routes: { id: string; name: string; color: string }[] }
+      const data = await res.json() as { routes: { id: string; name: string; color: string; stop_ids: string[] }[] }
       setAllRoutes(data.routes)
       setSelectedRoutes(new Set(data.routes.map((r) => r.name)))
       const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
@@ -1553,7 +1555,37 @@ function HomePage({
 
   const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
   const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
-  const displayStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+  const baseStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+
+  // When a subset of routes is selected, limit stops to those routes' stops.
+  const displayStops = useMemo(() => {
+    if (selectedRoutes.size === allRoutes.length || selectedRoutes.size === 0 || allRoutes.length === 0) {
+      return baseStops
+    }
+    const stopIds = new Set<string>()
+    for (const route of allRoutes) {
+      if (selectedRoutes.has(route.name)) {
+        for (const sid of route.stop_ids) stopIds.add(sid)
+      }
+    }
+    if (stopIds.size === 0) return baseStops
+    return baseStops.filter((s) => stopIds.has(s.id))
+  }, [baseStops, selectedRoutes, allRoutes])
+
+  const handleStopClick = async (stopId: string) => {
+    setStopInfoLoading(true)
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/info`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as typeof stopInfo
+      setStopInfo(data)
+    } catch (error) {
+      console.warn('Stop info fetch failed.', error)
+      setStopInfo(null)
+    } finally {
+      setStopInfoLoading(false)
+    }
+  }
 
   return (
     <main className="page-content home-page">
@@ -1621,7 +1653,30 @@ function HomePage({
               </div>
             </div>
           ) : null}
-          <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
+          <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} selectedRouteNames={selectedRoutes} onStopClick={(id) => { void handleStopClick(id) }} />
+          {stopInfo ? (
+            <div className="stop-info-panel" role="dialog" aria-label={`Info halte ${stopInfo.stop.name}`}>
+              <div className="stop-info-panel__header">
+                <strong>{stopInfo.stop.name}</strong>
+                <button className="stop-info-panel__close" type="button" onClick={() => setStopInfo(null)} aria-label="Tutup info halte">✕</button>
+              </div>
+              {stopInfo.stop.wheelchair_boarding === '1' ? <span className="state-badge state-badge--safe">AKSESIBEL KURSI RODA</span> : null}
+              {stopInfo.routes.length ? (
+                <div className="stop-info-panel__routes">
+                  <p className="eyebrow">RUTE YANG LEWAT</p>
+                  <div className="stop-info-panel__route-list">
+                    {stopInfo.routes.map((r) => <span className="stop-info-panel__route-chip" style={{ background: r.color }} key={r.route_code}>{r.route_code}</span>)}
+                  </div>
+                </div>
+              ) : null}
+              <div className="stop-info-panel__arrivals">
+                <p className="eyebrow">KEDATANGAN BUS</p>
+                {stopInfoLoading ? <p>Memuat…</p> : null}
+                {!stopInfoLoading && stopInfo.arrivals.length === 0 ? <p className="stop-info-panel__empty">Tidak ada bus yang akan tiba dalam waktu dekat.</p> : null}
+                {stopInfo.arrivals.map((a) => <p key={`${a.bus_id}-${a.eta_minutes}`}><strong>{a.route_code}</strong> · {a.eta_minutes} menit <small>({a.bus_id})</small></p>)}
+              </div>
+            </div>
+          ) : null}
         </div>
         <button
           type="button"

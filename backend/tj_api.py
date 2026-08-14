@@ -25,6 +25,17 @@ class TjApiError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class RealtimeStopEta:
+    """A downstream stop with the operator-provided ETA (minutes)."""
+
+    stop_id: str
+    name: str
+    parent_stop_id: str | None
+    parent_stop_name: str | None
+    eta_minutes: int
+
+
+@dataclass(frozen=True)
 class RealtimeBus:
     bus_id: str
     route_code: str
@@ -33,6 +44,9 @@ class RealtimeBus:
     direction_id: int | None
     trip_id: str | None
     observed_at: datetime
+    stops: tuple[RealtimeStopEta, ...] = ()
+    curr_stops: str | None = None
+    next_stops: str | None = None
 
 
 class TjRealtimeClient:
@@ -167,6 +181,9 @@ class TjRealtimeClient:
                     ),
                     trip_id=(str(row.get("trip_id")).strip() if row.get("trip_id") else None),
                     observed_at=observed,
+                    stops=_parse_stops(row.get("stops")),
+                    curr_stops=(str(row.get("curr_stops")).strip() if row.get("curr_stops") else None),
+                    next_stops=(str(row.get("next_stops")).strip() if row.get("next_stops") else None),
                 )
             )
         return buses
@@ -190,3 +207,34 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _to_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_stops(value: Any) -> tuple[RealtimeStopEta, ...]:
+    if not isinstance(value, list):
+        return ()
+    parsed: list[RealtimeStopEta] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        stop_id = (item.get("stop_id") or item.get("id") or "").strip() if isinstance(item.get("stop_id") or item.get("id"), str) else ""
+        name = (item.get("name") or "").strip() if isinstance(item.get("name"), str) else ""
+        parent_stop_id = (item.get("parent_stop_id") or "").strip() if isinstance(item.get("parent_stop_id"), str) else None
+        parent_stop_name = (item.get("parent_stop_name") or "").strip() if isinstance(item.get("parent_stop_name"), str) else None
+        eta = _to_int(item.get("eta"))
+        if not stop_id and not name:
+            continue
+        parsed.append(RealtimeStopEta(
+            stop_id=stop_id or "",
+            name=name,
+            parent_stop_id=parent_stop_id,
+            parent_stop_name=parent_stop_name,
+            eta_minutes=eta if eta is not None else 0,
+        ))
+    return tuple(parsed)
