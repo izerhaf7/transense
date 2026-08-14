@@ -832,7 +832,7 @@ input[aria-invalid='true'] {
   position: absolute;
   z-index: 6;
   top: var(--brand-space-xs);
-  right: var(--brand-space-xs);
+  left: var(--brand-space-xs);
   min-height: var(--brand-control-height-base);
   padding: 0 var(--brand-space-base);
   color: var(--brand-color-text);
