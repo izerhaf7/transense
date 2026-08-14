@@ -31,6 +31,7 @@ class GtfsStop:
     parent_station: str | None = None
     location_type: str = "0"
     platform_code: str = ""
+    wheelchair_boarding: str = "0"
 
 
 @dataclass(frozen=True)
@@ -182,6 +183,7 @@ def parse_gtfs(zip_path: Path) -> GtfsFeed:
                 parent_station=(row.get("parent_station") or "").strip() or None,
                 location_type=(row.get("location_type") or "0").strip(),
                 platform_code=(row.get("platform_code") or "").strip(),
+                wheelchair_boarding=(row.get("wheelchair_boarding") or "0").strip(),
             )
         except (KeyError, ValueError):
             continue

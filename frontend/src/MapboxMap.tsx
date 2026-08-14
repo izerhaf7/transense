@@ -6,6 +6,7 @@ import type { Stop } from './journey'
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN?.trim() || ''
 const DEFAULT_CENTER: [number, number] = [106.8227, -6.1944]
 const DEFAULT_ZOOM = 12
+const STOP_VISIBLE_ZOOM = 13
 
 interface RouteShape {
   id: string
@@ -23,9 +24,20 @@ interface BusPosition {
   next_stop?: { name: string }
 }
 
+export interface StopPopupData {
+  stop: { id: string; name: string; lng: number; lat: number; wheelchair_boarding?: string }
+  routes: { route_code: string; color: string }[]
+  arrivals: { bus_id: string; route_code: string; eta_minutes: number }[]
+}
+
 export interface WalkLine {
   from: { lng: number; lat: number }
   to: { lng: number; lat: number }
+}
+
+interface MapStop extends Stop {
+  wheelchair_boarding?: string
+  platform_code?: string
 }
 
 function relativeTime(iso: string): string {
@@ -35,15 +47,46 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 60)} jam lalu`
 }
 
-function MapboxMap({ stops, routeShapes, buses, walkLegs }: { stops: Stop[]; routeShapes?: RouteShape[]; buses?: BusPosition[]; walkLegs?: WalkLine[] }) {
+function MapboxMap({
+  stops,
+  routeShapes,
+  buses,
+  walkLegs,
+  selectedRouteNames,
+  onStopClick,
+  routeColors,
+  stopPopup,
+  onStopPopupClose,
+}: {
+  stops: MapStop[]
+  routeShapes?: RouteShape[]
+  buses?: BusPosition[]
+  walkLegs?: WalkLine[]
+  selectedRouteNames?: Set<string>
+  onStopClick?: (stopId: string) => void
+  routeColors?: Map<string, string>
+  stopPopup?: StopPopupData | null
+  onStopPopupClose?: () => void
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const stopMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
-  const fitBoundsRef = useRef<mapboxgl.LngLatBounds | null>(null)
-  const resizeTimerRef = useRef<number | null>(null)
+  const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
+  const firstFitDoneRef = useRef(false)
 
-  useEffect(() => {    if (!MAPBOX_TOKEN || !containerRef.current) return
+  const selectedRef = useRef(selectedRouteNames)
+  selectedRef.current = selectedRouteNames
+  const onStopClickRef = useRef(onStopClick)
+  onStopClickRef.current = onStopClick
+  const routeColorsRef = useRef(routeColors)
+  routeColorsRef.current = routeColors
+  const onStopPopupCloseRef = useRef(onStopPopupClose)
+  onStopPopupCloseRef.current = onStopPopupClose
 
+  // Init map once.
+  useEffect(() => {
+    if (!MAPBOX_TOKEN || !containerRef.current) return
     mapboxgl.accessToken = MAPBOX_TOKEN
     const map = new mapboxgl.Map({
       container: containerRef.current,
@@ -57,157 +100,186 @@ function MapboxMap({ stops, routeShapes, buses, walkLegs }: { stops: Stop[]; rou
 
     map.on('load', () => {
       map.resize()
-      const bounds = new mapboxgl.LngLatBounds()
-      let hasLocatedPoints = false
-      const extendBounds = (lng: number, lat: number) => {
-        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return
-        bounds.extend([lng, lat])
-        hasLocatedPoints = true
-      }
-      const locatedStops = stops.filter((stop) => typeof stop.lng === 'number' && typeof stop.lat === 'number')
-
-      for (const shape of routeShapes ?? []) {
-        if (shape.coordinates.length < 2) continue
-        const sourceId = `shape-${shape.id}`
-        if (map.getSource(sourceId)) continue
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: { name: shape.name },
-            geometry: { type: 'LineString', coordinates: shape.coordinates },
-          },
-        })
-        map.addLayer({
-          id: `layer-${sourceId}`,
-          type: 'line',
-          source: sourceId,
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': shape.color,
-            'line-width': 2,
-            'line-opacity': 0.6,
-          },
-        })
-        for (const [lng, lat] of shape.coordinates) {
-          extendBounds(lng, lat)
-        }
-      }
-
-      for (const [index, walk] of (walkLegs ?? []).entries()) {
-        if (!Number.isFinite(walk.from.lng) || !Number.isFinite(walk.from.lat) || !Number.isFinite(walk.to.lng) || !Number.isFinite(walk.to.lat)) continue
-        const sourceId = `walk-${index}`
-        if (map.getSource(sourceId)) continue
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates: [[walk.from.lng, walk.from.lat], [walk.to.lng, walk.to.lat]],
-            },
-          },
-        })
-        map.addLayer({
-          id: `layer-${sourceId}`,
-          type: 'line',
-          source: sourceId,
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': '#6b7280',
-            'line-width': 3,
-            'line-opacity': 0.85,
-            'line-dasharray': [2, 2],
-          },
-        })
-        extendBounds(walk.from.lng, walk.from.lat)
-        extendBounds(walk.to.lng, walk.to.lat)
-      }
-
-      const shownStops = locatedStops.length > 200
-        ? locatedStops.filter((_, i) => i % Math.floor(locatedStops.length / 60) === 0)
-        : locatedStops
-
-      for (const stop of shownStops) {
-        const lng = stop.lng as number
-        const lat = stop.lat as number
-        new mapboxgl.Marker({ color: '#1677ff' })
-          .setLngLat([lng, lat])
-          .addTo(map)
-        extendBounds(lng, lat)
-      }
-
-      if (hasLocatedPoints) {
-        fitBoundsRef.current = bounds
-        map.fitBounds(bounds, { padding: 16, maxZoom: 15, duration: 600 })
+      if (!firstFitDoneRef.current) {
+        firstFitDoneRef.current = true
+        map.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 24 })
       }
     })
 
     const resizeObserver = new ResizeObserver(() => {
       map.resize()
-      // Re-fit so the map fills the new container size instead of staying
-      // zoomed out (fixes the hero toggle leaving the map visually small).
-      // Debounced so the CSS height transition (minimized <-> maximized)
-      // doesn't trigger repeated fits mid-animation.
-      window.clearTimeout(resizeTimerRef.current ?? undefined)
-      resizeTimerRef.current = window.setTimeout(() => {
-        if (fitBoundsRef.current) {
-          map.fitBounds(fitBoundsRef.current, { padding: 16, maxZoom: 18, duration: 300 })
-        }
-      }, 260)
     })
     resizeObserver.observe(containerRef.current)
 
     return () => {
       resizeObserver.disconnect()
-      if (resizeTimerRef.current !== null) {
-        window.clearTimeout(resizeTimerRef.current)
-        resizeTimerRef.current = null
-      }
+      stopMarkersRef.current.forEach((m) => m.remove())
+      stopMarkersRef.current = []
       busMarkersRef.current.forEach((m) => m.remove())
       busMarkersRef.current = []
       map.remove()
       mapRef.current = null
+      firstFitDoneRef.current = false
     }
-  }, [stops, routeShapes, walkLegs])
+  }, [])
+
+  // Route shapes + walk legs (layers). Show/hide follows the filtered list,
+  // so stale layers from deselected routes are removed.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    const wantedShapeIds = new Set((routeShapes ?? []).map((s) => s.id))
+    const style = map.getStyle()
+    for (const id of Object.keys(style.sources ?? {})) {
+      if (id.startsWith('shape-')) {
+        const routeId = id.slice('shape-'.length)
+        if (!wantedShapeIds.has(routeId)) {
+          if (map.getLayer(`layer-${id}`)) map.removeLayer(`layer-${id}`)
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      } else if (id.startsWith('walk-')) {
+        const index = Number(id.slice('walk-'.length))
+        if (!Number.isNaN(index) && index >= (walkLegs?.length ?? 0)) {
+          if (map.getLayer(`layer-${id}`)) map.removeLayer(`layer-${id}`)
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      }
+    }
+
+    for (const shape of routeShapes ?? []) {
+      if (shape.coordinates.length < 2) continue
+      const sourceId = `shape-${shape.id}`
+      if (map.getSource(sourceId)) continue
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: { name: shape.name },
+          geometry: { type: 'LineString', coordinates: shape.coordinates },
+        },
+      })
+      map.addLayer({
+        id: `layer-${sourceId}`,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': shape.color, 'line-width': 3, 'line-opacity': 0.7 },
+      })
+    }
+    for (const [index, walk] of (walkLegs ?? []).entries()) {
+      const sourceId = `walk-${index}`
+      if (map.getSource(sourceId)) continue
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: [[walk.from.lng, walk.from.lat], [walk.to.lng, walk.to.lat]] },
+        },
+      })
+      map.addLayer({
+        id: `layer-${sourceId}`,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#6b7280', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] },
+      })
+    }
+  }, [routeShapes, walkLegs])
+
+  // Stop markers: render only when zoomed in, or for selected route stops.
+  const renderStops = () => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    stopMarkersRef.current.forEach((m) => m.remove())
+    stopMarkersRef.current = []
+
+    const zoom = map.getZoom()
+    const showAll = zoom >= STOP_VISIBLE_ZOOM
+    const selected = selectedRef.current
+    const hasSelection = selected && selected.size > 0 && selected.size < (stops.length || 0)
+
+    let toRender = stops
+    if (!showAll) {
+      if (hasSelection) {
+        // Only stops belonging to selected routes are known on the parent;
+        // the parent passes the filtered list already, so just cap it.
+        toRender = stops.slice(0, 300)
+      } else {
+        // Zoomed out with no selection: hide stops entirely.
+        return
+      }
+    }
+
+    const max = 400
+    const capped = toRender.length > max ? toRender.filter((_, i) => i % Math.ceil(toRender.length / max) === 0) : toRender
+
+    for (const stop of capped) {
+      if (typeof stop.lng !== 'number' || typeof stop.lat !== 'number') continue
+      const el = document.createElement('button')
+      el.className = 'stop-marker'
+      el.type = 'button'
+      el.setAttribute('aria-label', stop.name)
+      el.style.cssText = 'width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:#1677ff;border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
+      el.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="#fff" aria-hidden="true">' +
+        '<path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4S4 2.5 4 6v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM18 11H6V6h12v5z"/>' +
+        '</svg>'
+      el.addEventListener('click', () => {
+        onStopClickRef.current?.(stop.id)
+      })
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([stop.lng as number, stop.lat as number])
+        .addTo(map)
+      stopMarkersRef.current.push(marker)
+    }
+  }
 
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    const onReady = () => renderStops()
+    if (map.isStyleLoaded()) onReady()
+    else map.once('load', onReady)
+    map.on('zoom', renderStops)
+    map.on('moveend', renderStops)
+    return () => {
+      map.off('zoom', renderStops)
+      map.off('moveend', renderStops)
+    }
+  }, [stops])
+
+  // Bus markers.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
     busMarkersRef.current.forEach((m) => m.remove())
     busMarkersRef.current = []
-
     if (!buses || buses.length === 0) return
 
-    const shown = (buses as BusPosition[]).length > 300
-      ? (buses as BusPosition[]).filter((_, i) => i % Math.floor((buses as BusPosition[]).length / 100) === 0)
-      : (buses as BusPosition[])
-
+    const shown = buses.length > 300 ? buses.filter((_, i) => i % Math.floor(buses.length / 100) === 0) : buses
     for (const bus of shown) {
+      const color = routeColorsRef.current?.get(bus.route_code) ?? '#FF7A1A'
       const el = document.createElement('div')
       el.className = 'vehicle-marker'
       el.title = `${bus.route_code} · ${bus.id}`
-      el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:#FF7A1A;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;font-size:12px;color:#fff;font-weight:700'
+      el.style.cssText = `display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3);cursor:pointer;font-size:11px;color:#fff;font-weight:700`
       el.textContent = bus.route_code.length <= 3 ? bus.route_code : '...'
 
       const popupHTML = [
-        '<div style="font-family:system-ui,sans-serif;font-weight:600;min-width:160px">',
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Nomor Kendaraan</p>`,
-        `<p style="margin:0 0 8px;font-size:16px">${bus.id}</p>`,
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Layanan</p>`,
-        `<p style="margin:0 0 8px;font-size:16px">Transjakarta</p>`,
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Trayek</p>`,
-        `<p style="margin:0 0 8px;font-size:16px">${bus.route_code}</p>`,
-        bus.next_stop ? `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Halte Berikutnya</p><p style="margin:0 0 8px;font-size:16px">${bus.next_stop.name}</p>` : '',
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Update Terakhir</p>`,
-        `<p style="margin:0;font-size:16px">${relativeTime(bus.observed_at)}</p>`,
+        '<div class="bus-popup">',
+        `<div class="bus-popup__head">`,
+        `<span class="bus-popup__route" style="background:${color}">${bus.route_code}</span>`,
+        `<span class="bus-popup__vehicle">${bus.id}</span>`,
+        '</div>',
+        bus.next_stop ? `<div class="bus-popup__row"><span class="bus-popup__label">Halte berikut</span><span class="bus-popup__value">${bus.next_stop.name}</span></div>` : '',
+        `<div class="bus-popup__row"><span class="bus-popup__label">Update</span><span class="bus-popup__value">${relativeTime(bus.observed_at)}</span></div>`,
         '</div>',
       ].join('')
 
-      const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '240px' })
+      const popup = new mapboxgl.Popup({ offset: 18, maxWidth: '200px', closeButton: true, closeOnClick: false })
         .setHTML(popupHTML)
-
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([bus.lng, bus.lat])
         .setPopup(popup)
@@ -215,6 +287,57 @@ function MapboxMap({ stops, routeShapes, buses, walkLegs }: { stops: Stop[]; rou
       busMarkersRef.current.push(marker)
     }
   }, [buses])
+
+  // Stop info popup: shown near the clicked stop, styled like the bus popup.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const prev = stopPopupRef.current
+    if (prev) {
+      prev.remove()
+      stopPopupRef.current = null
+    }
+    if (!stopPopup) return
+
+    const routeColorsMap = new Map(stopPopup.routes.map((r) => [r.route_code, r.color]))
+    const routeChips = stopPopup.routes.map(
+      (r) => `<span class="stop-popup__chip" style="background:${r.color}">${r.route_code}</span>`,
+    ).join('')
+    const arrivalRows = stopPopup.arrivals.length === 0
+      ? '<p class="stop-popup__empty">Tidak ada bus yang akan tiba dalam waktu dekat.</p>'
+      : stopPopup.arrivals.map((a) => {
+          const color = routeColorsMap.get(a.route_code) ?? '#1677ff'
+          return [
+            '<div class="bus-popup__row">',
+            `<span class="bus-popup__route" style="background:${color}">${a.route_code}</span>`,
+            `<span class="bus-popup__value">${a.eta_minutes} menit · ${a.bus_id}</span>`,
+            '</div>',
+          ].join('')
+        }).join('')
+
+    const popupHTML = [
+      '<div class="stop-popup">',
+      `<div class="stop-popup__head">`,
+      `<strong>${stopPopup.stop.name}</strong>`,
+      '</div>',
+      stopPopup.stop.wheelchair_boarding === '1' ? '<span class="state-badge state-badge--safe">AKSESIBEL KURSI RODA</span>' : '',
+      stopPopup.routes.length ? `<div class="stop-popup__routes">${routeChips}</div>` : '',
+      '<div class="stop-popup__arrivals">',
+      '<p class="stop-popup__label">KEDATANGAN BUS</p>',
+      arrivalRows,
+      '</div>',
+      '</div>',
+    ].join('')
+
+    const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '240px', closeButton: true, closeOnClick: false })
+      .setLngLat([stopPopup.stop.lng, stopPopup.stop.lat])
+      .setHTML(popupHTML)
+      .addTo(map)
+    popup.on('close', () => {
+      onStopPopupCloseRef.current?.()
+    })
+    stopPopupRef.current = popup
+  }, [stopPopup])
 
   if (!MAPBOX_TOKEN) {
     return (

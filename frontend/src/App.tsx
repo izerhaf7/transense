@@ -9,7 +9,7 @@ import {
   VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
-import MapboxMap from './MapboxMap'
+import MapboxMap, { type StopPopupData } from './MapboxMap'
 import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
@@ -1476,11 +1476,12 @@ function HomePage({
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
-  const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string }[]>([])
+  const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string; stop_ids: string[] }[]>([])
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1499,7 +1500,7 @@ function HomePage({
     const load = async () => {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
       if (!res.ok) return
-      const data = await res.json() as { routes: { id: string; name: string; color: string }[] }
+      const data = await res.json() as { routes: { id: string; name: string; color: string; stop_ids: string[] }[] }
       setAllRoutes(data.routes)
       setSelectedRoutes(new Set(data.routes.map((r) => r.name)))
       const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
@@ -1507,8 +1508,12 @@ function HomePage({
         try {
           const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
           if (!shapeRes.ok) continue
-          const shapeData = await shapeRes.json() as { coordinates: [number, number][] }
-          if (shapeData.coordinates.length) shapes.push({ id: route.id, name: route.name, color: route.color, coordinates: shapeData.coordinates })
+          const shapeData = await shapeRes.json() as { coordinates: [number, number][]; lines?: [number, number][][] }
+          const lines = shapeData.lines?.length ? shapeData.lines : (shapeData.coordinates.length ? [shapeData.coordinates] : [])
+          lines.forEach((coords, i) => {
+            if (coords.length < 2) return
+            shapes.push({ id: `${route.id}#${i}`, name: route.name, color: route.color, coordinates: coords })
+          })
         } catch { /* skip */ }
       }
       setRouteShapes(shapes)
@@ -1553,7 +1558,39 @@ function HomePage({
 
   const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
   const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
-  const displayStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+  const baseStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
+
+  // When a subset of routes is selected, limit stops to those routes' stops.
+  const displayStops = useMemo(() => {
+    if (selectedRoutes.size === allRoutes.length || selectedRoutes.size === 0 || allRoutes.length === 0) {
+      return baseStops
+    }
+    const stopIds = new Set<string>()
+    for (const route of allRoutes) {
+      if (selectedRoutes.has(route.name)) {
+        for (const sid of route.stop_ids) stopIds.add(sid)
+      }
+    }
+    if (stopIds.size === 0) return baseStops
+    return baseStops.filter((s) => stopIds.has(s.id))
+  }, [baseStops, selectedRoutes, allRoutes])
+
+  // Route short name -> trayek color (used for bus markers and popups).
+  const routeColorMap = useMemo(() => {
+    return new Map(allRoutes.map((r) => [r.name, r.color]))
+  }, [allRoutes])
+
+  const handleStopClick = async (stopId: string) => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/info`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json() as StopPopupData
+      setStopInfo(data)
+    } catch (error) {
+      console.warn('Stop info fetch failed.', error)
+      setStopInfo(null)
+    }
+  }
 
   return (
     <main className="page-content home-page">
@@ -1621,7 +1658,16 @@ function HomePage({
               </div>
             </div>
           ) : null}
-          <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
+          <MapboxMap
+            stops={displayStops}
+            routeShapes={filteredShapes}
+            buses={filteredBuses}
+            selectedRouteNames={selectedRoutes}
+            routeColors={routeColorMap}
+            stopPopup={stopInfo}
+            onStopClick={(id) => { void handleStopClick(id) }}
+            onStopPopupClose={() => setStopInfo(null)}
+          />
         </div>
         <button
           type="button"

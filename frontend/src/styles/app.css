@@ -832,7 +832,7 @@ input[aria-invalid='true'] {
   position: absolute;
   z-index: 6;
   top: var(--brand-space-xs);
-  right: var(--brand-space-xs);
+  left: var(--brand-space-xs);
   min-height: var(--brand-control-height-base);
   padding: 0 var(--brand-space-base);
   color: var(--brand-color-text);
@@ -3130,4 +3130,104 @@ input[aria-invalid='true'] {
 
 .tracking-back-row .secondary-button {
   min-height: var(--brand-control-height-base);
+}
+
+/* ---- Bus Popup (Mapbox) ---- */
+
+.bus-popup {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  font-family: system-ui, sans-serif;
+  font-size: var(--brand-font-size-sm);
+}
+
+.bus-popup__head {
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-xs);
+}
+
+.bus-popup__route {
+  display: inline-flex;
+  min-width: 28px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--brand-space-xs);
+  color: #fff;
+  background: #ff7a1a;
+  border-radius: var(--brand-radius-pill);
+  font-weight: 700;
+  font-size: var(--brand-font-size-sm);
+}
+
+.bus-popup__vehicle {
+  font-weight: 700;
+}
+
+.bus-popup__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--brand-space-xs);
+}
+
+.bus-popup__label {
+  color: var(--brand-color-text-secondary);
+}
+
+.bus-popup__value {
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ---- Stop Popup (Mapbox) ---- */
+
+.stop-popup {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  font-family: system-ui, sans-serif;
+  font-size: var(--brand-font-size-sm);
+}
+
+.stop-popup__head strong {
+  display: block;
+  font-size: var(--brand-font-size-base);
+}
+
+.stop-popup__routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--brand-space-xxs);
+}
+
+.stop-popup__chip {
+  display: inline-flex;
+  min-width: 30px;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--brand-space-xs);
+  color: #fff;
+  border-radius: var(--brand-radius-pill);
+  font-weight: 700;
+  font-size: var(--brand-font-size-sm);
+}
+
+.stop-popup__arrivals {
+  display: grid;
+  gap: var(--brand-space-xxs);
+}
+
+.stop-popup__label {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stop-popup__empty {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
 }

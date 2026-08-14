@@ -231,7 +231,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {"stops": [], "source": "seed"}
         return {
             "stops": [
-                {"id": s.stop_id, "name": s.name, "lat": s.lat, "lng": s.lng}
+                {"id": s.stop_id, "name": s.name, "lat": s.lat, "lng": s.lng,
+                 "location_type": s.location_type, "parent_station": s.parent_station,
+                 "platform_code": s.platform_code, "wheelchair_boarding": s.wheelchair_boarding}
                 for s in feed.stops.values()
             ],
             "source": "gtfs",
@@ -256,6 +258,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "lat": s.lat,
                 "lng": s.lng,
                 "type": stop_type_label(s),
+                "wheelchair_boarding": s.wheelchair_boarding,
             }
             existing = by_name.get(key)
             if existing is None or s.location_type == "1":
@@ -285,15 +288,81 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
         if feed is None:
             raise HTTPException(status_code=503, detail="GTFS feed not loaded")
-        trip_id = _first_trip_for(route_id, feed)
-        if not trip_id:
+        shape_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for trip in feed.trips.values():
+            if trip.route_id == route_id and trip.shape_id and trip.shape_id not in seen_ids:
+                seen_ids.add(trip.shape_id)
+                shape_ids.append(trip.shape_id)
+        if not shape_ids:
             raise HTTPException(status_code=404, detail="route not found")
-        trip = feed.trips.get(trip_id)
-        if not trip or not trip.shape_id:
-            return {"coordinates": [], "source": "gtfs"}
-        points = feed.shapes.get(trip.shape_id, [])
+        lines: list[list[list[float]]] = []
+        seen_geoms: set[tuple[tuple[float, float], ...]] = set()
+        for shape_id in shape_ids:
+            points = feed.shapes.get(shape_id, [])
+            if len(points) < 2:
+                continue
+            coords = [[pt.lng, pt.lat] for pt in points]
+            geom_key = tuple((round(pt.lat, 5), round(pt.lng, 5)) for pt in points)
+            if geom_key in seen_geoms:
+                continue
+            seen_geoms.add(geom_key)
+            lines.append(coords)
         return {
-            "coordinates": [[pt.lng, pt.lat] for pt in points],
+            "coordinates": lines[0] if lines else [],
+            "lines": lines,
+            "source": "gtfs",
+        }
+
+    @application.get("/api/gtfs/stop/{stop_id}/info", response_model=None)
+    async def gtfs_stop_info(stop_id: str) -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            raise HTTPException(status_code=503, detail="GTFS feed not loaded")
+        stop = feed.stops.get(stop_id)
+        if stop is None:
+            raise HTTPException(status_code=404, detail="stop not found")
+
+        route_codes = _stop_route_codes(feed, stop_id)
+        routes_info = []
+        for code in route_codes:
+            route = _route_by_code(feed, code)
+            routes_info.append({
+                "route_code": code,
+                "color": f"#{route.color}" if route and route.color else "#1677ff",
+            })
+
+        client: TjRealtimeClient | None = getattr(application.state, "realtime_client", None)
+        arrivals: list[dict[str, Any]] = []
+        if client is not None:
+            try:
+                buses = client.get_buses(lat=stop.lat, lng=stop.lng, radius_km=3.0)
+                for bus in buses:
+                    eta = _bus_eta_to_stop(bus, stop_id)
+                    if eta is None:
+                        continue
+                    arrivals.append({
+                        "bus_id": bus.bus_id,
+                        "route_code": bus.route_code,
+                        "eta_minutes": eta,
+                    })
+            except TjApiError:
+                arrivals = []
+        arrivals.sort(key=lambda a: a["eta_minutes"])
+
+        return {
+            "stop": {
+                "id": stop.stop_id,
+                "name": stop.name,
+                "lat": stop.lat,
+                "lng": stop.lng,
+                "location_type": stop.location_type,
+                "parent_station": stop.parent_station,
+                "platform_code": stop.platform_code,
+                "wheelchair_boarding": stop.wheelchair_boarding,
+            },
+            "routes": routes_info,
+            "arrivals": arrivals,
             "source": "gtfs",
         }
 
@@ -642,13 +711,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return application
 
 
-def _first_trip_for(route_id: str, feed: "GtfsFeed") -> str | None:
-    for trip_id, trip in feed.trips.items():
-        if trip.route_id == route_id:
-            return trip_id
-    return None
-
-
 def _default_plan_now() -> datetime:
     """Current time in Asia/Jakarta (UTC fallback), rounded down to the minute.
 
@@ -861,6 +923,31 @@ def _headsign_for_bus(feed: "GtfsFeed", trip_id: str, route_code: str) -> str:
     if routes and routes[0].long_name:
         return routes[0].long_name
     return route_code
+
+
+def _stop_route_codes(feed: "GtfsFeed", stop_id: str) -> list[str]:
+    codes = list(feed.routes_by_stop.get(stop_id, []))
+    codes.extend(feed.routes_by_station.get(stop_id, []))
+    stop = feed.stops.get(stop_id)
+    if stop is not None and stop.parent_station:
+        codes.extend(feed.routes_by_station.get(stop.parent_station, []))
+    seen: list[str] = []
+    for code in codes:
+        if code not in seen:
+            seen.append(code)
+    return seen
+
+
+def _route_by_code(feed: "GtfsFeed", route_code: str):
+    routes = feed.routes_by_short_name.get(_normalize_short(route_code), [])
+    return routes[0] if routes else None
+
+
+def _bus_eta_to_stop(bus: "RealtimeBus", stop_id: str) -> int | None:
+    for eta_stop in bus.stops:
+        if eta_stop.stop_id == stop_id or eta_stop.parent_stop_id == stop_id:
+            return eta_stop.eta_minutes
+    return None
 
 
 def _normalize_short(value: str) -> str:
