@@ -22,8 +22,13 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-# Rail operators we integrate.  TransJakarta is intentionally absent.
-RAIL_OPERATORS = ("KCI", "MRTJ", "LRTJ", "LRTJBDB")
+# Rail operators we integrate.  TransJakarta is intentionally absent, as are
+# LRT Jabodebek (LRTJBDB) and the airport rail link (KAI Bandara) — both are
+# outside the Jakarta core scope and not covered by the RITJ geometry.
+RAIL_OPERATORS = ("KCI", "MRTJ", "LRTJ")
+
+# Line keys excluded from the feed (KAI Bandara / Soekarno-Hatta line).
+EXCLUDED_LINE_KEYS = {"KCI:A"}
 
 _MODE_LABEL = {
     "RAIL": "KRL",
@@ -157,6 +162,9 @@ class CommuteClient:
                     continue
                 code = str(line.get("lineCode") or "")
                 if not code:
+                    continue
+                key = f"{op_code}:{code}"
+                if key in EXCLUDED_LINE_KEYS:
                     continue
                 feed.lines.append(
                     CommuteLine(
