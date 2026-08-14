@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from urllib.parse import quote
@@ -29,6 +30,22 @@ _MODE_LABEL = {
     "SUBWAY": "MRT",
     "TRAM": "LRT",
     "BUS": "Bus",
+}
+
+_AMENITY_LABEL = {
+    "TOILET": "Toilet",
+    "TOILET_ACCESSIBLE": "Toilet Difabel",
+    "PARKING": "Parkir",
+    "BIKE_PARKING": "Parkir Sepeda",
+    "WIFI": "WiFi",
+    "CHARGING_STATION": "Charging Station",
+    "PRAYING_ROOM": "Mushola",
+    "ESCALATOR_UNPAID": "Eskalator (Area Umum)",
+    "ESCALATOR_PAID": "Eskalator (Area Berbayar)",
+    "ELEVATOR_UNPAID": "Lift (Area Umum)",
+    "ELEVATOR_PAID": "Lift (Area Berbayar)",
+    "LOCKERS": "Loker",
+    "NURSING_ROOM": "Ruang Menyusui",
 }
 
 
@@ -55,6 +72,8 @@ class CommuteStation:
     lat: float | None
     lng: float | None
     lines: tuple[str, ...]
+    official_name: str = ""
+    amenities: tuple[dict[str, str], ...] = ()
 
 
 @dataclass
@@ -68,6 +87,10 @@ class CommuteFeed:
 
 def mode_label(mode: str) -> str:
     return _MODE_LABEL.get(mode, mode)
+
+
+def amenity_label(amenity_type: str) -> str:
+    return _AMENITY_LABEL.get(amenity_type, amenity_type.replace("_", " ").title())
 
 
 class CommuteClient:
@@ -118,6 +141,12 @@ class CommuteClient:
             raise CommuteError(f"Unexpected timetable/grouped shape for {operator}/{code}")
         return data
 
+    def station_detail(self, operator: str, code: str) -> dict[str, Any]:
+        data = self._fetch(f"/stations/{quote(operator)}/{quote(code)}")
+        if not isinstance(data, dict):
+            raise CommuteError(f"Unexpected /stations/{operator}/{code} shape")
+        return data
+
     def load_feed(self) -> CommuteFeed:
         feed = CommuteFeed()
         for op in self.operators():
@@ -160,7 +189,50 @@ class CommuteClient:
                 stations.append(station)
             feed.stations_by_operator[op_code] = stations
 
+        self._load_station_details(feed)
         return feed
+
+    def _load_station_details(self, feed: CommuteFeed, workers: int = 10) -> None:
+        """Fetch per-station detail (official name + amenities) in parallel.
+
+        Failures are ignored: the station keeps its list-level fields, and the
+        frontend renders ``information not available`` for missing amenities.
+        """
+
+        def fetch_one(station: CommuteStation) -> tuple[str, dict[str, Any]] | None:
+            try:
+                return station.id, self.station_detail(station.operator, station.code)
+            except Exception:
+                return None
+
+        ids = list(feed.stations.keys())
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(fetch_one, feed.stations[sid]) for sid in ids]
+            for future in as_completed(futures):
+                result = future.result()
+                if result is None:
+                    continue
+                sid, detail = result
+                existing = feed.stations.get(sid)
+                if existing is None:
+                    continue
+                amenities = tuple(
+                    {"type": str(a.get("type") or ""), "text": str(a.get("text") or "")}
+                    for a in detail.get("amenities", [])
+                    if isinstance(a, dict) and a.get("type")
+                )
+                official_name = str(detail.get("officialName") or "")
+                feed.stations[sid] = CommuteStation(
+                    id=existing.id,
+                    operator=existing.operator,
+                    code=existing.code,
+                    name=existing.name,
+                    lat=existing.lat,
+                    lng=existing.lng,
+                    lines=existing.lines,
+                    official_name=official_name,
+                    amenities=amenities,
+                )
 
 
 def _to_float(value: Any) -> float | None:

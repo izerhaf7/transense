@@ -3653,3 +3653,26 @@ input[aria-invalid='true'] {
   color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
+
+.stop-popup__official {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: 12px;
+}
+
+.stop-popup__amenities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.stop-popup__amenity {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  background: var(--brand-color-bg-subtle, #f5f7fa);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-pill);
+  font-size: 12px;
+}

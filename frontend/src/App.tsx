@@ -1581,9 +1581,17 @@ function HomePage({
     try {
       const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(station.operator)}/${encodeURIComponent(station.code)}/schedule`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as { stop: { id: string; name: string; operator: string }; timetable: { route_code: string; color: string; headsign: string; platform?: string; times: string[] }[] }
+      const data = await res.json() as { stop: { id: string; name: string; operator: string; official_name?: string; amenities?: { type: string; label: string; text: string }[] }; timetable: { route_code: string; color: string; headsign: string; platform?: string; times: string[] }[] }
       setRailStationPopup({
-        stop: { id: data.stop.id, name: data.stop.name, operator: data.stop.operator, lng: station.lng, lat: station.lat },
+        stop: {
+          id: data.stop.id,
+          name: data.stop.name,
+          operator: data.stop.operator,
+          official_name: data.stop.official_name,
+          amenities: data.stop.amenities,
+          lng: station.lng,
+          lat: station.lat,
+        },
         timetable: data.timetable,
       })
     } catch (error) {

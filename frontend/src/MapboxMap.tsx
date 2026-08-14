@@ -55,7 +55,15 @@ export interface RailStation {
 }
 
 export interface RailStationPopupData {
-  stop: { id: string; name: string; operator: string; lng: number; lat: number }
+  stop: {
+    id: string
+    name: string
+    operator: string
+    lng: number
+    lat: number
+    official_name?: string
+    amenities?: { type: string; label: string; text: string }[]
+  }
   timetable: { route_code: string; color: string; headsign: string; platform?: string; times: string[] }[]
 }
 
@@ -473,17 +481,29 @@ function MapboxMap({
       ].join('')
     }).join('')
 
+    const amenities = railStationPopup.stop.amenities ?? []
+    const amenityChips = amenities.length
+      ? amenities.map((a) => `<span class="stop-popup__amenity">${a.label}${a.text ? ` · ${a.text}` : ''}</span>`).join('')
+      : '<span class="stop-popup__empty">Information not available</span>'
+
+    const officialName = railStationPopup.stop.official_name
+      ? `<p class="stop-popup__official">${railStationPopup.stop.official_name}</p>`
+      : ''
+
     const popupHTML = [
       '<div class="stop-popup">',
       '<div class="stop-popup__head">',
       `<strong>${railStationPopup.stop.name}</strong>`,
       '</div>',
+      officialName,
+      '<p class="stop-popup__label">FASILITAS</p>',
+      `<div class="stop-popup__amenities">${amenityChips}</div>`,
       '<p class="stop-popup__label">JADWAL KERETA</p>',
       groups || '<p class="stop-popup__empty">Tidak ada jadwal untuk stasiun ini.</p>',
       '</div>',
     ].join('')
 
-    const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '260px', closeButton: true, closeOnClick: false })
+    const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '280px', closeButton: true, closeOnClick: false })
       .setLngLat([railStationPopup.stop.lng, railStationPopup.stop.lat])
       .setHTML(popupHTML)
       .addTo(map)

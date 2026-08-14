@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
-from .commute import CommuteClient, CommuteFeed, CommuteError, mode_label
+from .commute import CommuteClient, CommuteFeed, CommuteError, mode_label, amenity_label
 from .conversation import (ConversationError, create_conversation, delete_conversation,
                            list_conversations, update_conversation)
 from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label, service_active_on
@@ -515,8 +515,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             grouped = []
 
         timetable = _commute_grouped_to_timetable(grouped, feed)
+        amenities = [
+            {"type": a["type"], "label": amenity_label(a["type"]), "text": a.get("text", "")}
+            for a in station.amenities
+        ]
         return {
-            "stop": {"id": station.id, "name": station.name, "operator": station.operator, "lines": list(station.lines)},
+            "stop": {
+                "id": station.id,
+                "name": station.name,
+                "operator": station.operator,
+                "official_name": station.official_name,
+                "lines": list(station.lines),
+                "amenities": amenities,
+            },
             "timetable": timetable,
             "source": "commute",
         }
