@@ -1403,8 +1403,7 @@ function HomePage({
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [showBus, setShowBus] = useState(true)
-  const [showRail, setShowRail] = useState(true)
+  const [mapMode, setMapMode] = useState<'bus' | 'rail'>('bus')
   const [selectedRailKeys, setSelectedRailKeys] = useState<Set<string>>(new Set())
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
@@ -1553,14 +1552,16 @@ function HomePage({
   }
 
   const filteredRailLines = useMemo(() => {
-    if (!showRail || selectedRailKeys.size === 0) return []
+    if (mapMode !== 'rail') return []
+    if (selectedRailKeys.size === 0) return railLines
     return railLines.filter((l) => selectedRailKeys.has(`${l.operator}:${l.code}`))
-  }, [showRail, railLines, selectedRailKeys])
+  }, [mapMode, railLines, selectedRailKeys])
 
   const filteredRailStations = useMemo(() => {
-    if (!showRail || selectedRailKeys.size === 0) return []
+    if (mapMode !== 'rail') return []
+    if (selectedRailKeys.size === 0) return railStations
     return railStations.filter((s) => s.lines.some((lk) => selectedRailKeys.has(lk)))
-  }, [showRail, railStations, selectedRailKeys])
+  }, [mapMode, railStations, selectedRailKeys])
 
   const handleStopClick = async (stopId: string) => {
     try {
@@ -1642,27 +1643,26 @@ function HomePage({
             <div className="map-filter-panel">
               <div className="map-filter-panel__header">
                 <strong>Filter peta</strong>
-                <button className="secondary-button" type="button" onClick={toggleAll}>
-                  {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
+                <button className="secondary-button" type="button" onClick={mapMode === 'bus' ? toggleAll : toggleAllRail}>
+                  {mapMode === 'bus'
+                    ? (selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua')
+                    : (railAllSelected ? 'Hapus semua' : 'Pilih semua')}
                 </button>
               </div>
               <div className="map-filter-modes" role="group" aria-label="Filter moda">
                 <label className="map-filter-mode">
-                  <input type="checkbox" checked={showBus} onChange={() => setShowBus((v) => !v)} />
-                  <span className="map-filter-mode__tag map-filter-mode__tag--bus">Bus</span>
+                  <input type="radio" name="map-mode" checked={mapMode === 'bus'} onChange={() => setMapMode('bus')} />
+                  <span className="map-filter-mode__tag">Bus</span>
                 </label>
                 <label className="map-filter-mode">
-                  <input type="checkbox" checked={showRail} onChange={() => setShowRail((v) => !v)} />
-                  <span className="map-filter-mode__tag map-filter-mode__tag--rail">Kereta</span>
+                  <input type="radio" name="map-mode" checked={mapMode === 'rail'} onChange={() => setMapMode('rail')} />
+                  <span className="map-filter-mode__tag">Kereta</span>
                 </label>
               </div>
-              {showRail ? (
+              {mapMode === 'rail' ? (
                 <>
                   <div className="map-filter-panel__line-head">
                     <p className="map-filter-panel__section">LIN KERETA</p>
-                    <button className="map-filter-panel__select-all" type="button" onClick={toggleAllRail}>
-                      {railAllSelected ? 'Hapus semua' : 'Pilih semua'}
-                    </button>
                   </div>
                   <div className="map-filter-rail-list">
                     {railLines.map((line) => {
@@ -1679,8 +1679,7 @@ function HomePage({
                     })}
                   </div>
                 </>
-              ) : null}
-              {showBus ? (
+              ) : (
                 <>
                   <p className="map-filter-panel__section">RUTE BUS</p>
                   <div className="map-filter-panel__list">
@@ -1693,16 +1692,16 @@ function HomePage({
                     ))}
                   </div>
                 </>
-              ) : null}
+              )}
             </div>
           ) : null}
           <MapboxMap
-            stops={showBus ? displayStops : []}
-            routeShapes={showBus ? filteredShapes : []}
-            buses={showBus ? filteredBuses : []}
+            stops={mapMode === 'bus' ? displayStops : []}
+            routeShapes={mapMode === 'bus' ? filteredShapes : []}
+            buses={mapMode === 'bus' ? filteredBuses : []}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
-            stopPopup={showBus ? stopInfo : null}
+            stopPopup={mapMode === 'bus' ? stopInfo : null}
             onStopClick={(id) => { void handleStopClick(id) }}
             onStopPopupClose={() => setStopInfo(null)}
             railLines={filteredRailLines}
