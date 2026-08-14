@@ -39,9 +39,10 @@ function MapboxMap({ stops, routeShapes, buses, walkLegs }: { stops: Stop[]; rou
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const fitBoundsRef = useRef<mapboxgl.LngLatBounds | null>(null)
+  const resizeTimerRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    if (!MAPBOX_TOKEN || !containerRef.current) return
+  useEffect(() => {    if (!MAPBOX_TOKEN || !containerRef.current) return
 
     mapboxgl.accessToken = MAPBOX_TOKEN
     const map = new mapboxgl.Map({
@@ -138,17 +139,32 @@ function MapboxMap({ stops, routeShapes, buses, walkLegs }: { stops: Stop[]; rou
       }
 
       if (hasLocatedPoints) {
-        map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 600 })
+        fitBoundsRef.current = bounds
+        map.fitBounds(bounds, { padding: 16, maxZoom: 15, duration: 600 })
       }
     })
 
     const resizeObserver = new ResizeObserver(() => {
       map.resize()
+      // Re-fit so the map fills the new container size instead of staying
+      // zoomed out (fixes the hero toggle leaving the map visually small).
+      // Debounced so the CSS height transition (minimized <-> maximized)
+      // doesn't trigger repeated fits mid-animation.
+      window.clearTimeout(resizeTimerRef.current ?? undefined)
+      resizeTimerRef.current = window.setTimeout(() => {
+        if (fitBoundsRef.current) {
+          map.fitBounds(fitBoundsRef.current, { padding: 16, maxZoom: 18, duration: 300 })
+        }
+      }, 260)
     })
     resizeObserver.observe(containerRef.current)
 
     return () => {
       resizeObserver.disconnect()
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current)
+        resizeTimerRef.current = null
+      }
       busMarkersRef.current.forEach((m) => m.remove())
       busMarkersRef.current = []
       map.remove()

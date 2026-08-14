@@ -1557,7 +1557,7 @@ function HomePage({
 
   return (
     <main className="page-content home-page">
-      <header className="home-topbar">
+      <header className={`home-topbar${mapExpanded ? ' home-topbar--minimized' : ''}`}>
         <div>
           <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
           <h2 id="welcome-heading">Halo, {displayName}!</h2>
