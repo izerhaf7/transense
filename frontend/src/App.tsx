@@ -10,6 +10,7 @@ import {
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap from './MapboxMap'
+import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
@@ -1461,15 +1462,25 @@ function ArrivalsSheet() {
 function HomePage({
   displayName,
   transitState,
+  notificationCount,
+  notifications,
+  onNavigate,
+  onDismissNotification,
 }: {
   displayName: string
   transitState: TransitState | null
+  notificationCount: number
+  notifications: NotificationRecord[]
+  onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void
+  onDismissNotification: (notificationId: string) => void
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
   const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string }[]>([])
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
+  const [mapExpanded, setMapExpanded] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1546,43 +1557,112 @@ function HomePage({
 
   return (
     <main className="page-content home-page">
-      <section className="welcome-card" aria-labelledby="welcome-heading">
-        <span className="welcome-card__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
-        <div className="welcome-card__body">
+      <header className="home-topbar">
+        <div>
           <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
           <h2 id="welcome-heading">Halo, {displayName}!</h2>
-          <p>Semua informasi penting perjalananmu, dalam satu tampilan.</p>
         </div>
-      </section>
-      <SearchEntry />
-      <div className="home-map-stage">
-        <button className={`map-filter-btn${showFilter ? ' map-filter-btn--active' : ''}`} type="button" onClick={() => setShowFilter((v) => !v)}>
-          Filter Rute ({selectedRoutes.size})
+        <button
+          type="button"
+          className="notification-btn"
+          aria-label="Buka daftar notifikasi"
+          aria-expanded={notificationsOpen}
+          aria-controls="notification-panel"
+          onClick={() => setNotificationsOpen((open) => !open)}
+        >
+          <BellIcon />
+          {notificationCount > 0 ? <span className="notification-btn__badge" data-count={notificationCount}>{notificationCount}</span> : null}
         </button>
-        {showFilter ? (
-          <div className="map-filter-panel">
-            <div className="map-filter-panel__header">
-              <strong>Pilih rute</strong>
-              <button className="secondary-button" type="button" onClick={toggleAll}>
-                {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
-              </button>
-            </div>
-            <div className="map-filter-panel__list">
-              {allRoutes.map((route) => (
-                <label className="map-filter-checkbox" key={route.id}>
-                  <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
-                  <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
-                  <span>{route.name}</span>
-                </label>
+      </header>
+      {notificationsOpen ? (
+        <section className="notification-panel" id="notification-panel" aria-label="Daftar notifikasi">
+          <p className="eyebrow">NOTIFIKASI AKTIF</p>
+          {notifications.length === 0 ? (
+            <p className="notification-panel__empty" role="status">Tidak ada notifikasi aktif.</p>
+          ) : (
+            <ul className="notification-panel__list">
+              {notifications.map((notification) => (
+                <li key={notification.id}>
+                  <article className="notification-banner notification-banner--safe">
+                    <div>
+                      <strong>{notification.title}</strong>
+                      <span>{notification.message}</span>
+                    </div>
+                    <button className="notification-banner__dismiss" type="button" onClick={() => onDismissNotification(notification.id)} aria-label={`Tutup notifikasi ${notification.title}`}>Tutup</button>
+                  </article>
+                </li>
               ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+      <SearchEntry />
+      <section id="home-hero" className={`home-hero${mapExpanded ? ' home-hero--maximized' : ' home-hero--minimized'}`}>
+        <div className="home-hero__map">
+          <button className={`map-filter-btn${showFilter ? ' map-filter-btn--active' : ''}`} type="button" onClick={() => setShowFilter((v) => !v)}>
+            Filter Rute ({selectedRoutes.size})
+          </button>
+          {showFilter ? (
+            <div className="map-filter-panel">
+              <div className="map-filter-panel__header">
+                <strong>Pilih rute</strong>
+                <button className="secondary-button" type="button" onClick={toggleAll}>
+                  {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
+                </button>
+              </div>
+              <div className="map-filter-panel__list">
+                {allRoutes.map((route) => (
+                  <label className="map-filter-checkbox" key={route.id}>
+                    <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
+                    <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
+                    <span>{route.name}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : null}
-        <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
-        <BottomSheet>
-          <ArrivalsSheet />
-        </BottomSheet>
-      </div>
+          ) : null}
+          <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} />
+        </div>
+        <button
+          type="button"
+          className="map-toggle-btn"
+          aria-label={mapExpanded ? 'Ciutkan peta' : 'Perbesar peta'}
+          aria-expanded={mapExpanded}
+          aria-controls="home-hero"
+          onClick={() => setMapExpanded((expanded) => !expanded)}
+        >
+          {mapExpanded ? <MinimizeIcon /> : <MaximizeIcon />}
+        </button>
+      </section>
+      <ul className="feature-list">
+        <li>
+          <button type="button" className="feature-tile" onClick={() => onNavigate('antar-aku')}>
+            <span className="feature-tile__icon"><AntarAkuIcon /></span>
+            <span className="feature-tile__label">Antar Aku</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" className="feature-tile" onClick={() => onNavigate('transcribe')}>
+            <span className="feature-tile__icon"><TranscribeIcon /></span>
+            <span className="feature-tile__label">Transcribe</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" className="feature-tile" onClick={() => onNavigate('delays')}>
+            <span className="feature-tile__icon"><DelaysIcon /></span>
+            <span className="feature-tile__label">Keterlambatan</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" className="feature-tile" onClick={() => onNavigate('schedule')}>
+            <span className="feature-tile__icon"><ScheduleIcon /></span>
+            <span className="feature-tile__label">Jadwal Transjakarta</span>
+          </button>
+        </li>
+      </ul>
+      <BottomSheet>
+        <ArrivalsSheet />
+      </BottomSheet>
     </main>
   )
 }
@@ -1729,10 +1809,6 @@ function ProfilePage({ profile, onReset, connection, simulationDetail }: { profi
 function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void }) {
   const navigationItems: Array<{ screen: Exclude<Screen, 'placeholder'>; label: string; icon: string }> = [
     { screen: 'home', label: 'Beranda', icon: '⌂' },
-    { screen: 'antar-aku', label: 'Antar Aku', icon: '→' },
-    { screen: 'transcribe', label: 'Transcribe', icon: '✎' },
-    { screen: 'delays', label: 'Keterlambatan', icon: '!' },
-    { screen: 'schedule', label: 'Jadwal', icon: '▦' },
     { screen: 'profile', label: 'Profil', icon: '◉' },
   ]
 
@@ -1756,6 +1832,8 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
   const optionalData = useOptionalStaticData(backend.transitState || SEEDED_TRANSIT_STATE)
+  const unreadNotifications = backend.notifications.filter((notification) => !dismissedNotificationIds.includes(notification.id))
+  const unreadCount = unreadNotifications.length
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
 
   const title = useMemo(() => {
@@ -1772,13 +1850,17 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     setScreen(nextScreen)
   }
 
+  const dismissNotification = (notificationId: string) => {
+    setDismissedNotificationIds((current) => (current.includes(notificationId) ? current : [...current, notificationId]))
+  }
+
   return (
     <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
       {screen === 'home' ? null : <AppHeader title={title} />}
       <NotificationRenderer notification={currentNotification} onDismiss={() => {
-        if (currentNotification) setDismissedNotificationIds((current) => current.includes(currentNotification.id) ? current : [...current, currentNotification.id])
+        if (currentNotification) dismissNotification(currentNotification.id)
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} /> : null}
+      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} /> : null}
       {screen === 'schedule' ? <SchedulePage transitState={optionalData.state} sourceDetail={optionalData.detail} source={optionalData.source} simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
