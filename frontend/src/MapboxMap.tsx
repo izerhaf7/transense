@@ -24,6 +24,12 @@ interface BusPosition {
   next_stop?: { name: string }
 }
 
+export interface StopPopupData {
+  stop: { id: string; name: string; lng: number; lat: number; wheelchair_boarding?: string }
+  routes: { route_code: string; color: string }[]
+  arrivals: { bus_id: string; route_code: string; eta_minutes: number }[]
+}
+
 export interface WalkLine {
   from: { lng: number; lat: number }
   to: { lng: number; lat: number }
@@ -48,6 +54,9 @@ function MapboxMap({
   walkLegs,
   selectedRouteNames,
   onStopClick,
+  routeColors,
+  stopPopup,
+  onStopPopupClose,
 }: {
   stops: MapStop[]
   routeShapes?: RouteShape[]
@@ -55,17 +64,25 @@ function MapboxMap({
   walkLegs?: WalkLine[]
   selectedRouteNames?: Set<string>
   onStopClick?: (stopId: string) => void
+  routeColors?: Map<string, string>
+  stopPopup?: StopPopupData | null
+  onStopPopupClose?: () => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const stopMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const firstFitDoneRef = useRef(false)
 
   const selectedRef = useRef(selectedRouteNames)
   selectedRef.current = selectedRouteNames
   const onStopClickRef = useRef(onStopClick)
   onStopClickRef.current = onStopClick
+  const routeColorsRef = useRef(routeColors)
+  routeColorsRef.current = routeColors
+  const onStopPopupCloseRef = useRef(onStopPopupClose)
+  onStopPopupCloseRef.current = onStopPopupClose
 
   // Init map once.
   useEffect(() => {
@@ -243,16 +260,17 @@ function MapboxMap({
 
     const shown = buses.length > 300 ? buses.filter((_, i) => i % Math.floor(buses.length / 100) === 0) : buses
     for (const bus of shown) {
+      const color = routeColorsRef.current?.get(bus.route_code) ?? '#FF7A1A'
       const el = document.createElement('div')
       el.className = 'vehicle-marker'
       el.title = `${bus.route_code} · ${bus.id}`
-      el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:#FF7A1A;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3);cursor:pointer;font-size:11px;color:#fff;font-weight:700'
+      el.style.cssText = `display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3);cursor:pointer;font-size:11px;color:#fff;font-weight:700`
       el.textContent = bus.route_code.length <= 3 ? bus.route_code : '...'
 
       const popupHTML = [
         '<div class="bus-popup">',
         `<div class="bus-popup__head">`,
-        `<span class="bus-popup__route">${bus.route_code}</span>`,
+        `<span class="bus-popup__route" style="background:${color}">${bus.route_code}</span>`,
         `<span class="bus-popup__vehicle">${bus.id}</span>`,
         '</div>',
         bus.next_stop ? `<div class="bus-popup__row"><span class="bus-popup__label">Halte berikut</span><span class="bus-popup__value">${bus.next_stop.name}</span></div>` : '',
@@ -269,6 +287,57 @@ function MapboxMap({
       busMarkersRef.current.push(marker)
     }
   }, [buses])
+
+  // Stop info popup: shown near the clicked stop, styled like the bus popup.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const prev = stopPopupRef.current
+    if (prev) {
+      prev.remove()
+      stopPopupRef.current = null
+    }
+    if (!stopPopup) return
+
+    const routeColorsMap = new Map(stopPopup.routes.map((r) => [r.route_code, r.color]))
+    const routeChips = stopPopup.routes.map(
+      (r) => `<span class="stop-popup__chip" style="background:${r.color}">${r.route_code}</span>`,
+    ).join('')
+    const arrivalRows = stopPopup.arrivals.length === 0
+      ? '<p class="stop-popup__empty">Tidak ada bus yang akan tiba dalam waktu dekat.</p>'
+      : stopPopup.arrivals.map((a) => {
+          const color = routeColorsMap.get(a.route_code) ?? '#1677ff'
+          return [
+            '<div class="bus-popup__row">',
+            `<span class="bus-popup__route" style="background:${color}">${a.route_code}</span>`,
+            `<span class="bus-popup__value">${a.eta_minutes} menit · ${a.bus_id}</span>`,
+            '</div>',
+          ].join('')
+        }).join('')
+
+    const popupHTML = [
+      '<div class="stop-popup">',
+      `<div class="stop-popup__head">`,
+      `<strong>${stopPopup.stop.name}</strong>`,
+      '</div>',
+      stopPopup.stop.wheelchair_boarding === '1' ? '<span class="state-badge state-badge--safe">AKSESIBEL KURSI RODA</span>' : '',
+      stopPopup.routes.length ? `<div class="stop-popup__routes">${routeChips}</div>` : '',
+      '<div class="stop-popup__arrivals">',
+      '<p class="stop-popup__label">KEDATANGAN BUS</p>',
+      arrivalRows,
+      '</div>',
+      '</div>',
+    ].join('')
+
+    const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '240px', closeButton: true, closeOnClick: false })
+      .setLngLat([stopPopup.stop.lng, stopPopup.stop.lat])
+      .setHTML(popupHTML)
+      .addTo(map)
+    popup.on('close', () => {
+      onStopPopupCloseRef.current?.()
+    })
+    stopPopupRef.current = popup
+  }, [stopPopup])
 
   if (!MAPBOX_TOKEN) {
     return (

@@ -3132,85 +3132,6 @@ input[aria-invalid='true'] {
   min-height: var(--brand-control-height-base);
 }
 
-/* ---- Stop Info Panel ---- */
-
-.stop-info-panel {
-  position: absolute;
-  z-index: 7;
-  right: var(--brand-space-sm);
-  bottom: var(--brand-space-sm);
-  left: var(--brand-space-sm);
-  display: grid;
-  gap: var(--brand-space-xs);
-  max-height: 40%;
-  overflow-y: auto;
-  padding: var(--brand-space-sm);
-  background: var(--brand-color-bg-container);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-base);
-  box-shadow: var(--brand-shadow-elevated);
-}
-
-.stop-info-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--brand-space-sm);
-}
-
-.stop-info-panel__header strong {
-  font-size: var(--brand-font-size-base);
-}
-
-.stop-info-panel__close {
-  min-width: 30px;
-  min-height: 30px;
-  color: var(--brand-color-text-secondary);
-  background: transparent;
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-base);
-  cursor: pointer;
-}
-
-.stop-info-panel__routes,
-.stop-info-panel__arrivals {
-  display: grid;
-  gap: var(--brand-space-xxs);
-}
-
-.stop-info-panel__route-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--brand-space-xxs);
-}
-
-.stop-info-panel__route-chip {
-  display: inline-flex;
-  min-width: 30px;
-  min-height: 26px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 var(--brand-space-xs);
-  color: #fff;
-  border-radius: var(--brand-radius-pill);
-  font-weight: var(--brand-font-weight-strong);
-  font-size: var(--brand-font-size-sm);
-}
-
-.stop-info-panel__arrivals p {
-  margin: 0;
-  font-size: var(--brand-font-size-sm);
-}
-
-.stop-info-panel__arrivals small {
-  color: var(--brand-color-text-secondary);
-  font-size: var(--brand-font-size-sm);
-}
-
-.stop-info-panel__empty {
-  color: var(--brand-color-text-secondary);
-}
-
 /* ---- Bus Popup (Mapbox) ---- */
 
 .bus-popup {
@@ -3258,4 +3179,55 @@ input[aria-invalid='true'] {
 .bus-popup__value {
   font-weight: 600;
   text-align: right;
+}
+
+/* ---- Stop Popup (Mapbox) ---- */
+
+.stop-popup {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  font-family: system-ui, sans-serif;
+  font-size: var(--brand-font-size-sm);
+}
+
+.stop-popup__head strong {
+  display: block;
+  font-size: var(--brand-font-size-base);
+}
+
+.stop-popup__routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--brand-space-xxs);
+}
+
+.stop-popup__chip {
+  display: inline-flex;
+  min-width: 30px;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--brand-space-xs);
+  color: #fff;
+  border-radius: var(--brand-radius-pill);
+  font-weight: 700;
+  font-size: var(--brand-font-size-sm);
+}
+
+.stop-popup__arrivals {
+  display: grid;
+  gap: var(--brand-space-xxs);
+}
+
+.stop-popup__label {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stop-popup__empty {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
 }

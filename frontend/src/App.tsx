@@ -9,7 +9,7 @@ import {
   VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
-import MapboxMap from './MapboxMap'
+import MapboxMap, { type StopPopupData } from './MapboxMap'
 import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
@@ -1481,8 +1481,7 @@ function HomePage({
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [stopInfo, setStopInfo] = useState<{ stop: { id: string; name: string; wheelchair_boarding?: string }; routes: { route_code: string; color: string }[]; arrivals: { bus_id: string; route_code: string; eta_minutes: number }[] } | null>(null)
-  const [stopInfoLoading, setStopInfoLoading] = useState(false)
+  const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1576,18 +1575,20 @@ function HomePage({
     return baseStops.filter((s) => stopIds.has(s.id))
   }, [baseStops, selectedRoutes, allRoutes])
 
+  // Route short name -> trayek color (used for bus markers and popups).
+  const routeColorMap = useMemo(() => {
+    return new Map(allRoutes.map((r) => [r.name, r.color]))
+  }, [allRoutes])
+
   const handleStopClick = async (stopId: string) => {
-    setStopInfoLoading(true)
     try {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/info`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as typeof stopInfo
+      const data = await res.json() as StopPopupData
       setStopInfo(data)
     } catch (error) {
       console.warn('Stop info fetch failed.', error)
       setStopInfo(null)
-    } finally {
-      setStopInfoLoading(false)
     }
   }
 
@@ -1657,30 +1658,16 @@ function HomePage({
               </div>
             </div>
           ) : null}
-          <MapboxMap stops={displayStops} routeShapes={filteredShapes} buses={filteredBuses} selectedRouteNames={selectedRoutes} onStopClick={(id) => { void handleStopClick(id) }} />
-          {stopInfo ? (
-            <div className="stop-info-panel" role="dialog" aria-label={`Info halte ${stopInfo.stop.name}`}>
-              <div className="stop-info-panel__header">
-                <strong>{stopInfo.stop.name}</strong>
-                <button className="stop-info-panel__close" type="button" onClick={() => setStopInfo(null)} aria-label="Tutup info halte">✕</button>
-              </div>
-              {stopInfo.stop.wheelchair_boarding === '1' ? <span className="state-badge state-badge--safe">AKSESIBEL KURSI RODA</span> : null}
-              {stopInfo.routes.length ? (
-                <div className="stop-info-panel__routes">
-                  <p className="eyebrow">RUTE YANG LEWAT</p>
-                  <div className="stop-info-panel__route-list">
-                    {stopInfo.routes.map((r) => <span className="stop-info-panel__route-chip" style={{ background: r.color }} key={r.route_code}>{r.route_code}</span>)}
-                  </div>
-                </div>
-              ) : null}
-              <div className="stop-info-panel__arrivals">
-                <p className="eyebrow">KEDATANGAN BUS</p>
-                {stopInfoLoading ? <p>Memuat…</p> : null}
-                {!stopInfoLoading && stopInfo.arrivals.length === 0 ? <p className="stop-info-panel__empty">Tidak ada bus yang akan tiba dalam waktu dekat.</p> : null}
-                {stopInfo.arrivals.map((a) => <p key={`${a.bus_id}-${a.eta_minutes}`}><strong>{a.route_code}</strong> · {a.eta_minutes} menit <small>({a.bus_id})</small></p>)}
-              </div>
-            </div>
-          ) : null}
+          <MapboxMap
+            stops={displayStops}
+            routeShapes={filteredShapes}
+            buses={filteredBuses}
+            selectedRouteNames={selectedRoutes}
+            routeColors={routeColorMap}
+            stopPopup={stopInfo}
+            onStopClick={(id) => { void handleStopClick(id) }}
+            onStopPopupClose={() => setStopInfo(null)}
+          />
         </div>
         <button
           type="button"
