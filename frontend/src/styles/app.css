@@ -1509,11 +1509,6 @@ input[aria-invalid='true'] {
   white-space: nowrap;
 }
 
-.schedule-stop-row__name--route {
-  flex: 1;
-  font-weight: var(--brand-font-weight-strong);
-}
-
 .schedule-result-tag {
   display: inline-flex;
   align-items: center;

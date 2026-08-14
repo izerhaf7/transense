@@ -1818,18 +1818,40 @@ function SchedulePage() {
       {isSearching ? (
         <section className="schedule-search-results" aria-label="Hasil pencarian">
           <p className="eyebrow">HASIL PENCARIAN</p>
-          {filteredRoutes.map((route) => (
-            <button
-              key={`route-${route.id}`}
-              type="button"
-              className="schedule-stop-row"
-              onClick={() => { void toggleRoute(route.id) }}
-            >
-              <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
-              <span className="schedule-stop-row__name schedule-stop-row__name--route">{route.long_name}</span>
-              <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
-            </button>
-          ))}
+          {filteredRoutes.map((route) => {
+            const expanded = expandedRoute === route.id
+            const stops = routeStops[route.id]
+            return (
+              <div className="schedule-route" key={`route-${route.id}`}>
+                <button
+                  type="button"
+                  className="schedule-route__head"
+                  aria-expanded={expanded}
+                  onClick={() => { void toggleRoute(route.id) }}
+                >
+                  <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
+                  <span className="schedule-route__name">{route.long_name}</span>
+                  <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
+                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+                </button>
+                {expanded ? (
+                  <div className="schedule-route__stops">
+                    {stops ? stops.map((stop) => (
+                      <button
+                        key={stop.id}
+                        type="button"
+                        className="schedule-stop-row"
+                        onClick={() => { void openStopSchedule(stop.id, stop.name) }}
+                      >
+                        <span className="schedule-stop-row__name">{stop.name}</span>
+                        <span className="schedule-stop-row__cta">Jadwal →</span>
+                      </button>
+                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
           {searchStops.map((stop) => (
             <button
               key={`stop-${stop.id}`}
