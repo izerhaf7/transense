@@ -452,6 +452,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ]
         return {"lines": lines, "source": "commute"}
 
+    @application.get("/api/transit/stations", response_model=None)
+    async def transit_stations() -> dict[str, Any]:
+        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
+        if feed is None:
+            return {"stations": [], "source": "unavailable"}
+        stations = [
+            {
+                "id": s.id,
+                "operator": s.operator,
+                "code": s.code,
+                "name": s.name,
+                "lat": s.lat,
+                "lng": s.lng,
+                "lines": list(s.lines),
+            }
+            for s in feed.stations.values()
+            if s.lat is not None and s.lng is not None
+        ]
+        return {"stations": stations, "source": "commute"}
+
     @application.get("/api/transit/line/{operator}/{code}/stations", response_model=None)
     async def transit_line_stations(operator: str, code: str) -> dict[str, Any]:
         feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)

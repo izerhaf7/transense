@@ -44,6 +44,16 @@ export interface RailLine {
   coordinates: [number, number][]
 }
 
+export interface RailStation {
+  id: string
+  operator: string
+  code: string
+  name: string
+  lat: number
+  lng: number
+  lines: string[]
+}
+
 interface MapStop extends Stop {
   wheelchair_boarding?: string
   platform_code?: string
@@ -67,6 +77,7 @@ function MapboxMap({
   stopPopup,
   onStopPopupClose,
   railLines,
+  railStations,
 }: {
   stops: MapStop[]
   routeShapes?: RouteShape[]
@@ -78,10 +89,12 @@ function MapboxMap({
   stopPopup?: StopPopupData | null
   onStopPopupClose?: () => void
   railLines?: RailLine[]
+  railStations?: RailStation[]
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const stopMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const railStationMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const firstFitDoneRef = useRef(false)
@@ -128,6 +141,8 @@ function MapboxMap({
       stopMarkersRef.current = []
       busMarkersRef.current.forEach((m) => m.remove())
       busMarkersRef.current = []
+      railStationMarkersRef.current.forEach((m) => m.remove())
+      railStationMarkersRef.current = []
       map.remove()
       mapRef.current = null
       firstFitDoneRef.current = false
@@ -236,6 +251,25 @@ function MapboxMap({
       })
     }
   }, [railLines])
+
+  // Rail station markers (KCI/MRT/LRT) — always-on circular "M"-style markers.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    railStationMarkersRef.current.forEach((m) => m.remove())
+    railStationMarkersRef.current = []
+    for (const station of railStations ?? []) {
+      if (typeof station.lng !== 'number' || typeof station.lat !== 'number') continue
+      const el = document.createElement('div')
+      el.className = 'rail-station-marker'
+      el.title = station.name
+      el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:12px;height:12px;background:#fff;border:3px solid #374151;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.4);cursor:default;padding:0'
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([station.lng, station.lat])
+        .addTo(map)
+      railStationMarkersRef.current.push(marker)
+    }
+  }, [railStations])
 
   // Stop markers: render only when zoomed in, or for selected route stops.
   const renderStops = () => {

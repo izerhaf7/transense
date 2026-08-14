@@ -1405,6 +1405,7 @@ function HomePage({
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; coordinates: [number, number][] }[]>([])
+  const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1413,6 +1414,18 @@ function HomePage({
         if (!res.ok) return
         const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; coordinates: [number, number][] }[] }
         setRailLines(data.lines)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/transit/stations`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as { stations: { id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[] }
+        setRailStations(data.stations)
       })
       .catch(() => {})
     return () => controller.abort()
@@ -1603,6 +1616,7 @@ function HomePage({
             onStopClick={(id) => { void handleStopClick(id) }}
             onStopPopupClose={() => setStopInfo(null)}
             railLines={railLines}
+            railStations={railStations}
           />
         </div>
         <button
