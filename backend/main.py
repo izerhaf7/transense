@@ -499,6 +499,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ordered = _commute_line_stations(application, line)
         return {"line": line.code, "name": line.name, "color": line.color, "stations": ordered, "source": "commute"}
 
+    @application.get("/api/transit/stop/{operator}/{code}/info", response_model=None)
+    async def transit_stop_info(operator: str, code: str) -> dict[str, Any]:
+        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
+        if feed is None:
+            raise HTTPException(status_code=503, detail="Commute feed not loaded")
+        station = feed.stations.get(f"{operator}-{code}")
+        if station is None:
+            raise HTTPException(status_code=404, detail="station not found")
+        amenities = [
+            {"type": a["type"], "label": amenity_label(a["type"]), "text": a.get("text", "")}
+            for a in station.amenities
+        ]
+        return {
+            "stop": {
+                "id": station.id,
+                "name": station.name,
+                "operator": station.operator,
+                "official_name": station.official_name,
+                "lines": list(station.lines),
+                "amenities": amenities,
+            },
+            "source": "commute",
+        }
+
     @application.get("/api/transit/stop/{operator}/{code}/schedule", response_model=None)
     async def transit_stop_schedule(operator: str, code: str) -> dict[str, Any]:
         feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)

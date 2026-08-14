@@ -1579,9 +1579,9 @@ function HomePage({
     const station = railStations.find((s) => s.id === stationId)
     if (!station) return
     try {
-      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(station.operator)}/${encodeURIComponent(station.code)}/schedule`)
+      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(station.operator)}/${encodeURIComponent(station.code)}/info`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as { stop: { id: string; name: string; operator: string; official_name?: string; amenities?: { type: string; label: string; text: string }[] }; timetable: { route_code: string; color: string; headsign: string; platform?: string; times: string[] }[] }
+      const data = await res.json() as { stop: { id: string; name: string; operator: string; official_name?: string; amenities?: { type: string; label: string; text: string }[] } }
       setRailStationPopup({
         stop: {
           id: data.stop.id,
@@ -1592,10 +1592,9 @@ function HomePage({
           lng: station.lng,
           lat: station.lat,
         },
-        timetable: data.timetable,
       })
     } catch (error) {
-      console.warn('Rail station schedule fetch failed.', error)
+      console.warn('Rail station info fetch failed.', error)
       setRailStationPopup(null)
     }
   }

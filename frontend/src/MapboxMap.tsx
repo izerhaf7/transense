@@ -64,7 +64,6 @@ export interface RailStationPopupData {
     official_name?: string
     amenities?: { type: string; label: string; text: string }[]
   }
-  timetable: { route_code: string; color: string; headsign: string; platform?: string; times: string[] }[]
 }
 
 interface MapStop extends Stop {
@@ -467,20 +466,6 @@ function MapboxMap({
     }
     if (!railStationPopup) return
 
-    const groups = railStationPopup.timetable.map((group) => {
-      const shownTimes = group.times.slice(0, 8)
-      const more = group.times.length - shownTimes.length
-      const times = shownTimes.map((t) => `<span class="schedule-detail__time" style="font-size:12px">${t}</span>`).join('')
-      const moreLabel = more > 0 ? `<span class="stop-popup__more">+${more} lagi</span>` : ''
-      return [
-        '<div class="bus-popup__row" style="margin-top:6px">',
-        `<span class="bus-popup__route" style="background:${group.color}">${group.route_code}</span>`,
-        `<span class="stop-popup__headsign">${group.headsign}${group.platform ? ` · Peron ${group.platform}` : ''}</span>`,
-        '</div>',
-        `<div class="stop-popup__times">${times}${moreLabel}</div>`,
-      ].join('')
-    }).join('')
-
     const amenities = railStationPopup.stop.amenities ?? []
     const amenityChips = amenities.length
       ? amenities.map((a) => `<span class="stop-popup__amenity">${a.label}${a.text ? ` · ${a.text}` : ''}</span>`).join('')
@@ -498,8 +483,6 @@ function MapboxMap({
       officialName,
       '<p class="stop-popup__label">FASILITAS</p>',
       `<div class="stop-popup__amenities">${amenityChips}</div>`,
-      '<p class="stop-popup__label">JADWAL KERETA</p>',
-      groups || '<p class="stop-popup__empty">Tidak ada jadwal untuk stasiun ini.</p>',
       '</div>',
     ].join('')
 
