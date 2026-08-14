@@ -3,7 +3,6 @@ import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 're
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
 import {
-  areVibrationPatternsDistinct,
   cloneTransitState,
   SEEDED_TRANSIT_STATE,
   VIBRATION_PATTERNS,
@@ -1662,18 +1661,7 @@ interface StopScheduleData {
   live: { bus_id: string; route_code: string; eta_minutes: number; headsign: string }[]
 }
 
-function SchedulePage({
-  simulationDetail,
-  onUpdate,
-  onReset,
-  onSimulateNotification,
-}: {
-  simulationDetail: string
-  onUpdate: () => void
-  onReset: () => void
-  onSimulateNotification: (kind: Exclude<NotificationKind, 'off_route'>) => void
-}) {
-  const vibrationPatternsReady = areVibrationPatternsDistinct()
+function SchedulePage() {
   const [routes, setRoutes] = useState<GtfsRouteInfo[]>([])
   const [query, setQuery] = useState('')
   const [expandedRoute, setExpandedRoute] = useState<string | null>(null)
@@ -1909,21 +1897,6 @@ function SchedulePage({
           ) : null}
         </section>
       ) : null}
-
-      <section className="simulation-controls" aria-label="Kontrol schedule demo">
-        <p className="simulation-controls__detail" role="status">{simulationDetail}</p>
-        <div className="simulation-controls__actions">
-          <button className="secondary-button" type="button" onClick={onUpdate}>Maju 1 menit</button>
-          <button className="secondary-button" type="button" onClick={onReset}>Reset ke seed</button>
-        </div>
-        <div className="schedule-test-actions">
-          <p className="eyebrow">UJI KANAL NOTIFIKASI / SIMULASI</p>
-          <p className="simulation-controls__detail">{vibrationPatternsReady ? '3 pola getar terdokumentasi berbeda; visual tetap utama.' : 'Pola getar perlu diperiksa sebelum demo.'}</p>
-          <button className="secondary-button" type="button" onClick={() => onSimulateNotification('vehicle_approaching')}>Uji armada mendekat</button>
-          <button className="secondary-button" type="button" onClick={() => onSimulateNotification('destination_approaching')}>Uji halte tujuan</button>
-          <button className="secondary-button" type="button" onClick={() => onSimulateNotification('incident')}>Uji insiden</button>
-        </div>
-      </section>
     </main>
   )
 }
@@ -2049,7 +2022,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
       {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} /> : null}
-      {screen === 'schedule' ? <SchedulePage simulationDetail={backend.simulationDetail} onUpdate={backend.updateTransit} onReset={backend.resetTransit} onSimulateNotification={backend.simulateNotification} /> : null}
+      {screen === 'schedule' ? <SchedulePage /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
