@@ -1403,6 +1403,8 @@ function HomePage({
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [showBus, setShowBus] = useState(true)
+  const [showRail, setShowRail] = useState(true)
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; coordinates: [number, number][] }[]>([])
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
@@ -1590,11 +1592,22 @@ function HomePage({
           {showFilter ? (
             <div className="map-filter-panel">
               <div className="map-filter-panel__header">
-                <strong>Pilih rute</strong>
+                <strong>Filter peta</strong>
                 <button className="secondary-button" type="button" onClick={toggleAll}>
                   {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
                 </button>
               </div>
+              <div className="map-filter-modes" role="group" aria-label="Filter moda">
+                <label className="map-filter-mode">
+                  <input type="checkbox" checked={showBus} onChange={() => setShowBus((v) => !v)} />
+                  <span className="map-filter-mode__tag map-filter-mode__tag--bus">Bus</span>
+                </label>
+                <label className="map-filter-mode">
+                  <input type="checkbox" checked={showRail} onChange={() => setShowRail((v) => !v)} />
+                  <span className="map-filter-mode__tag map-filter-mode__tag--rail">Kereta</span>
+                </label>
+              </div>
+              <p className="map-filter-panel__section">RUTE BUS</p>
               <div className="map-filter-panel__list">
                 {allRoutes.map((route) => (
                   <label className="map-filter-checkbox" key={route.id}>
@@ -1607,16 +1620,16 @@ function HomePage({
             </div>
           ) : null}
           <MapboxMap
-            stops={displayStops}
-            routeShapes={filteredShapes}
-            buses={filteredBuses}
+            stops={showBus ? displayStops : []}
+            routeShapes={showBus ? filteredShapes : []}
+            buses={showBus ? filteredBuses : []}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
-            stopPopup={stopInfo}
+            stopPopup={showBus ? stopInfo : null}
             onStopClick={(id) => { void handleStopClick(id) }}
             onStopPopupClose={() => setStopInfo(null)}
-            railLines={railLines}
-            railStations={railStations}
+            railLines={showRail ? railLines : []}
+            railStations={showRail ? railStations : []}
           />
         </div>
         <button
