@@ -1680,16 +1680,20 @@ function HomePage({
                   </div>
                 </>
               ) : null}
-              <p className="map-filter-panel__section">RUTE BUS</p>
-              <div className="map-filter-panel__list">
-                {allRoutes.map((route) => (
-                  <label className="map-filter-checkbox" key={route.id}>
-                    <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
-                    <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
-                    <span>{route.name}</span>
-                  </label>
-                ))}
-              </div>
+              {showBus ? (
+                <>
+                  <p className="map-filter-panel__section">RUTE BUS</p>
+                  <div className="map-filter-panel__list">
+                    {allRoutes.map((route) => (
+                      <label className="map-filter-checkbox" key={route.id}>
+                        <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
+                        <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
+                        <span>{route.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : null}
           <MapboxMap
