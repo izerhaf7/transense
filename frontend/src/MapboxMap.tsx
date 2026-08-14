@@ -106,10 +106,30 @@ function MapboxMap({
     }
   }, [])
 
-  // Route shapes + walk legs (layers).
+  // Route shapes + walk legs (layers). Show/hide follows the filtered list,
+  // so stale layers from deselected routes are removed.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
+
+    const wantedShapeIds = new Set((routeShapes ?? []).map((s) => s.id))
+    const style = map.getStyle()
+    for (const id of Object.keys(style.sources ?? {})) {
+      if (id.startsWith('shape-')) {
+        const routeId = id.slice('shape-'.length)
+        if (!wantedShapeIds.has(routeId)) {
+          if (map.getLayer(`layer-${id}`)) map.removeLayer(`layer-${id}`)
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      } else if (id.startsWith('walk-')) {
+        const index = Number(id.slice('walk-'.length))
+        if (!Number.isNaN(index) && index >= (walkLegs?.length ?? 0)) {
+          if (map.getLayer(`layer-${id}`)) map.removeLayer(`layer-${id}`)
+          if (map.getSource(id)) map.removeSource(id)
+        }
+      }
+    }
+
     for (const shape of routeShapes ?? []) {
       if (shape.coordinates.length < 2) continue
       const sourceId = `shape-${shape.id}`
@@ -184,11 +204,15 @@ function MapboxMap({
       el.className = 'stop-marker'
       el.type = 'button'
       el.setAttribute('aria-label', stop.name)
-      el.style.cssText = 'width:14px;height:14px;background:#1677ff;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.4);cursor:pointer;padding:0'
+      el.style.cssText = 'width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:#1677ff;border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
+      el.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="#fff" aria-hidden="true">' +
+        '<path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4S4 2.5 4 6v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM18 11H6V6h12v5z"/>' +
+        '</svg>'
       el.addEventListener('click', () => {
         onStopClickRef.current?.(stop.id)
       })
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
         .setLngLat([stop.lng as number, stop.lat as number])
         .addTo(map)
       stopMarkersRef.current.push(marker)
@@ -222,22 +246,22 @@ function MapboxMap({
       const el = document.createElement('div')
       el.className = 'vehicle-marker'
       el.title = `${bus.route_code} · ${bus.id}`
-      el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:#FF7A1A;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;font-size:12px;color:#fff;font-weight:700'
+      el.style.cssText = 'display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:#FF7A1A;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3);cursor:pointer;font-size:11px;color:#fff;font-weight:700'
       el.textContent = bus.route_code.length <= 3 ? bus.route_code : '...'
 
       const popupHTML = [
-        '<div style="font-family:system-ui,sans-serif;font-weight:600;min-width:160px">',
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Nomor Kendaraan</p>`,
-        `<p style="margin:0 0 8px;font-size:16px">${bus.id}</p>`,
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Trayek</p>`,
-        `<p style="margin:0 0 8px;font-size:16px">${bus.route_code}</p>`,
-        bus.next_stop ? `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Halte Berikutnya</p><p style="margin:0 0 8px;font-size:16px">${bus.next_stop.name}</p>` : '',
-        `<p style="margin:0;font-size:11px;text-transform:uppercase;color:#6b7280">Update Terakhir</p>`,
-        `<p style="margin:0;font-size:16px">${relativeTime(bus.observed_at)}</p>`,
+        '<div class="bus-popup">',
+        `<div class="bus-popup__head">`,
+        `<span class="bus-popup__route">${bus.route_code}</span>`,
+        `<span class="bus-popup__vehicle">${bus.id}</span>`,
+        '</div>',
+        bus.next_stop ? `<div class="bus-popup__row"><span class="bus-popup__label">Halte berikut</span><span class="bus-popup__value">${bus.next_stop.name}</span></div>` : '',
+        `<div class="bus-popup__row"><span class="bus-popup__label">Update</span><span class="bus-popup__value">${relativeTime(bus.observed_at)}</span></div>`,
         '</div>',
       ].join('')
 
-      const popup = new mapboxgl.Popup({ offset: 20, maxWidth: '240px' }).setHTML(popupHTML)
+      const popup = new mapboxgl.Popup({ offset: 18, maxWidth: '200px', closeButton: true, closeOnClick: false })
+        .setHTML(popupHTML)
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([bus.lng, bus.lat])
         .setPopup(popup)

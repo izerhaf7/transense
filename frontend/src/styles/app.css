@@ -3137,17 +3137,17 @@ input[aria-invalid='true'] {
 .stop-info-panel {
   position: absolute;
   z-index: 7;
-  right: var(--brand-space-xs);
+  right: var(--brand-space-sm);
   bottom: var(--brand-space-sm);
-  left: var(--brand-space-xs);
+  left: var(--brand-space-sm);
   display: grid;
-  gap: var(--brand-space-sm);
-  max-height: 50%;
+  gap: var(--brand-space-xs);
+  max-height: 40%;
   overflow-y: auto;
-  padding: var(--brand-space-base);
+  padding: var(--brand-space-sm);
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-xl);
+  border-radius: var(--brand-radius-base);
   box-shadow: var(--brand-shadow-elevated);
 }
 
@@ -3159,12 +3159,12 @@ input[aria-invalid='true'] {
 }
 
 .stop-info-panel__header strong {
-  font-size: var(--brand-font-size-lg);
+  font-size: var(--brand-font-size-base);
 }
 
 .stop-info-panel__close {
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 30px;
+  min-height: 30px;
   color: var(--brand-color-text-secondary);
   background: transparent;
   border: var(--brand-border-width) solid var(--brand-color-border);
@@ -3175,19 +3175,19 @@ input[aria-invalid='true'] {
 .stop-info-panel__routes,
 .stop-info-panel__arrivals {
   display: grid;
-  gap: var(--brand-space-xs);
+  gap: var(--brand-space-xxs);
 }
 
 .stop-info-panel__route-list {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--brand-space-xs);
+  gap: var(--brand-space-xxs);
 }
 
 .stop-info-panel__route-chip {
   display: inline-flex;
-  min-width: 36px;
-  min-height: 32px;
+  min-width: 30px;
+  min-height: 26px;
   align-items: center;
   justify-content: center;
   padding: 0 var(--brand-space-xs);
@@ -3199,12 +3199,63 @@ input[aria-invalid='true'] {
 
 .stop-info-panel__arrivals p {
   margin: 0;
+  font-size: var(--brand-font-size-sm);
 }
 
 .stop-info-panel__arrivals small {
   color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
 }
 
 .stop-info-panel__empty {
   color: var(--brand-color-text-secondary);
+}
+
+/* ---- Bus Popup (Mapbox) ---- */
+
+.bus-popup {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  font-family: system-ui, sans-serif;
+  font-size: var(--brand-font-size-sm);
+}
+
+.bus-popup__head {
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-xs);
+}
+
+.bus-popup__route {
+  display: inline-flex;
+  min-width: 28px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--brand-space-xs);
+  color: #fff;
+  background: #ff7a1a;
+  border-radius: var(--brand-radius-pill);
+  font-weight: 700;
+  font-size: var(--brand-font-size-sm);
+}
+
+.bus-popup__vehicle {
+  font-weight: 700;
+}
+
+.bus-popup__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--brand-space-xs);
+}
+
+.bus-popup__label {
+  color: var(--brand-color-text-secondary);
+}
+
+.bus-popup__value {
+  font-weight: 600;
+  text-align: right;
 }
