@@ -14,6 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
 from .commute import CommuteClient, CommuteFeed, CommuteError, mode_label, amenity_label
+from .facilities import get_facility_stop, list_facility_stops
 from .conversation import (ConversationError, create_conversation, delete_conversation,
                            list_conversations, update_conversation)
 from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label, service_active_on
@@ -152,6 +153,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def schedule() -> dict[str, Any]:
         result = application.state.schedule
         return {"source": result.source, "attribution": result.attribution, "simulated": True, "data": result.data}
+
+    @application.get("/api/facilities/stops", response_model=None)
+    async def facility_stops() -> dict[str, Any]:
+        try:
+            stops = list_facility_stops()
+        except Exception:
+            return {"stops": [], "source": "unavailable"}
+        return {"stops": stops, "source": "facility-seed"}
+
+    @application.get("/api/facilities/stops/{stop_id}", response_model=None)
+    async def facility_stop(stop_id: str) -> dict[str, Any]:
+        try:
+            stop = get_facility_stop(stop_id)
+        except Exception:
+            stop = None
+        if stop is None:
+            raise HTTPException(status_code=404, detail="facility stop not found")
+        return {"stop": stop, "source": "facility-seed"}
 
     @application.get("/api/incidents", response_model=None)
     async def incidents() -> dict[str, Any]:
