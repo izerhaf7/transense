@@ -23,6 +23,8 @@ type CameraStatus = 'starting' | 'scanning' | 'detected' | 'camera-error' | 'mod
 interface CameraScanProps {
   apiBaseUrl: string
   onDetection?: (detections: Detection[]) => void
+  /** Receives the raw frame each time a detect frame is captured — lets the Netra pipeline OCR it. */
+  onFrame?: (frame: ImageData) => void
   /** When true, a synthetic detection fires automatically once the worker is ready. */
   simulated?: boolean
 }
@@ -43,7 +45,7 @@ function readableCameraError(error: unknown): string {
   return 'Kamera tidak tersedia — aktifkan izin kamera'
 }
 
-function CameraScan({ apiBaseUrl, onDetection, simulated }: CameraScanProps) {
+function CameraScan({ apiBaseUrl, onDetection, onFrame, simulated }: CameraScanProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const workerRef = useRef<Worker | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -55,6 +57,8 @@ function CameraScan({ apiBaseUrl, onDetection, simulated }: CameraScanProps) {
   simulatedRef.current = simulated
   const onDetectionRef = useRef(onDetection)
   onDetectionRef.current = onDetection
+  const onFrameRef = useRef(onFrame)
+  onFrameRef.current = onFrame
 
   const [status, setStatus] = useState<CameraStatus>('starting')
   const [statusMessage, setStatusMessage] = useState('')
@@ -116,6 +120,7 @@ function CameraScan({ apiBaseUrl, onDetection, simulated }: CameraScanProps) {
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      onFrameRef.current?.(imageData)
       lastDetectAtRef.current = now
       const message: CameraWorkerRequest = {
         type: 'detect',

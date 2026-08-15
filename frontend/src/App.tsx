@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
+import NetraScan from './NetraScan'
 import {
   cloneTransitState,
   SEEDED_TRANSIT_STATE,
@@ -1446,6 +1447,8 @@ function HomePage({
   notifications,
   onNavigate,
   onDismissNotification,
+  profile,
+  tts,
 }: {
   displayName: string
   transitState: TransitState | null
@@ -1453,6 +1456,8 @@ function HomePage({
   notifications: NotificationRecord[]
   onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void
   onDismissNotification: (notificationId: string) => void
+  profile: ProfileType
+  tts?: TtsProvider
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
@@ -1845,6 +1850,9 @@ function HomePage({
           </button>
         </li>
       </ul>
+      {profile === 'netra' ? (
+        <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
+      ) : null}
       <BottomSheet>
         <ArrivalsSheet />
       </BottomSheet>
@@ -2447,7 +2455,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       <NotificationRenderer notification={currentNotification} profile={profile.profile} tts={tts} onDismiss={() => {
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} /> : null}
+      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} profile={profile.profile} tts={tts} /> : null}
       {screen === 'schedule' ? <SchedulePage /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}

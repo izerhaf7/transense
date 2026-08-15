@@ -14,7 +14,9 @@
     "check:planner-storage": "node planner-storage-check.mjs",
     "check:tts": "node tts-check.mjs",
     "check:notify": "node notify-check.mjs",
+    "check:approach": "node approach-check.mjs",
     "check:profile": "node profile-storage-check.mjs",
+    "check:sidebyside": "node sidebyside-check.mjs",
     "check:camera": "node camera-check.mjs",
     "check": "npm run typecheck && npm run build"
   },

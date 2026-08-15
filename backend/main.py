@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
@@ -250,6 +251,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as error:
             raise HTTPException(status_code=502, detail=f"ElevenLabs TTS failed: {error}")
         return Response(content=audio, media_type="audio/mpeg")
+
+    @application.post("/api/vision/ocr", response_model=None)
+    async def vision_ocr(payload: dict[str, Any]) -> dict[str, Any]:
+        """Google Cloud Vision OCR proxy for the Netra camera scan.
+
+        Accepts a base64 JPEG/PNG frame and returns the recognized text. The
+        Vision key stays backend-only (``GOOGLE_VISION_API_KEY``); without it the
+        endpoint fails with 503. The response never fabricates text: an empty
+        Vision result is a valid empty reading (HTTP 200 with ``text: ""``).
+        """
+        image_base64 = payload.get("image_base64")
+        if not isinstance(image_base64, str) or not image_base64.strip():
+            raise HTTPException(status_code=422, detail="image_base64 must be a non-empty string")
+        if not resolved.google_vision_api_key:
+            raise HTTPException(status_code=503, detail="Google Cloud Vision not configured")
+        try:
+            response = httpx.post(
+                "https://vision.googleapis.com/v1/images:annotate",
+                params={"key": resolved.google_vision_api_key},
+                json={
+                    "requests": [
+                        {
+                            "features": [{"type": "TEXT_DETECTION"}],
+                            "image": {"content": image_base64},
+                        }
+                    ]
+                },
+                timeout=15.0,
+            )
+            response.raise_for_status()
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"Google Cloud Vision failed: {error}")
+        return {"text": _extract_ocr_text(response.json()), "source": "google-cloud-vision"}
 
     @application.get("/api/conversations", response_model=None)
     async def conversations() -> dict[str, Any]:
@@ -1002,6 +1036,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return
 
     return application
+
+
+def _extract_ocr_text(body: Any) -> str:
+    """Best-effort text extraction from a Vision ``images:annotate`` response.
+
+    Prefers ``textAnnotations[0].description``, then ``fullTextAnnotation.text``,
+    else an empty string — an empty Vision result is a valid empty reading,
+    never an error. Any unexpected shape degrades to the same empty string.
+    """
+    try:
+        responses = body.get("responses") or []
+        first = responses[0] if responses else {}
+        annotations = first.get("textAnnotations") or []
+        if annotations and annotations[0].get("description"):
+            return str(annotations[0]["description"])
+        full = first.get("fullTextAnnotation") or {}
+        if full.get("text"):
+            return str(full["text"])
+    except (AttributeError, IndexError, KeyError, TypeError):
+        pass
+    return ""
 
 
 def _default_plan_now() -> datetime:

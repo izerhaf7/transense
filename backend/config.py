@@ -28,6 +28,7 @@ class Settings:
     stt_provider: str = "mock"
     elevenlabs_api_key: str | None = None
     elevenlabs_tts_voice_id: str = ""
+    google_vision_api_key: str = ""
     gtfs_url: str = "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"
     gtfs_cache_path: str = "backend/gtfs_cache.zip"
     commute_api_base: str = "https://api.commute.shiorilabs.id"
@@ -56,6 +57,7 @@ class Settings:
             stt_provider=os.getenv("TRANSENSE_STT_PROVIDER", "mock"),
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY") or None,
             elevenlabs_tts_voice_id=os.getenv("ELEVENLABS_TTS_VOICE_ID") or "",
+            google_vision_api_key=os.getenv("GOOGLE_VISION_API_KEY") or "",
             gtfs_url=os.getenv("TRANSENSE_GTFS_URL", "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"),
             gtfs_cache_path=os.getenv("TRANSENSE_GTFS_CACHE_PATH", "backend/gtfs_cache.zip"),
             commute_api_base=os.getenv("TRANSENSE_COMMUTE_API_BASE", "https://api.commute.shiorilabs.id"),
