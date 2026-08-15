@@ -275,6 +275,97 @@ input[aria-invalid='true'] {
   font-size: var(--brand-font-size-sm);
 }
 
+/* ---- Onboarding (profile selection) ---- */
+
+.profile-picker {
+  display: grid;
+  gap: var(--brand-space-sm);
+  margin-top: var(--brand-space-lg);
+}
+
+.profile-card {
+  display: flex;
+  width: 100%;
+  min-height: var(--brand-control-height-lg);
+  align-items: center;
+  gap: var(--brand-space-base);
+  padding: var(--brand-space-base);
+  text-align: left;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-lg);
+  cursor: pointer;
+  transition: border-color var(--brand-motion-fast) ease, background-color var(--brand-motion-fast) ease;
+}
+
+.profile-card:hover,
+.profile-card:focus-visible {
+  border-color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+}
+
+.profile-card--selected {
+  border-color: var(--brand-color-accent);
+  border-width: var(--brand-border-width-strong);
+  background: var(--brand-color-accent-bg);
+}
+
+.profile-card__icon {
+  display: grid;
+  width: var(--brand-control-height-lg);
+  height: var(--brand-control-height-lg);
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+  border-radius: var(--brand-radius-base);
+}
+
+.profile-card__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.profile-card--selected .profile-card__icon {
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+}
+
+.profile-card__text {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  min-width: 0;
+}
+
+.profile-card__title {
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+  line-height: 1.2;
+}
+
+.profile-card__desc {
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  line-height: 1.4;
+}
+
+.profile-picker + .primary-button {
+  width: 100%;
+  margin-top: var(--brand-space-lg);
+}
+
+.profile-picker + .primary-button:disabled {
+  cursor: not-allowed;
+  opacity: var(--brand-opacity-muted);
+  background: var(--brand-color-accent-hover);
+  border-color: var(--brand-color-accent-hover);
+}
+
+.onboarding-back {
+  margin-bottom: var(--brand-space-lg);
+}
+
 /* ---- Buttons ---- */
 
 .primary-button,

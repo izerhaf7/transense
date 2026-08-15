@@ -9,7 +9,7 @@ import {
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
-import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { AccessibilityIcon, AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
 
@@ -1029,7 +1029,30 @@ function ConnectionStatusBadge({ connection }: { connection: ConnectionState }) 
   )
 }
 
-function Onboarding({ onComplete }: { onComplete: (displayName: string) => void }) {
+const PROFILE_OPTIONS: { type: ProfileType; label: string; description: string; icon: ReactNode }[] = [
+  {
+    type: 'tuli',
+    label: 'Tuli',
+    description: 'Audio-blind: teks besar, kontras tinggi, getar',
+    icon: <TranscribeIcon />,
+  },
+  {
+    type: 'netra',
+    label: 'Netra',
+    description: 'Audio-first: suara membacakan informasi',
+    icon: <BellIcon />,
+  },
+  {
+    type: 'daksa',
+    label: 'Daksa',
+    description: 'Visual + info fasilitas kursi roda',
+    icon: <AccessibilityIcon />,
+  },
+]
+
+function Onboarding({ onComplete }: { onComplete: (displayName: string, profile: ProfileType) => void }) {
+  const [step, setStep] = useState<'profile' | 'name'>('profile')
+  const [selectedProfile, setSelectedProfile] = useState<ProfileType | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -1042,7 +1065,7 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string) => void 
     }
 
     setErrorMessage('')
-    onComplete(trimmedName)
+    onComplete(trimmedName, selectedProfile ?? 'tuli')
   }
 
   return (
@@ -1052,32 +1075,67 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string) => void 
           <span className="brand-lockup__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
           <span className="brand-lockup__text">TRANSENSE</span>
         </div>
-        <p className="eyebrow">DEMO SHELL / ANDROID READY</p>
-        <h1>Informasi perjalanan yang terlihat jelas.</h1>
-        <p className="onboarding-copy">
-          Mulai dengan nama panggilan. Profil demo ini disimpan hanya di perangkatmu, tanpa login produksi.
-        </p>
-        <form className="onboarding-form" onSubmit={handleSubmit} noValidate>
-          <label htmlFor="display-name">Nama panggilan</label>
-          <input
-            id="display-name"
-            name="displayName"
-            value={displayName}
-            onChange={(event) => {
-              setDisplayName(event.target.value)
-              if (errorMessage) {
-                setErrorMessage('')
-              }
-            }}
-            placeholder="Contoh: Dita"
-            autoComplete="nickname"
-            aria-invalid={Boolean(errorMessage)}
-            aria-describedby={errorMessage ? 'display-name-error' : undefined}
-          />
-          {errorMessage ? <p id="display-name-error" className="form-error" role="alert">{errorMessage}</p> : null}
-          <button className="primary-button" type="submit">Masuk ke Transense <span aria-hidden="true">→</span></button>
-        </form>
-        <p className="onboarding-note"><span aria-hidden="true">●</span> Tampilan dirancang audio-blind: status selalu terlihat di layar.</p>
+        {step === 'profile' ? (
+          <>
+            <p className="eyebrow">PILIH PROFIL</p>
+            <h1>Bagaimana cara kamu paling nyaman menerima informasi?</h1>
+            <p className="onboarding-copy">
+              Pilih profil yang paling sesuai. Profil demo ini disimpan hanya di perangkatmu, tanpa login produksi.
+            </p>
+            <div className="profile-picker" role="group" aria-label="Pilih profil">
+              {PROFILE_OPTIONS.map((option) => (
+                <button
+                  key={option.type}
+                  type="button"
+                  aria-pressed={selectedProfile === option.type}
+                  className={`profile-card${selectedProfile === option.type ? ' profile-card--selected' : ''}`}
+                  onClick={() => setSelectedProfile(option.type)}
+                >
+                  <span className="profile-card__icon" aria-hidden="true">{option.icon}</span>
+                  <span className="profile-card__text">
+                    <span className="profile-card__title">{option.label}</span>
+                    <span className="profile-card__desc">{option.description}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button className="primary-button" type="button" disabled={!selectedProfile} onClick={() => setStep('name')}>
+              Lanjut <span aria-hidden="true">→</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="secondary-button onboarding-back" type="button" onClick={() => setStep('profile')}>
+              <span aria-hidden="true">←</span> Pilih ulang profil
+            </button>
+            <p className="eyebrow">ISI NAMA</p>
+            <h1>Informasi perjalanan yang terlihat jelas.</h1>
+            <p className="onboarding-copy">
+              Mulai dengan nama panggilan. Profil demo ini disimpan hanya di perangkatmu, tanpa login produksi.
+            </p>
+            <form className="onboarding-form" onSubmit={handleSubmit} noValidate>
+              <label htmlFor="display-name">Nama panggilan</label>
+              <input
+                id="display-name"
+                name="displayName"
+                value={displayName}
+                onChange={(event) => {
+                  setDisplayName(event.target.value)
+                  if (errorMessage) {
+                    setErrorMessage('')
+                  }
+                }}
+                placeholder="Contoh: Dita"
+                autoComplete="nickname"
+                aria-invalid={Boolean(errorMessage)}
+                aria-describedby={errorMessage ? 'display-name-error' : undefined}
+              />
+              {errorMessage ? <p id="display-name-error" className="form-error" role="alert">{errorMessage}</p> : null}
+              <button className="primary-button" type="submit">Masuk ke Transense <span aria-hidden="true">→</span></button>
+            </form>
+            <p className="onboarding-note"><span aria-hidden="true">●</span> Tampilan dirancang audio-blind: status selalu terlihat di layar.</p>
+          </>
+        )}
       </div>
     </main>
   )

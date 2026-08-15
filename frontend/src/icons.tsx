@@ -63,3 +63,14 @@ export function ScheduleIcon({ size = 24, className }: IconProps) {
     </svg>
   )
 }
+
+export function AccessibilityIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" className={className}>
+      <circle cx="12" cy="5" r="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 7v4M12 8.5 9.2 10.5M12 9.5l1.8 2.4M13.8 12v3.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="17" r="4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 13v8M8 17h8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
