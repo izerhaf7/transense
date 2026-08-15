@@ -351,14 +351,13 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     resetPlanResults()
   }
 
-  const runPlan = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!origin) {
+  const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
+    if (!from) {
       setPlanState('error')
       setPlanError('Pilih titik asal dari saran halte dulu.')
       return
     }
-    if (!destination) {
+    if (!to) {
       setPlanState('error')
       setPlanError('Pilih titik tujuan dari saran halte dulu.')
       return
@@ -371,17 +370,17 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     setWalkLegs([])
 
     const params = new URLSearchParams()
-    if (origin.stop_id) {
-      params.set('from_stop', origin.stop_id)
+    if (from.stop_id) {
+      params.set('from_stop', from.stop_id)
     } else {
-      params.set('from_lat', String(origin.lat))
-      params.set('from_lng', String(origin.lng))
+      params.set('from_lat', String(from.lat))
+      params.set('from_lng', String(from.lng))
     }
-    if (destination.stop_id) {
-      params.set('to_stop', destination.stop_id)
+    if (to.stop_id) {
+      params.set('to_stop', to.stop_id)
     } else {
-      params.set('to_lat', String(destination.lat))
-      params.set('to_lng', String(destination.lng))
+      params.set('to_lat', String(to.lat))
+      params.set('to_lng', String(to.lng))
     }
 
     // Departure vs arrive-by: when the toggle is ON ("Tiba jam") we send only
@@ -401,7 +400,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       // Record this successful plan (HTTP 200) in the local search history,
       // regardless of itinerary count. Consecutive duplicates are merged into
       // one entry and moved to the top by addHistoryEntry.
-      recordSearch(origin, destination)
+      recordSearch(from, to)
       const payload: unknown = await response.json()
       const parsed = isPlanResponse(payload) ? payload : null
       if (!parsed) throw new Error('respons plan tidak valid')
@@ -412,6 +411,20 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       setPlanError('Gagal mencari rute. Periksa koneksi backend dan coba lagi.')
       console.warn('Journey plan failed.', error)
     }
+  }
+
+  const runPlan = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await executePlan()
+  }
+
+  const runDemo = async () => {
+    const jis: PlanPoint = { stop_id: 'H00273P', name: 'Jakarta International Stadium', lat: -6.125, lng: 106.858 }
+    const blokM: PlanPoint = { stop_id: 'B02860P', name: 'Plaza Blok M', lat: -6.244, lng: 106.798 }
+    choosePoint('origin', jis)
+    choosePoint('destination', blokM)
+    setPhase('plan')
+    await executePlan(jis, blokM)
   }
 
   useEffect(() => {
@@ -513,6 +526,9 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
         <p className="eyebrow">ANTAR AKU / PERENCANA RUTE</p>
         <h2>Cari rute TransJakarta</h2>
         <p>Masukkan asal dan tujuan, lalu pilih rute terbaik. Setelah memilih, kamu bisa mengikuti armada secara langsung.</p>
+        <button className="secondary-button demo-route-btn" type="button" onClick={() => { void runDemo() }} disabled={planState === 'loading'}>
+          Demo: JIS → Blok M
+        </button>
       </section>
 
       <form className="planner-form" onSubmit={(event) => { void runPlan(event) }} role="search">
