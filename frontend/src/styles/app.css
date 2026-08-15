@@ -40,6 +40,7 @@ a:focus-visible {
 }
 
 #root {
+  min-height: 100vh;
   min-height: 100svh;
 }
 
@@ -104,6 +105,7 @@ p {
 
 .splash-screen {
   display: flex;
+  min-height: 100vh;
   min-height: 100svh;
   flex-direction: column;
   align-items: center;
@@ -168,6 +170,7 @@ p {
 
 .onboarding-frame {
   display: flex;
+  min-height: 100vh;
   min-height: 100svh;
   align-items: center;
   justify-content: center;
@@ -356,14 +359,17 @@ input[aria-invalid='true'] {
 
 .app-frame {
   width: min(100%, var(--brand-max-width));
+  min-height: 100vh;
   min-height: 100svh;
   margin: 0 auto;
   padding-bottom: calc(var(--brand-bottom-nav-height) + var(--brand-space-lg));
 }
 
 .app-frame--home {
+  position: relative;
   display: flex;
   flex-direction: column;
+  height: 100vh; /* fallback for browsers/webviews without svh */
   height: 100svh;
   overflow: hidden;
   padding-bottom: calc(var(--brand-bottom-nav-height) + env(safe-area-inset-bottom));
@@ -662,7 +668,7 @@ input[aria-invalid='true'] {
   flex-direction: column;
   gap: var(--brand-space-base);
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 100%;
   /* Scrolls so the B2 feature grid is reachable without maximizing the hero map.
      Top safe-area comes from viewport-fit=cover; bottom padding clears the fixed nav. */
   padding:
@@ -772,10 +778,13 @@ input[aria-invalid='true'] {
 
 .home-hero--minimized {
   height: 220px;
+  min-height: 220px;
 }
 
 .home-hero--maximized {
   height: 80vh;
+  height: 80svh;
+  min-height: 320px;
 }
 
 .home-hero__map {
@@ -1011,14 +1020,16 @@ input[aria-invalid='true'] {
 /* ---- Bottom Sheet ---- */
 
 .bottom-sheet {
-  position: absolute;
+  position: fixed;
+  z-index: 9;
   right: 0;
-  bottom: 0;
+  bottom: calc(var(--brand-bottom-nav-height) + env(safe-area-inset-bottom));
   left: 0;
-  z-index: 5;
   display: flex;
   flex-direction: column;
-  max-height: 100%;
+  max-height: 50vh;
+  width: min(100%, var(--brand-max-width));
+  margin: 0 auto;
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-border);
   border-bottom: 0;
