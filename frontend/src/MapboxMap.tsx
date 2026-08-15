@@ -145,47 +145,69 @@ function MapboxMap({
     mapRef.current = map
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
 
-    let fitTimer: number | null = null
-    const fitBounds = () => {
-      if (!firstFitDoneRef.current) return
-      const size = map.getContainer().clientWidth * map.getContainer().clientHeight
-      if (size <= 0) return
-      map.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 16, maxZoom: 18 })
+    const containerSize = () => {
+      const el = containerRef.current
+      if (!el) return 0
+      return el.clientWidth * el.clientHeight
+    }
+
+    const resizeNow = () => {
+      if (!mapRef.current) return
+      if (containerSize() <= 0) return
+      mapRef.current.resize()
+      if (firstFitDoneRef.current) {
+        mapRef.current.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 16, maxZoom: 18 })
+      }
     }
 
     map.on('load', () => {
-      map.resize()
+      resizeNow()
       if (!firstFitDoneRef.current) {
         firstFitDoneRef.current = true
         map.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 16, maxZoom: 18 })
       }
     })
 
-    // Debounced resize + refit so the hero minimize/maximize toggle fills the map
-    // and the map never gets stuck at 0 height on first mobile layout.
-    let resizeTimer: number | null = null
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeTimer !== null) return
-      resizeTimer = window.setTimeout(() => {
-        resizeTimer = null
-        map.resize()
-        fitBounds()
-      }, 260)
-    })
-    resizeObserver.observe(containerRef.current)
+    // Poll until the container has real size, then resize + refit. Some mobile
+    // webviews (older Chrome/Safari) neither fire ResizeObserver reliably nor
+    // settle layout before the first map resize, leaving the canvas at 0px.
+    let pollCount = 0
+    const pollTimer = window.setInterval(() => {
+      pollCount += 1
+      if (containerSize() > 0) {
+        resizeNow()
+        if (pollCount >= 20) window.clearInterval(pollTimer)
+      } else if (pollCount >= 40) {
+        window.clearInterval(pollTimer)
+      }
+    }, 250)
 
-    // Late-layout fallback: mobile browsers may settle the container after the
-    // initial ResizeObserver callback, leaving the canvas at 0px until a manual
-    // zoom. Re-check once the viewport/layout has had time to finish.
-    fitTimer = window.setTimeout(() => {
-      map.resize()
-      fitBounds()
-    }, 600)
+    // Debounced resize + refit for the hero minimize/maximize toggle.
+    let resizeTimer: number | null = null
+    let resizeObserver: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        if (resizeTimer !== null) return
+        resizeTimer = window.setTimeout(() => {
+          resizeTimer = null
+          resizeNow()
+        }, 260)
+      })
+      resizeObserver.observe(containerRef.current)
+    }
+
+    // Window-level resize as a belt-and-suspenders fallback (browser zoom,
+    // orientation change, address-bar show/hide on mobile).
+    const handleWindowResize = () => resizeNow()
+    window.addEventListener('resize', handleWindowResize)
+    window.addEventListener('orientationchange', handleWindowResize)
 
     return () => {
-      resizeObserver.disconnect()
+      window.clearInterval(pollTimer)
+      window.removeEventListener('resize', handleWindowResize)
+      window.removeEventListener('orientationchange', handleWindowResize)
+      if (resizeObserver) resizeObserver.disconnect()
       if (resizeTimer !== null) window.clearTimeout(resizeTimer)
-      if (fitTimer !== null) window.clearTimeout(fitTimer)
       stopMarkersRef.current.forEach((m) => m.remove())
       stopMarkersRef.current = []
       busMarkersRef.current.forEach((m) => m.remove())
