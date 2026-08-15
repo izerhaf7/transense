@@ -3,6 +3,7 @@ import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 're
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
 import NetraScan from './NetraScan'
+import SideBySidePage from './SideBySidePage'
 import {
   cloneTransitState,
   SEEDED_TRANSIT_STATE,
@@ -17,7 +18,7 @@ import OccupancyCard from './OccupancyCard'
 import { createTtsProvider } from './tts'
 import type { TtsProvider } from './tts'
 
-type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
+type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'side-by-side' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
 type MicrophonePermission = 'unknown' | 'granted' | 'denied' | 'unsupported'
@@ -1849,6 +1850,15 @@ function HomePage({
             <span className="feature-tile__label">Jadwal Transportasi Umum</span>
           </button>
         </li>
+        {profile === 'netra' || profile === 'daksa' ? (
+          <li>
+            <button type="button" className="feature-tile" onClick={() => onNavigate('side-by-side')}>
+              <span className="feature-tile__icon"><AccessibilityIcon /></span>
+              <span className="feature-tile__label">Side by Side</span>
+              <span>Fasilitas halte</span>
+            </button>
+          </li>
+        ) : null}
       </ul>
       {profile === 'netra' ? (
         <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
@@ -2438,6 +2448,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     if (screen === 'schedule') return 'Jadwal Transportasi Umum'
     if (screen === 'antar-aku') return 'Antar Aku'
     if (screen === 'transcribe') return 'Transcribe'
+    if (screen === 'side-by-side') return 'Side by Side'
     return 'Fitur Transense'
   }, [screen])
 
@@ -2461,6 +2472,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
       {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
+      {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
   )
