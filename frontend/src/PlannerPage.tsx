@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
-import TransitTrackingPage from './TransitTrackingPage'
 import type { Stop } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import {
@@ -83,6 +82,99 @@ interface PlannerShape {
 }
 
 type PlannerPhase = 'plan' | 'tracking'
+
+function SimulatedTrackingPage({
+  itinerary,
+  planShapes,
+  walkLegs,
+  onBack,
+}: {
+  itinerary: PlanItinerary
+  planShapes: PlannerShape[]
+  walkLegs: WalkLine[]
+  onBack: () => void
+}) {
+  const [checkpointIndex, setCheckpointIndex] = useState(0)
+  const [mapOpen, setMapOpen] = useState(false)
+
+  const checkpoints = useMemo(() => {
+    const result: { id: string; name: string; mode: PlanLeg['mode']; route?: string }[] = []
+    for (const leg of itinerary.legs) {
+      const point = leg.from
+      const id = point.stop_id ?? `${point.name}:${point.lat},${point.lng}`
+      if (!result.some((item) => item.id === id)) {
+        result.push({ id, name: point.name, mode: leg.mode, route: leg.route?.short_name })
+      }
+      const destination = leg.to
+      const destinationId = destination.stop_id ?? `${destination.name}:${destination.lat},${destination.lng}`
+      if (!result.some((item) => item.id === destinationId)) {
+        result.push({ id: destinationId, name: destination.name, mode: leg.mode, route: leg.route?.short_name })
+      }
+    }
+    return result
+  }, [itinerary])
+
+  const current = checkpoints[checkpointIndex]
+  const next = checkpoints[checkpointIndex + 1]
+  const progress = checkpoints.length <= 1 ? 100 : Math.round((checkpointIndex / (checkpoints.length - 1)) * 100)
+  const mapStops: Stop[] = checkpoints.map((checkpoint, index) => {
+    const point = itinerary.legs.flatMap((leg) => [leg.from, leg.to]).find((candidate) => {
+      const id = candidate.stop_id ?? `${candidate.name}:${candidate.lat},${candidate.lng}`
+      return id === checkpoint.id
+    })
+    return { id: checkpoint.id, name: `${index === checkpointIndex ? 'SEKARANG · ' : ''}${checkpoint.name}`, lat: point?.lat ?? 0, lng: point?.lng ?? 0 }
+  }).filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && stop.lat !== 0)
+
+  return (
+    <main className="page-content inner-page planner-page planner-simulation-page">
+      <section className="planner-simulation__header">
+        <button type="button" className="schedule-detail__back" onClick={onBack}>← Kembali ke rute</button>
+        <p className="eyebrow">SIMULASI PER HALTE</p>
+        <h2>Perjalanan aktif</h2>
+        <p>Gunakan tombol halte berikutnya untuk mensimulasikan posisi perjalanan.</p>
+      </section>
+
+      <section className="planner-simulation__status" aria-live="polite">
+        <p className="eyebrow">SEKARANG</p>
+        <h3>{current?.name ?? 'Perjalanan selesai'}</h3>
+        {current?.route ? <span className="state-badge state-badge--safe">BUS {current.route}</span> : null}
+        <div className="planner-simulation__progress"><span style={{ width: `${progress}%` }} /></div>
+        <p className="planner-simulation__progress-label">{progress}% perjalanan · {next ? `${checkpoints.length - checkpointIndex - 1} titik tersisa` : 'Tujuan tercapai'}</p>
+      </section>
+
+      <section className="planner-simulation__next">
+        <p className="eyebrow">BERIKUTNYA</p>
+        <strong>{next?.name ?? 'Selesai'}</strong>
+        <span>{next ? `Naik/lanjut dengan ${next.mode === 'BUS' ? `bus ${next.route ?? ''}` : 'jalan kaki'}` : 'Kamu sudah sampai tujuan.'}</span>
+        <button className="primary-button" type="button" disabled={!next} onClick={() => setCheckpointIndex((index) => Math.min(index + 1, checkpoints.length - 1))}>
+          {next ? 'Halte berikutnya' : 'Perjalanan selesai'} <span aria-hidden="true">→</span>
+        </button>
+      </section>
+
+      <button className="planner-map-dropdown__toggle" type="button" aria-expanded={mapOpen} onClick={() => setMapOpen((open) => !open)}>
+        {mapOpen ? 'Sembunyikan peta' : 'Lihat peta perjalanan'} <span aria-hidden="true">{mapOpen ? '▲' : '▼'}</span>
+      </button>
+      {mapOpen ? (
+        <section className="planner-map-dropdown" aria-label="Peta perjalanan simulasi">
+          <MapboxMap stops={mapStops} routeShapes={planShapes} walkLegs={walkLegs} />
+        </section>
+      ) : null}
+
+      <section className="planner-simulation__timeline" aria-label="Urutan halte perjalanan">
+        <p className="eyebrow">URUTAN PERJALANAN</p>
+        <ol>
+          {checkpoints.map((checkpoint, index) => (
+            <li className={index < checkpointIndex ? 'is-complete' : index === checkpointIndex ? 'is-current' : ''} key={checkpoint.id}>
+              <span className="planner-simulation__dot" />
+              <span>{checkpoint.name}</span>
+              {index === checkpointIndex ? <small>SEKARANG</small> : index === checkpointIndex + 1 ? <small>BERIKUTNYA</small> : null}
+            </li>
+          ))}
+        </ol>
+      </section>
+    </main>
+  )
+}
 
 function isPlanRoute(value: unknown): value is PlanRouteInfo {
   if (!isRecord(value)) return false
@@ -263,7 +355,6 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
   const [planShapes, setPlanShapes] = useState<PlannerShape[]>([])
   const [walkLegs, setWalkLegs] = useState<WalkLine[]>([])
   const [phase, setPhase] = useState<PlannerPhase>('plan')
-  const [trackTarget, setTrackTarget] = useState<Stop | null>(null)
 
   // Departure vs arrive-by planning. Default = "Berangkat jam" (backward
   // compatible: sends `time`). Toggle on = "Tiba jam": sends `arrive_by` and
@@ -351,14 +442,13 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     resetPlanResults()
   }
 
-  const runPlan = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!origin) {
+  const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
+    if (!from) {
       setPlanState('error')
       setPlanError('Pilih titik asal dari saran halte dulu.')
       return
     }
-    if (!destination) {
+    if (!to) {
       setPlanState('error')
       setPlanError('Pilih titik tujuan dari saran halte dulu.')
       return
@@ -371,17 +461,17 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     setWalkLegs([])
 
     const params = new URLSearchParams()
-    if (origin.stop_id) {
-      params.set('from_stop', origin.stop_id)
+    if (from.stop_id) {
+      params.set('from_stop', from.stop_id)
     } else {
-      params.set('from_lat', String(origin.lat))
-      params.set('from_lng', String(origin.lng))
+      params.set('from_lat', String(from.lat))
+      params.set('from_lng', String(from.lng))
     }
-    if (destination.stop_id) {
-      params.set('to_stop', destination.stop_id)
+    if (to.stop_id) {
+      params.set('to_stop', to.stop_id)
     } else {
-      params.set('to_lat', String(destination.lat))
-      params.set('to_lng', String(destination.lng))
+      params.set('to_lat', String(to.lat))
+      params.set('to_lng', String(to.lng))
     }
 
     // Departure vs arrive-by: when the toggle is ON ("Tiba jam") we send only
@@ -401,7 +491,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       // Record this successful plan (HTTP 200) in the local search history,
       // regardless of itinerary count. Consecutive duplicates are merged into
       // one entry and moved to the top by addHistoryEntry.
-      recordSearch(origin, destination)
+      recordSearch(from, to)
       const payload: unknown = await response.json()
       const parsed = isPlanResponse(payload) ? payload : null
       if (!parsed) throw new Error('respons plan tidak valid')
@@ -412,6 +502,20 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       setPlanError('Gagal mencari rute. Periksa koneksi backend dan coba lagi.')
       console.warn('Journey plan failed.', error)
     }
+  }
+
+  const runPlan = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await executePlan()
+  }
+
+  const runDemo = async () => {
+    const jis: PlanPoint = { stop_id: 'H00273P', name: 'Jakarta International Stadium', lat: -6.125, lng: 106.858 }
+    const blokM: PlanPoint = { stop_id: 'B02860P', name: 'Plaza Blok M', lat: -6.244, lng: 106.798 }
+    choosePoint('origin', jis)
+    choosePoint('destination', blokM)
+    setPhase('plan')
+    await executePlan(jis, blokM)
   }
 
   useEffect(() => {
@@ -478,25 +582,17 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
 
   const startTrackingForChosenRoute = () => {
     const itinerary = planResponse?.itineraries[selectedItinerary]
-    const lastLeg = itinerary?.legs[itinerary.legs.length - 1]
-    if (!itinerary || !lastLeg) return
-    const lastPoint = lastLeg.to
-    const target: Stop = {
-      id: lastPoint.stop_id ?? `plan-destination-${selectedItinerary}`,
-      name: lastPoint.name,
-      lat: lastPoint.lat,
-      lng: lastPoint.lng,
-    }
-    setTrackTarget(target)
+    if (!itinerary) return
     setPhase('tracking')
   }
 
-  if (phase === 'tracking' && trackTarget) {
+  const trackingItinerary = planResponse?.itineraries[selectedItinerary] ?? null
+  if (phase === 'tracking' && trackingItinerary) {
     return (
-      <TransitTrackingPage
-        apiBaseUrl={apiBaseUrl}
-        initialTarget={trackTarget}
-        initialMode="gps"
+      <SimulatedTrackingPage
+        itinerary={trackingItinerary}
+        planShapes={planShapes}
+        walkLegs={walkLegs}
         onBack={() => setPhase('plan')}
       />
     )
@@ -513,6 +609,9 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
         <p className="eyebrow">ANTAR AKU / PERENCANA RUTE</p>
         <h2>Cari rute TransJakarta</h2>
         <p>Masukkan asal dan tujuan, lalu pilih rute terbaik. Setelah memilih, kamu bisa mengikuti armada secara langsung.</p>
+        <button className="secondary-button demo-route-btn" type="button" onClick={() => { void runDemo() }} disabled={planState === 'loading'}>
+          Demo: JIS → Blok M
+        </button>
       </section>
 
       <form className="planner-form" onSubmit={(event) => { void runPlan(event) }} role="search">
