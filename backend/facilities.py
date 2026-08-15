@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, cast
+
+from .transit import iso_utc
 
 # Iconic TransJakarta stops with made-up-but-realistic accessibility facility
 # values. Per the owner decision (brief-v2) this data is presented as normal
@@ -96,3 +99,35 @@ def get_facility_stop(stop_id: str) -> dict[str, Any] | None:
         if stop["id"] == stop_id:
             return {**stop, "facilities": dict(cast(dict[str, Any], stop["facilities"]))}
     return None
+
+
+OCCUPANCY_LEVELS: tuple[str, ...] = ("low", "moderate", "high")
+MAX_WHEELCHAIR_SPOTS = 5
+
+
+def stop_occupancy(stop_id: str, now: datetime | None = None) -> dict[str, Any]:
+    """Deterministic time-varying occupancy for a facility stop.
+
+    A pure ``zlib.crc32`` of ``stop_id|minute_bucket`` — never ``hash()``,
+    whose PYTHONHASHSEED randomization breaks stability across process
+    restarts — so two calls inside the same minute agree, while values drift
+    across the day as the minute bucket changes.  Per the owner decision
+    (brief-v2) this data is presented as normal occupancy information: the
+    payload carries no ``simulated`` marker.
+
+    ``now`` is injectable for tests; the route passes ``datetime.now(timezone.utc)``.
+    """
+    import zlib
+
+    moment = now or datetime.now(timezone.utc)
+    bucket_moment = moment.replace(second=0, microsecond=0)
+    minute_bucket = int(bucket_moment.timestamp())
+    seed = zlib.crc32(f"{stop_id}|{minute_bucket}".encode("utf-8"))
+    occupancy = OCCUPANCY_LEVELS[seed % len(OCCUPANCY_LEVELS)]
+    wheelchair_spots = MAX_WHEELCHAIR_SPOTS - ((seed // len(OCCUPANCY_LEVELS)) % (MAX_WHEELCHAIR_SPOTS + 1))
+    return {
+        "occupancy": occupancy,
+        "wheelchair_spots_available": wheelchair_spots,
+        "updated_at": iso_utc(bucket_moment),
+        "source": "facility-seed",
+    }

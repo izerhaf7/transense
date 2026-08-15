@@ -12,6 +12,7 @@ import { AccessibilityIcon, AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, Mi
 import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
+import OccupancyCard from './OccupancyCard'
 import { createTtsProvider } from './tts'
 import type { TtsProvider } from './tts'
 
@@ -80,7 +81,14 @@ interface TranscriptionErrorMessage {
   message: string
 }
 
-type TransitMessage = ConnectionAck | TransitUpdate | TransitReset | TransitError | TranscriptionResultMessage | TranscriptionSessionStartedMessage | TranscriptionErrorMessage
+interface RampRequestAck {
+  type: 'ramp.request.ack'
+  stop_id: string
+  status: 'received'
+  occurred_at: string
+}
+
+type TransitMessage = ConnectionAck | TransitUpdate | TransitReset | TransitError | TranscriptionResultMessage | TranscriptionSessionStartedMessage | TranscriptionErrorMessage | RampRequestAck
 
 interface NotificationBase {
   type: `notification.${Exclude<NotificationKind, 'off_route'>}`
@@ -184,11 +192,13 @@ interface BackendConnection {
   notifications: NotificationRecord[]
   incidentRecords: IncidentRecord[]
   transcription: TranscriptionController
+  lastRampAck: string | null
   updateTransit: () => void
   resetTransit: () => void
   simulateNotification: (kind: Exclude<NotificationKind, 'off_route'>) => void
   pinIncident: (incidentId: string) => void
   saveTranscript: (text: string) => void
+  sendRampRequest: (stopId: string) => void
 }
 
 const DEFAULT_API_BASE_URL = 'http://localhost:8000'
@@ -291,6 +301,14 @@ function isTranscriptionError(value: unknown): value is TranscriptionErrorMessag
     && typeof value.message === 'string'
 }
 
+function isRampRequestAck(value: unknown): value is RampRequestAck {
+  return isRecord(value)
+    && value.type === 'ramp.request.ack'
+    && typeof value.stop_id === 'string'
+    && value.status === 'received'
+    && isUtcTimestamp(value.occurred_at)
+}
+
 function isVehicleApproachingNotification(value: unknown): value is VehicleApproachingNotification {
   return isRecord(value)
     && value.type === 'notification.vehicle_approaching'
@@ -334,7 +352,7 @@ function isOffRouteNotification(value: unknown): value is OffRouteNotification {
 }
 
 function parseTransitMessage(value: unknown): TransitMessageWithNotifications | null {
-  if (isConnectionAck(value) || isTransitUpdate(value) || isTransitReset(value) || isTransitError(value) || isTranscriptionResult(value) || isTranscriptionSessionStarted(value) || isTranscriptionError(value) || isVehicleApproachingNotification(value) || isDestinationApproachingNotification(value) || isIncidentNotification(value) || isOffRouteNotification(value)) {
+  if (isConnectionAck(value) || isTransitUpdate(value) || isTransitReset(value) || isTransitError(value) || isTranscriptionResult(value) || isTranscriptionSessionStarted(value) || isTranscriptionError(value) || isVehicleApproachingNotification(value) || isDestinationApproachingNotification(value) || isIncidentNotification(value) || isOffRouteNotification(value) || isRampRequestAck(value)) {
     return value
   }
 
@@ -468,6 +486,7 @@ function useBackendConnection(): BackendConnection {
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptRecord | null>(null)
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptRecord[]>([])
   const [historyDetail, setHistoryDetail] = useState('Memeriksa history transkrip dari backend…')
+  const [lastRampAck, setLastRampAck] = useState<string | null>(null)
 
   const acceptTranscript = (record: TranscriptRecord) => {
     setCurrentTranscript(record)
@@ -715,6 +734,9 @@ function useBackendConnection(): BackendConnection {
               }
               setNotifications((current) => [notification, ...current].slice(0, 8))
               setSimulationDetail('Peringatan keluar rute simulasi diterima dari WebSocket.')
+            } else if (message.type === 'ramp.request.ack') {
+              setLastRampAck(`Petugas menerima permintaan ramp di ${message.stop_id}.`)
+              setSimulationDetail('Konfirmasi permintaan ramp diterima dari backend.')
             } else {
               if (activeTranscriptionSessionRef.current) {
                 activateMockFallback(`Backend menolak sesi transcription (${message.code}).`)
@@ -807,6 +829,23 @@ function useBackendConnection(): BackendConnection {
     }
 
     socket.send(JSON.stringify(message))
+  }
+
+  const sendRampRequest = (stopId: string) => {
+    const socket = socketRef.current
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setConnection((current) => ({
+        ...current,
+        status: 'offline',
+        detail: 'Backend belum tersedia. Shell tetap dapat digunakan.',
+      }))
+      setLastRampAck(null)
+      setSimulationDetail('Backend belum tersedia; permintaan ramp tidak terkirim.')
+      return
+    }
+    socket.send(JSON.stringify({ type: 'ramp.request', stop_id: stopId }))
+    setLastRampAck(null)
+    setSimulationDetail(`Permintaan ramp dikirim untuk ${stopId}.`)
   }
 
   const startTranscription = async () => {
@@ -928,6 +967,7 @@ function useBackendConnection(): BackendConnection {
     simulationDetail,
     notifications,
     incidentRecords,
+    lastRampAck,
     transcription: {
       microphone,
       session: transcriptionSession,
@@ -969,6 +1009,7 @@ function useBackendConnection(): BackendConnection {
         .catch((error: unknown) => console.warn('Transense could not update incident pin state.', error))
     },
     saveTranscript,
+    sendRampRequest,
   }
 }
 
@@ -2313,7 +2354,7 @@ function AntarAkuPage() {
   return <PlannerPage apiBaseUrl={apiBaseUrl} />
 }
 
-function ProfilePage({ profile, onReset, connection, simulationDetail }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string }) {
+function ProfilePage({ profile, onReset, connection, simulationDetail, lastRampAck, sendRampRequest }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string; lastRampAck: string | null; sendRampRequest: (stopId: string) => void }) {
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
@@ -2329,6 +2370,9 @@ function ProfilePage({ profile, onReset, connection, simulationDetail }: { profi
           <p>Dibuat {new Date(profile.createdAt).toLocaleDateString('id-ID')}</p>
         </div>
       </section>
+      {profile.profile === 'daksa' ? (
+        <OccupancyCard apiBaseUrl={apiBaseUrl} sendRampRequest={sendRampRequest} lastRampAck={lastRampAck} />
+      ) : null}
       <section className="connection-panel" aria-labelledby="connection-panel-heading">
         <div className="section-heading">
           <p className="eyebrow">STATUS KONEKSI</p>
@@ -2408,7 +2452,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
-      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} /> : null}
+      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
   )

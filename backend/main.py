@@ -14,7 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
 from .commute import CommuteClient, CommuteFeed, CommuteError, mode_label, amenity_label
-from .facilities import get_facility_stop, list_facility_stops
+from .facilities import get_facility_stop, list_facility_stops, stop_occupancy
 from .conversation import (ConversationError, create_conversation, delete_conversation,
                            list_conversations, update_conversation)
 from .gtfs_loader import download_gtfs, parse_gtfs, GtfsError, GtfsFeed, stop_type_label, service_active_on
@@ -23,7 +23,7 @@ from .planner import itinerary_to_dict, plan_trip
 from .notifications import NotificationEngine
 from .sources import load_static_schedule
 from .tj_api import TjRealtimeClient, RealtimeBus, TjApiError
-from .transit import TransitSimulator, TransitValidationError
+from .transit import TransitSimulator, TransitValidationError, iso_utc, utc_now
 from .transcription import (MockTranscriptionProvider, ProviderConfigurationError, TranscriptionError,
                             TranscriptionResult, create_provider, persist_transcript, transcript_history)
 from .walk_graph import WalkGraph, load_walk_graph, walk_graph_from_feed
@@ -171,6 +171,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if stop is None:
             raise HTTPException(status_code=404, detail="facility stop not found")
         return {"stop": stop, "source": "facility-seed"}
+
+    @application.get("/api/facilities/stops/{stop_id}/occupancy", response_model=None)
+    async def facility_stop_occupancy(stop_id: str) -> dict[str, Any]:
+        try:
+            stop = get_facility_stop(stop_id)
+        except Exception:
+            stop = None
+        if stop is None:
+            raise HTTPException(status_code=404, detail="facility stop not found")
+        return stop_occupancy(stop_id)
 
     @application.get("/api/incidents", response_model=None)
     async def incidents() -> dict[str, Any]:
@@ -967,6 +977,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         result = TranscriptionResult(text=text, provider="elevenlabs_scribe", mode="live")
                         persist_transcript(store, result, session_id, created_at, record_id)
                         await websocket.send_json({"type": "transcription.result", "id": record_id, "session_id": session_id, "text": text, "created_at": created_at.isoformat().replace("+00:00", "Z"), "provider": "live", "mode": "live", "functional": True})
+                    elif message_type == "ramp.request":
+                        stop_id = message.get("stop_id")
+                        if not isinstance(stop_id, str) or get_facility_stop(stop_id) is None:
+                            await websocket.send_json({
+                                "type": "error",
+                                "code": "invalid_stop_reference",
+                                "message": f"unknown facility stop reference: {stop_id or ''}",
+                            })
+                            continue
+                        await websocket.send_json({
+                            "type": "ramp.request.ack",
+                            "stop_id": stop_id,
+                            "status": "received",
+                            "occurred_at": iso_utc(utc_now()),
+                        })
                     else:
                         await websocket.send_json({"type": "error", "code": "unknown_message", "message": "message type is not supported"})
                 except (TransitValidationError, TypeError, AttributeError) as error:

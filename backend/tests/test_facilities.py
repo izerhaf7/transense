@@ -1,9 +1,11 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from backend.config import Settings
-from backend.facilities import FACILITY_STOPS, get_facility_stop, list_facility_stops
+from backend.facilities import (FACILITY_STOPS, get_facility_stop, list_facility_stops,
+                                stop_occupancy)
 from backend.main import create_app
 
 FACILITY_KEYS = ("ramp", "lift", "toilet_accessible", "guiding_block", "staffed", "step_free_access")
@@ -72,5 +74,55 @@ def test_facility_stop_by_invalid_id_returns_404(tmp_path):
     app = app_for(tmp_path)
     with TestClient(app) as client:
         response = client.get("/api/facilities/stops/does-not-exist")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "facility stop not found"}
+
+
+def test_stop_occupancy_is_deterministic_within_bucket():
+    fixed = datetime(2026, 8, 16, 9, 30, 0, tzinfo=timezone.utc)
+    stop_id = FACILITY_STOPS[0]["id"]
+    first = stop_occupancy(stop_id, fixed)
+    second = stop_occupancy(stop_id, fixed.replace(second=45, microsecond=123456))
+    # Same minute bucket -> identical payload (occupancy, spots, updated_at).
+    assert first == second
+
+
+def test_stop_occupancy_values_are_valid_and_unmarked():
+    fixed = datetime(2026, 8, 16, 9, 30, 0, tzinfo=timezone.utc)
+    seen: set[tuple[str, int]] = set()
+    for stop in FACILITY_STOPS:
+        for hour in range(0, 24):
+            payload = stop_occupancy(stop["id"], fixed.replace(hour=hour))
+            assert payload["occupancy"] in {"low", "moderate", "high"}
+            assert isinstance(payload["wheelchair_spots_available"], int)
+            assert 0 <= payload["wheelchair_spots_available"] <= 5
+            assert payload["source"] == "facility-seed"
+            assert payload["updated_at"].endswith("Z")
+            assert "simulated" not in payload
+            seen.add((payload["occupancy"], payload["wheelchair_spots_available"]))
+    # Values actually vary across the day, not a constant snapshot.
+    assert len(seen) > 1
+
+
+def test_occupancy_endpoint_returns_deterministic_unmarked_payload(tmp_path):
+    app = app_for(tmp_path)
+    stop_id = FACILITY_STOPS[0]["id"]
+    with TestClient(app) as client:
+        first = client.get(f"/api/facilities/stops/{stop_id}/occupancy")
+        second = client.get(f"/api/facilities/stops/{stop_id}/occupancy")
+    assert first.status_code == 200
+    assert first.json() == second.json()
+    body = first.json()
+    assert body["occupancy"] in {"low", "moderate", "high"}
+    assert 0 <= body["wheelchair_spots_available"] <= 5
+    assert body["source"] == "facility-seed"
+    assert body["updated_at"].endswith("Z")
+    assert "simulated" not in body
+
+
+def test_occupancy_endpoint_unknown_id_returns_404(tmp_path):
+    app = app_for(tmp_path)
+    with TestClient(app) as client:
+        response = client.get("/api/facilities/stops/does-not-exist/occupancy")
     assert response.status_code == 404
     assert response.json() == {"detail": "facility stop not found"}

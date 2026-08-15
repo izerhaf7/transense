@@ -3796,3 +3796,119 @@ input[aria-invalid='true'] {
   border-radius: var(--brand-radius-pill);
   font-size: 12px;
 }
+
+/* ---- Occupancy Card (Daksa profile) ---- */
+
+.occupancy-card {
+  display: grid;
+  gap: var(--brand-space-sm);
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+  box-shadow: var(--brand-shadow-card);
+}
+
+.occupancy-card .section-heading h2 {
+  margin: var(--brand-space-xs) 0 0;
+  font-size: var(--brand-font-size-lg);
+}
+
+.occupancy-card__label {
+  margin-top: var(--brand-space-xs);
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.occupancy-card__select {
+  min-height: var(--brand-control-height-lg);
+  padding: 0 var(--brand-space-base);
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  font-size: var(--brand-font-size-base);
+}
+
+.occupancy-card__detail {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.occupancy-card__readout {
+  display: grid;
+  gap: var(--brand-space-xs);
+  padding: var(--brand-space-base);
+  background: var(--brand-color-surface);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+}
+
+.occupancy-badge {
+  justify-self: start;
+  min-height: var(--brand-control-height-base);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--brand-space-base);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.occupancy-badge--low {
+  color: var(--brand-color-success-foreground);
+  background: var(--brand-color-success-bg);
+  border: var(--brand-border-width) solid var(--brand-color-success-border);
+}
+
+.occupancy-badge--moderate {
+  color: var(--brand-color-warning-foreground);
+  background: var(--brand-color-warning-bg);
+  border: var(--brand-border-width) solid var(--brand-color-warning-border);
+}
+
+.occupancy-badge--high {
+  color: var(--brand-color-error);
+  background: var(--brand-color-error-bg);
+  border: var(--brand-border-width) solid var(--brand-color-error-border);
+}
+
+.occupancy-card__spots {
+  margin: 0;
+  font-size: var(--brand-font-size-base);
+}
+
+.occupancy-card__spots strong {
+  font-size: var(--brand-font-size-xl);
+  color: var(--brand-color-accent);
+}
+
+.occupancy-card__help {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.occupancy-card__updated {
+  color: var(--brand-color-text-tertiary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.occupancy-card__ramp-button {
+  margin-top: var(--brand-space-xs);
+}
+
+.occupancy-card__ack {
+  margin: 0;
+  padding: var(--brand-space-base);
+  color: var(--brand-color-success-foreground);
+  background: var(--brand-color-success-bg);
+  border: var(--brand-border-width) solid var(--brand-color-success-border);
+  border-radius: var(--brand-radius-base);
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+}
