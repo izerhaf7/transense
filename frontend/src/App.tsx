@@ -10,17 +10,14 @@ import {
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
 import { AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { clearStoredProfile, persistProfile, readProfile } from './profile'
+import type { DemoProfile, ProfileType } from './profile'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
 type MicrophonePermission = 'unknown' | 'granted' | 'denied' | 'unsupported'
 type TranscriptionSource = 'live' | 'mock' | 'degraded'
-
-interface DemoProfile {
-  displayName: string
-  createdAt: string
-}
 
 interface ConnectionState {
   status: ConnectionStatus
@@ -192,7 +189,6 @@ interface BackendConnection {
   saveTranscript: (text: string) => void
 }
 
-const PROFILE_STORAGE_KEY = 'transense.demo-profile.v1'
 const DEFAULT_API_BASE_URL = 'http://localhost:8000'
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL).replace(/\/$/, '')
 
@@ -363,53 +359,6 @@ function parseTranscriptRecord(value: unknown): TranscriptRecord | null {
     provider: payload.provider === 'live' ? 'live' : 'mock',
     pinned: value.pinned === true,
     simulated: payload.simulated !== false,
-  }
-}
-
-function readProfile(): DemoProfile | null {
-  try {
-    const storedProfile = window.localStorage.getItem(PROFILE_STORAGE_KEY)
-    if (!storedProfile) {
-      return null
-    }
-
-    const parsedProfile: unknown = JSON.parse(storedProfile)
-    if (!isRecord(parsedProfile) || typeof parsedProfile.displayName !== 'string') {
-      return null
-    }
-
-    const displayName = parsedProfile.displayName.trim()
-    if (!displayName) {
-      return null
-    }
-
-    return {
-      displayName,
-      createdAt: typeof parsedProfile.createdAt === 'string' ? parsedProfile.createdAt : new Date().toISOString(),
-    }
-  } catch (error: unknown) {
-    console.warn('Transense could not read the local demo profile.', error)
-    return null
-  }
-}
-
-function persistProfile(profile: DemoProfile): boolean {
-  try {
-    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile))
-    return true
-  } catch (error: unknown) {
-    console.warn('Transense could not save the local demo profile.', error)
-    return false
-  }
-}
-
-function clearStoredProfile(): boolean {
-  try {
-    window.localStorage.removeItem(PROFILE_STORAGE_KEY)
-    return true
-  } catch (error: unknown) {
-    console.warn('Transense could not clear the local demo profile.', error)
-    return false
   }
 }
 
@@ -2423,8 +2372,8 @@ export default function App() {
     }
   }, [])
 
-  const handleCompleteOnboarding = (displayName: string) => {
-    const nextProfile: DemoProfile = { displayName, createdAt: new Date().toISOString() }
+  const handleCompleteOnboarding = (displayName: string, profile: ProfileType = 'tuli') => {
+    const nextProfile: DemoProfile = { displayName, profile, createdAt: new Date().toISOString() }
     if (persistProfile(nextProfile)) {
       setProfile(nextProfile)
       setScreen('home')
