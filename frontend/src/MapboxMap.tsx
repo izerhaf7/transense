@@ -145,21 +145,47 @@ function MapboxMap({
     mapRef.current = map
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
 
+    let fitTimer: number | null = null
+    const fitBounds = () => {
+      if (!firstFitDoneRef.current) return
+      const size = map.getContainer().clientWidth * map.getContainer().clientHeight
+      if (size <= 0) return
+      map.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 16, maxZoom: 18 })
+    }
+
     map.on('load', () => {
       map.resize()
       if (!firstFitDoneRef.current) {
         firstFitDoneRef.current = true
-        map.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 24 })
+        map.fitBounds([[106.70, -6.35], [106.98, -6.05]], { padding: 16, maxZoom: 18 })
       }
     })
 
+    // Debounced resize + refit so the hero minimize/maximize toggle fills the map
+    // and the map never gets stuck at 0 height on first mobile layout.
+    let resizeTimer: number | null = null
     const resizeObserver = new ResizeObserver(() => {
-      map.resize()
+      if (resizeTimer !== null) return
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = null
+        map.resize()
+        fitBounds()
+      }, 260)
     })
     resizeObserver.observe(containerRef.current)
 
+    // Late-layout fallback: mobile browsers may settle the container after the
+    // initial ResizeObserver callback, leaving the canvas at 0px until a manual
+    // zoom. Re-check once the viewport/layout has had time to finish.
+    fitTimer = window.setTimeout(() => {
+      map.resize()
+      fitBounds()
+    }, 600)
+
     return () => {
       resizeObserver.disconnect()
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer)
+      if (fitTimer !== null) window.clearTimeout(fitTimer)
       stopMarkersRef.current.forEach((m) => m.remove())
       stopMarkersRef.current = []
       busMarkersRef.current.forEach((m) => m.remove())
