@@ -1417,7 +1417,6 @@ function HomePage({
         if (!res.ok) return
         const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[] }
         setRailLines(data.lines)
-        setSelectedRailKeys(new Set(data.lines.map((l) => `${l.operator}:${l.code}`)))
       })
       .catch(() => {})
     return () => controller.abort()
@@ -1437,38 +1436,11 @@ function HomePage({
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`${apiBaseUrl}/api/gtfs/stops`, { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) return
-        const data = await res.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
-        if (data.stops.length) setGtfsStops(data.stops.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng })))
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [])
-
-  useEffect(() => {
-    const controller = new AbortController()
     const load = async () => {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
       if (!res.ok) return
       const data = await res.json() as { routes: { id: string; name: string; color: string; stop_ids: string[] }[] }
       setAllRoutes(data.routes)
-      setSelectedRoutes(new Set(data.routes.map((r) => r.name)))
-      const shapes: { id: string; name: string; color: string; coordinates: [number, number][] }[] = []
-      for (const route of data.routes) {
-        try {
-          const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`, { signal: controller.signal })
-          if (!shapeRes.ok) continue
-          const shapeData = await shapeRes.json() as { coordinates: [number, number][]; lines?: [number, number][][] }
-          const lines = shapeData.lines?.length ? shapeData.lines : (shapeData.coordinates.length ? [shapeData.coordinates] : [])
-          lines.forEach((coords, i) => {
-            if (coords.length < 2) return
-            shapes.push({ id: `${route.id}#${i}`, name: route.name, color: route.color, coordinates: coords })
-          })
-        } catch { /* skip */ }
-      }
-      setRouteShapes(shapes)
     }
     void load()
     return () => controller.abort()
@@ -1491,13 +1463,42 @@ function HomePage({
     return () => window.clearInterval(interval)
   }, [])
 
-  const toggleRoute = (routeName: string) => {
+  const toggleRoute = async (routeName: string) => {
+    const route = allRoutes.find((r) => r.name === routeName)
+    const willSelect = !selectedRoutes.has(routeName)
     setSelectedRoutes((prev) => {
       const next = new Set(prev)
       if (next.has(routeName)) next.delete(routeName)
       else next.add(routeName)
       return next
     })
+    if (willSelect && route) {
+      // Lazy-load the route's shape + station stops only once it's checked.
+      if (!routeShapes.some((s) => s.name === route.name)) {
+        try {
+          const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`)
+          if (shapeRes.ok) {
+            const shapeData = await shapeRes.json() as { coordinates: [number, number][]; lines?: [number, number][][] }
+            const lines = shapeData.lines?.length ? shapeData.lines : (shapeData.coordinates.length ? [shapeData.coordinates] : [])
+            const newShapes = lines.filter((coords) => coords.length >= 2).map((coords, i) => ({ id: `${route.id}#${i}`, name: route.name, color: route.color, coordinates: coords }))
+            setRouteShapes((prev) => [...prev, ...newShapes])
+          }
+        } catch { /* skip */ }
+      }
+      if (route.stop_ids.some((sid) => !gtfsStops.some((s) => s.id === sid))) {
+        try {
+          const stopsRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/stops`)
+          if (stopsRes.ok) {
+            const stopsData = await stopsRes.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+            setGtfsStops((prev) => {
+              const seen = new Set(prev.map((s) => s.id))
+              const additions = stopsData.stops.filter((s) => !seen.has(s.id)).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))
+              return [...prev, ...additions]
+            })
+          }
+        } catch { /* skip */ }
+      }
+    }
   }
 
   const toggleAll = () => {
@@ -1505,27 +1506,53 @@ function HomePage({
       setSelectedRoutes(new Set())
     } else {
       setSelectedRoutes(new Set(allRoutes.map((r) => r.name)))
+      // Lazy-load shapes + stops for all routes when "select all" is tapped.
+      void Promise.all(allRoutes.map((route) => {
+        return (async () => {
+          try {
+            const shapeRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/shape`)
+            if (shapeRes.ok) {
+              const shapeData = await shapeRes.json() as { coordinates: [number, number][]; lines?: [number, number][][] }
+              const lines = shapeData.lines?.length ? shapeData.lines : (shapeData.coordinates.length ? [shapeData.coordinates] : [])
+              const newShapes = lines.filter((coords) => coords.length >= 2).map((coords, i) => ({ id: `${route.id}#${i}`, name: route.name, color: route.color, coordinates: coords }))
+              setRouteShapes((prev) => {
+                const seen = new Set(prev.map((s) => s.id))
+                return [...prev, ...newShapes.filter((s) => !seen.has(s.id))]
+              })
+            }
+          } catch { /* skip */ }
+          try {
+            const stopsRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/stops`)
+            if (stopsRes.ok) {
+              const stopsData = await stopsRes.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+              setGtfsStops((prev) => {
+                const seen = new Set(prev.map((s) => s.id))
+                const additions = stopsData.stops.filter((s) => !seen.has(s.id)).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))
+                return [...prev, ...additions]
+              })
+            }
+          } catch { /* skip */ }
+        })()
+      }))
     }
   }
 
   const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
   const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
-  const baseStops = gtfsStops.length > 2 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
 
-  // When a subset of routes is selected, limit stops to those routes' stops.
+  // Stops follow the selected routes: no selection -> empty map (lazy-loaded).
   const displayStops = useMemo(() => {
-    if (selectedRoutes.size === allRoutes.length || selectedRoutes.size === 0 || allRoutes.length === 0) {
-      return baseStops
-    }
+    if (allRoutes.length === 0) return []
+    if (selectedRoutes.size === 0) return []
+    if (selectedRoutes.size === allRoutes.length) return gtfsStops
     const stopIds = new Set<string>()
     for (const route of allRoutes) {
       if (selectedRoutes.has(route.name)) {
         for (const sid of route.stop_ids) stopIds.add(sid)
       }
     }
-    if (stopIds.size === 0) return baseStops
-    return baseStops.filter((s) => stopIds.has(s.id))
-  }, [baseStops, selectedRoutes, allRoutes])
+    return gtfsStops.filter((s) => stopIds.has(s.id))
+  }, [gtfsStops, selectedRoutes, allRoutes])
 
   // Route short name -> trayek color (used for bus markers and popups).
   const routeColorMap = useMemo(() => {
