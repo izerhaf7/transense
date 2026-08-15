@@ -2664,6 +2664,24 @@ input[aria-invalid='true'] {
   font-weight: var(--brand-font-weight-strong);
 }
 
+/* Per-profile banner presentation (task 0.3): netra and daksa get larger text
+   so the banner doubles as the visible text twin without audio. Tuli keeps the
+   default sizes above — the modifier class is absent for the tuli profile. */
+.notification-banner--netra h2,
+.notification-banner--daksa h2 {
+  font-size: var(--brand-font-size-xl);
+}
+
+.notification-banner--netra p:not(.eyebrow),
+.notification-banner--daksa p:not(.eyebrow) {
+  font-size: var(--brand-font-size-lg);
+}
+
+.notification-banner--netra small,
+.notification-banner--daksa small {
+  font-size: var(--brand-font-size-base);
+}
+
 @keyframes edge-flash {
   from { opacity: var(--brand-opacity-muted); }
   to { opacity: 1; }

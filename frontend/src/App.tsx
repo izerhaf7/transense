@@ -5,13 +5,15 @@ import PlannerPage from './PlannerPage'
 import {
   cloneTransitState,
   SEEDED_TRANSIT_STATE,
-  VIBRATION_PATTERNS,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
 import { AccessibilityIcon, AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
+import { createTtsProvider } from './tts'
+import type { TtsProvider } from './tts'
 
 type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
@@ -970,8 +972,14 @@ function useBackendConnection(): BackendConnection {
   }
 }
 
-function NotificationRenderer({ notification, onDismiss }: { notification: NotificationRecord | null; onDismiss: () => void }) {
+function NotificationRenderer({ notification, onDismiss, profile = 'tuli', tts }: {
+  notification: NotificationRecord | null
+  onDismiss: () => void
+  profile?: ProfileType
+  tts?: TtsProvider
+}) {
   const [flashVisible, setFlashVisible] = useState(false)
+  const lastSpokenIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!notification) {
@@ -980,24 +988,26 @@ function NotificationRenderer({ notification, onDismiss }: { notification: Notif
     }
 
     setFlashVisible(true)
-    if (notification.kind === 'vehicle_approaching' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(VIBRATION_PATTERNS.vehicleApproaching)
-    } else if (notification.kind === 'destination_approaching' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(VIBRATION_PATTERNS.destinationApproaching)
-    } else if (notification.kind === 'incident' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(VIBRATION_PATTERNS.incident)
+    const output = resolveNotificationOutput(profile, notification)
+    if (output.vibratePattern && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(output.vibratePattern)
+    }
+    if (output.speakText && shouldSpeakNotification(profile, notification, lastSpokenIdRef.current)) {
+      lastSpokenIdRef.current = notification.id
+      tts?.speak(output.speakText)
     }
 
     const expiry = window.setTimeout(onDismiss, 8000)
     return () => window.clearTimeout(expiry)
-  }, [notification])
+  }, [notification, profile, tts])
 
   if (!notification) return null
+  const output = resolveNotificationOutput(profile, notification)
   const isDanger = notification.kind === 'incident' || notification.kind === 'off_route'
   return (
     <>
       {flashVisible ? <div className={`edge-flash edge-flash--${isDanger ? 'danger' : 'safe'}`} aria-hidden="true" /> : null}
-      <section className={`notification-banner notification-banner--${isDanger ? 'danger' : 'safe'}`} role="alert" aria-live="assertive">
+      <section className={`notification-banner notification-banner--${isDanger ? 'danger' : 'safe'}${notificationModifierClass(output.renderMode)}`} role="alert" aria-live="assertive">
         <div>
           <p className="eyebrow">NOTIFIKASI VISUAL / AUDIO-BLIND</p>
           <h2>{notification.title}</h2>
@@ -2364,6 +2374,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   const [screen, setScreen] = useState<Screen>('home')
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
+  const tts = useMemo(() => createTtsProvider(apiBaseUrl), [])
   const unreadNotifications = backend.notifications.filter((notification) => !dismissedNotificationIds.includes(notification.id))
   const unreadCount = unreadNotifications.length
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
@@ -2389,7 +2400,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
   return (
     <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
       {screen === 'home' ? null : <AppHeader title={title} />}
-      <NotificationRenderer notification={currentNotification} onDismiss={() => {
+      <NotificationRenderer notification={currentNotification} profile={profile.profile} tts={tts} onDismiss={() => {
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
       {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} /> : null}
