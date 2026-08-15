@@ -1783,7 +1783,7 @@ function HomePage({
         <li>
           <button type="button" className="feature-tile" onClick={() => onNavigate('schedule')}>
             <span className="feature-tile__icon"><ScheduleIcon /></span>
-            <span className="feature-tile__label">Jadwal Transjakarta</span>
+            <span className="feature-tile__label">Jadwal Transportasi Umum</span>
           </button>
         </li>
       </ul>
@@ -2365,7 +2365,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     if (screen === 'home') return 'Beranda'
     if (screen === 'delays') return 'Keterlambatan'
     if (screen === 'profile') return 'Profil'
-    if (screen === 'schedule') return 'Jadwal & armada'
+    if (screen === 'schedule') return 'Jadwal Transportasi Umum'
     if (screen === 'antar-aku') return 'Antar Aku'
     if (screen === 'transcribe') return 'Transcribe'
     return 'Fitur Transense'
