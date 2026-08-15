@@ -1399,6 +1399,7 @@ function HomePage({
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
   const [allRoutes, setAllRoutes] = useState<{ id: string; name: string; color: string; stop_ids: string[] }[]>([])
+  const [routeStopIds, setRouteStopIds] = useState<Record<string, string[]>>({})
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
@@ -1485,11 +1486,13 @@ function HomePage({
           }
         } catch { /* skip */ }
       }
-      if (route.stop_ids.some((sid) => !gtfsStops.some((s) => s.id === sid))) {
+      if (!routeStopIds[route.name]) {
         try {
           const stopsRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/stops`)
           if (stopsRes.ok) {
             const stopsData = await stopsRes.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+            const ids = stopsData.stops.map((s) => s.id)
+            setRouteStopIds((prev) => ({ ...prev, [route.name]: ids }))
             setGtfsStops((prev) => {
               const seen = new Set(prev.map((s) => s.id))
               const additions = stopsData.stops.filter((s) => !seen.has(s.id)).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))
@@ -1525,6 +1528,8 @@ function HomePage({
             const stopsRes = await fetch(`${apiBaseUrl}/api/gtfs/route/${encodeURIComponent(route.id)}/stops`)
             if (stopsRes.ok) {
               const stopsData = await stopsRes.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+              const ids = stopsData.stops.map((s) => s.id)
+              setRouteStopIds((prev) => ({ ...prev, [route.name]: ids }))
               setGtfsStops((prev) => {
                 const seen = new Set(prev.map((s) => s.id))
                 const additions = stopsData.stops.filter((s) => !seen.has(s.id)).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))
@@ -1548,11 +1553,11 @@ function HomePage({
     const stopIds = new Set<string>()
     for (const route of allRoutes) {
       if (selectedRoutes.has(route.name)) {
-        for (const sid of route.stop_ids) stopIds.add(sid)
+        for (const sid of routeStopIds[route.name] ?? []) stopIds.add(sid)
       }
     }
     return gtfsStops.filter((s) => stopIds.has(s.id))
-  }, [gtfsStops, selectedRoutes, allRoutes])
+  }, [gtfsStops, selectedRoutes, allRoutes, routeStopIds])
 
   // Route short name -> trayek color (used for bus markers and popups).
   const routeColorMap = useMemo(() => {
