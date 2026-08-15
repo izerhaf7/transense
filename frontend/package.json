@@ -15,9 +15,11 @@
     "check:tts": "node tts-check.mjs",
     "check:notify": "node notify-check.mjs",
     "check:profile": "node profile-storage-check.mjs",
+    "check:camera": "node camera-check.mjs",
     "check": "npm run typecheck && npm run build"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@elevenlabs/elevenlabs-js": "^2.63.0",
     "@elevenlabs/react": "^1.12.0",
     "mapbox-gl": "^3.28.1",
