@@ -3,6 +3,7 @@
 ## Current State
 
 - Spec-driven monorepo. `backend/` is FastAPI + WebSocket + SQLite; `frontend/` is React 19 + Vite 8 + TS 6 PWA. Deployment values and local replay are in `DEPLOYMENT.md`; the backend Dockerfile is committed under `backend/Dockerfile`.
+- Multimodal transit: the Beranda map and Jadwal screens now support bus (GTFS + TJ realtime) AND rail (KCI/MRT/LRT via Commute Data Platform adapter `backend/commute.py` + RITJ rail geometry). Rail is real opt-in data; it degrades to `source: "unavailable"` when the Commute feed is missing, matching the existing bus degradation. (Scope note: `docs/brief.md` historically scoped TransJakarta-only; multimodal is a later addition — treat `[FINAL]` brief markers as the product decision source unless a newer OpenSpec change overrides.)
 - Remote `origin/main` is the source of truth. If the local branch diverges (e.g. `git status` shows ahead/behind), reconcile with `origin/main` before pushing; local-only files may include `README.md`, `.env.example`, `frontend/.gitignore`, and per-change `.openspec.yaml` metadata.
 - `.opencode/package.json` and `.opencode/node_modules/` install OpenCode tooling only — never treat them as Transense app dependencies.
 - `.agent/`, `.agents/`, `.claude/`, `.opencode/`, `.omo/`, `.sisyphus/` are agent/tooling surfaces, gitignored, not product packages. Durable rules belong here or in `openspec/config.yaml`.
