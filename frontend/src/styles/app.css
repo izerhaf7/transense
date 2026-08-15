@@ -3331,6 +3331,156 @@ input[aria-invalid='true'] {
   width: 100%;
 }
 
+.planner-simulation-page {
+  gap: var(--brand-space-base);
+}
+
+.planner-simulation__header,
+.planner-simulation__status,
+.planner-simulation__next,
+.planner-simulation__timeline {
+  display: grid;
+  gap: var(--brand-space-xs);
+}
+
+.planner-simulation__header h2,
+.planner-simulation__status h3 {
+  margin: 0;
+}
+
+.planner-simulation__status,
+.planner-simulation__next {
+  padding: var(--brand-space-lg);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+  box-shadow: var(--brand-shadow-card);
+}
+
+.planner-simulation__status h3 {
+  font-size: var(--brand-font-size-xl);
+}
+
+.planner-simulation__progress {
+  height: 12px;
+  overflow: hidden;
+  background: var(--brand-color-fill-tertiary);
+  border-radius: var(--brand-radius-pill);
+}
+
+.planner-simulation__progress span {
+  display: block;
+  height: 100%;
+  background: var(--brand-color-accent);
+  border-radius: inherit;
+  transition: width var(--brand-motion-base) ease;
+}
+
+.planner-simulation__progress-label,
+.planner-simulation__next span {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.planner-simulation__next strong {
+  font-size: var(--brand-font-size-lg);
+}
+
+.planner-simulation__next .primary-button {
+  margin-top: var(--brand-space-xs);
+}
+
+.planner-map-dropdown__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--brand-control-height-base);
+  padding: 0 var(--brand-space-base);
+  color: var(--brand-color-accent);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.planner-map-dropdown {
+  height: 320px;
+  overflow: hidden;
+  border-radius: var(--brand-radius-xl);
+}
+
+.planner-map-dropdown .map-canvas {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.planner-simulation__timeline {
+  padding: var(--brand-space-base);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+}
+
+.planner-simulation__timeline ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planner-simulation__timeline li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-sm);
+  min-height: 46px;
+  padding-left: var(--brand-space-sm);
+  border-left: 3px solid var(--brand-color-border);
+  color: var(--brand-color-text-secondary);
+}
+
+.planner-simulation__timeline li.is-complete {
+  color: var(--brand-color-text);
+  border-left-color: var(--brand-color-success);
+}
+
+.planner-simulation__timeline li.is-current {
+  color: var(--brand-color-text);
+  border-left-color: var(--brand-color-accent);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.planner-simulation__dot {
+  position: absolute;
+  left: -8px;
+  width: 13px;
+  height: 13px;
+  background: var(--brand-color-bg-container);
+  border: 3px solid var(--brand-color-border);
+  border-radius: 50%;
+}
+
+.is-complete .planner-simulation__dot {
+  border-color: var(--brand-color-success);
+  background: var(--brand-color-success);
+}
+
+.is-current .planner-simulation__dot {
+  border-color: var(--brand-color-accent);
+  background: var(--brand-color-accent);
+}
+
+.planner-simulation__timeline small {
+  margin-left: auto;
+  color: var(--brand-color-accent);
+  font-size: 11px;
+  font-weight: var(--brand-font-weight-strong);
+}
+
 /* ---- Planner departure / arrive-by time controls ---- */
 
 .planner-time-controls {
