@@ -12,6 +12,7 @@
     "check:transcribe": "node transcribe-check.mjs",
     "check:planner": "node planner-check.mjs",
     "check:planner-storage": "node planner-storage-check.mjs",
+    "check:tts": "node tts-check.mjs",
     "check:profile": "node profile-storage-check.mjs",
     "check": "npm run typecheck && npm run build"
   },

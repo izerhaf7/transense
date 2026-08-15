@@ -200,6 +200,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=502, detail=f"ElevenLabs token creation failed: {error}")
         return {"token": getattr(token, "token", str(token))}
 
+    @application.post("/api/tts", response_model=None)
+    async def tts(payload: dict[str, Any]) -> Response:
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=422, detail="text must be a non-empty string")
+        if not resolved.elevenlabs_api_key or not resolved.elevenlabs_tts_voice_id:
+            raise HTTPException(status_code=503, detail="ElevenLabs TTS not configured")
+        model_id = payload.get("model_id") or "eleven_multilingual_v2"
+        try:
+            from elevenlabs import ElevenLabs
+            client = ElevenLabs(api_key=resolved.elevenlabs_api_key)
+            chunks = client.text_to_speech.convert(
+                voice_id=resolved.elevenlabs_tts_voice_id,
+                text=text,
+                model_id=str(model_id),
+                output_format="mp3_44100_128",
+            )
+            audio = b"".join(chunks)
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"ElevenLabs TTS failed: {error}")
+        return Response(content=audio, media_type="audio/mpeg")
+
     @application.get("/api/conversations", response_model=None)
     async def conversations() -> dict[str, Any]:
         store: DemoStore | None = getattr(application.state, "store", None)
