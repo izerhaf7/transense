@@ -382,6 +382,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         matches = sorted(by_name.values(), key=lambda s: str(s["name"]))
         return {"stops": matches[:20], "source": "gtfs"}
 
+    @application.get("/api/gtfs/stops/nearby", response_model=None)
+    async def gtfs_stops_nearby(lat: float, lng: float, limit: int = 5) -> dict[str, Any]:
+        feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
+        if feed is None:
+            return {"stops": [], "source": "unavailable"}
+        bound = min(max(limit, 1), 20)
+        ranked = sorted(
+            (
+                {
+                    "id": s.stop_id,
+                    "name": s.name,
+                    "lat": s.lat,
+                    "lng": s.lng,
+                    "distance_km": round(_haversine_km(lat, lng, s.lat, s.lng), 4),
+                }
+                for s in feed.stops.values()
+            ),
+            key=lambda item: item["distance_km"],
+        )
+        return {"stops": ranked[:bound], "source": "gtfs"}
+
     @application.get("/api/gtfs/routes", response_model=None)
     async def gtfs_routes() -> dict[str, Any]:
         feed: GtfsFeed | None = getattr(application.state, "gtfs_feed", None)
