@@ -1827,11 +1827,6 @@ function HomePage({
             locateError={locateError}
           />
         </div>
-        {userLocation ? (
-          <div className="home-user-pin" role="img" aria-label="Lokasi saya">
-            <span className="home-user-pin__core" aria-hidden="true" />
-          </div>
-        ) : null}
         {notificationsOpen ? (
           <section className="notification-panel" id="notification-panel" aria-label="Daftar notifikasi">
             <p className="eyebrow">NOTIFIKASI AKTIF</p>
