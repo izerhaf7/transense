@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, ReactNode, UIEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
 import NetraScan from './NetraScan'
@@ -1400,25 +1400,10 @@ function HomePage({
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
   const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
 
-  // Home content sheet: grows from its default 55% height toward the topbar as
-  // its content is scrolled to the bottom, and stops right below .home-topbar
-  // (never covering it), Google-Maps-style sheet.
-  const handleSheetScroll = (event: UIEvent<HTMLElement>) => {
-    const scroller = event.currentTarget
-    const sheet = scroller.closest<HTMLElement>('.home-sheet')
-    const container = sheet?.parentElement
-    if (!sheet || !container) return
-    const maxScroll = scroller.scrollHeight - scroller.clientHeight
-    if (maxScroll <= 0) return
-    const progress = Math.min(1, scroller.scrollTop / maxScroll)
-    const topbar = container.querySelector('.home-topbar')
-    const containerBottom = container.getBoundingClientRect().bottom
-    const topbarBottom = topbar ? topbar.getBoundingClientRect().bottom : container.getBoundingClientRect().top
-    const maxPx = Math.max(0, containerBottom - topbarBottom - 8)
-    const defaultPx = container.clientHeight * 0.55
-    const heightPx = Math.min(defaultPx + progress * (maxPx - defaultPx), maxPx)
-    sheet.style.setProperty('--home-sheet-height', `${heightPx.toFixed(1)}px`)
-  }
+  // Home content sheet: minimized by default (search only, map dominant). The
+  // handle strip toggles it between minimized and a 92%-height maximized
+  // overlay; scrolling inside the sheet only browses content, never resizes it.
+  const [sheetExpanded, setSheetExpanded] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1759,11 +1744,21 @@ function HomePage({
           </section>
         ) : null}
       </section>
-      <section className="home-sheet" aria-label="Fitur dan halte terdekat">
-        <div className="home-sheet__handle" aria-hidden="true"><span className="home-sheet__grip" /></div>
-        <div className="home-sheet__scroll" onScroll={handleSheetScroll}>
+      <section className={`home-sheet${sheetExpanded ? ' home-sheet--maximized' : ''}`} aria-label="Fitur dan halte terdekat">
+        <button
+          type="button"
+          className="home-sheet__handle"
+          aria-expanded={sheetExpanded}
+          aria-controls="home-sheet-scroll"
+          aria-label={sheetExpanded ? 'Ciutkan panel' : 'Perbesar panel'}
+          onClick={() => setSheetExpanded((current) => !current)}
+        >
+          <span className="home-sheet__grip" aria-hidden="true" />
+        </button>
+        <div className="home-sheet__scroll" id="home-sheet-scroll">
           <SearchEntry />
-          <ul className="feature-list">
+          <div className="home-sheet__extras">
+            <ul className="feature-list">
             <li>
               <button type="button" className="feature-tile" onClick={() => onNavigate('antar-aku')}>
                 <span className="feature-tile__icon"><AntarAkuIcon /></span>
@@ -1802,6 +1797,7 @@ function HomePage({
           {profile === 'netra' ? (
             <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
           ) : null}
+          </div>
         </div>
       </section>
     </main>

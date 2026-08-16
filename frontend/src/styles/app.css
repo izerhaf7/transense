@@ -1051,11 +1051,11 @@ input[aria-invalid='true'] {
 
 /* ---- Home content sheet (full-bleed map + overlay sheet) ---- */
 
-/* The sheet sits on top of the full-bleed map and reveals the feature tiles,
-   the arrivals/nearby-stop list, and (for Netra) the camera scan. It starts at
-   55% of the main area; scrolling its content toward the bottom grows it (via
-   --home-sheet-height set on scroll) until it stops right below .home-topbar,
-   Google-Maps style. */
+/* The sheet sits on top of the full-bleed map. It starts minimized (auto
+   height, search only) so the map stays dominant; the handle strip toggles it
+   to maximized (92% of the main area, right above the bottom nav) where the
+   feature tiles, arrivals list, and (for Netra) camera scan scroll together.
+   Scrolling inside the sheet never resizes it — only the toggle does. */
 .home-sheet {
   position: absolute;
   z-index: 10;
@@ -1064,20 +1064,30 @@ input[aria-invalid='true'] {
   left: 0;
   display: flex;
   flex-direction: column;
-  height: var(--home-sheet-height, 55%);
-  max-height: var(--home-sheet-height, 55%);
+  height: auto;
+  max-height: 92%;
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-border);
   border-bottom: 0;
   border-radius: var(--brand-radius-xl) var(--brand-radius-xl) 0 0;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  transition: height var(--brand-motion-base) ease;
+}
+
+.home-sheet--maximized {
+  height: 92%;
+  max-height: 92%;
 }
 
 .home-sheet__handle {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  padding: var(--brand-space-xs) 0 0;
+  width: 100%;
+  padding: var(--brand-space-xs) 0 var(--brand-space-xs);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 
 .home-sheet__grip {
@@ -1096,6 +1106,16 @@ input[aria-invalid='true'] {
   overflow-y: auto;
   padding: var(--brand-space-sm) var(--brand-screen-padding) calc(var(--brand-space-xl) + env(safe-area-inset-bottom));
   overscroll-behavior: contain;
+}
+
+/* Only the search entry is visible while minimized; the extra content mounts
+   directly into the scroll container (as its grid items) when maximized. */
+.home-sheet__extras {
+  display: none;
+}
+
+.home-sheet--maximized .home-sheet__extras {
+  display: contents;
 }
 
 /* Notification panel overlays the top of the map when the bell is opened. */
