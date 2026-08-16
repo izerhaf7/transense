@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
-import { ArrowBackIcon, ArrowRightIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, WalkIcon } from './icons'
+import { ArrowBackIcon, ArrowRightIcon, BusIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, StopIcon, WalkIcon, WarningIcon } from './icons'
 import type { Stop } from './journey'
+import { VIBRATION_PATTERNS } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import {
   addHistoryEntry,
@@ -84,6 +85,28 @@ interface PlannerShape {
 
 type PlannerPhase = 'plan' | 'tracking'
 
+type SimPhase = 'waiting' | 'approaching' | 'boarding' | 'enroute' | 'arrived'
+
+interface SimStop {
+  id: string
+  name: string
+  lat: number
+  lng: number
+  isDestination: boolean
+}
+
+function vibrate(pattern: readonly number[]) {  if (typeof navigator !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
+    navigator.vibrate([...pattern])
+  }
+}
+
+/** One simulated minute in real milliseconds (demo pacing: 1 min = 3 s). */
+const SIM_MINUTE_MS = 3000
+/** ETA (minutes) at which the "approaching" warning takes over the screen. */
+const APPROACH_THRESHOLD_MIN = 5
+/** Initial ETA when the simulated bus is first matched. */
+const INITIAL_ETA_MIN = 12
+
 function SimulatedTrackingPage({
   itinerary,
   planShapes,
@@ -95,80 +118,185 @@ function SimulatedTrackingPage({
   walkLegs: WalkLine[]
   onBack: () => void
 }) {
-  const [checkpointIndex, setCheckpointIndex] = useState(0)
-  const [mapOpen, setMapOpen] = useState(false)
+  const [phase, setPhase] = useState<SimPhase>('waiting')
+  const [etaMinutes, setEtaMinutes] = useState(INITIAL_ETA_MIN)
+  const [stopIndex, setStopIndex] = useState(0)
+  const [subStep, setSubStep] = useState<'approaching' | 'stopped'>('approaching')
+  const [busPos, setBusPos] = useState<{ lat: number; lng: number } | null>(null)
 
   const checkpoints = useMemo(() => {
-    const result: { id: string; name: string; mode: PlanLeg['mode']; route?: string }[] = []
+    const result: SimStop[] = []
     for (const leg of itinerary.legs) {
-      const point = leg.from
-      const id = point.stop_id ?? `${point.name}:${point.lat},${point.lng}`
-      if (!result.some((item) => item.id === id)) {
-        result.push({ id, name: point.name, mode: leg.mode, route: leg.route?.short_name })
+      const fromId = leg.from.stop_id ?? `${leg.from.name}:${leg.from.lat},${leg.from.lng}`
+      if (!result.some((item) => item.id === fromId)) {
+        result.push({ id: fromId, name: leg.from.name, lat: leg.from.lat, lng: leg.from.lng, isDestination: false })
       }
-      const destination = leg.to
-      const destinationId = destination.stop_id ?? `${destination.name}:${destination.lat},${destination.lng}`
-      if (!result.some((item) => item.id === destinationId)) {
-        result.push({ id: destinationId, name: destination.name, mode: leg.mode, route: leg.route?.short_name })
+      const toId = leg.to.stop_id ?? `${leg.to.name}:${leg.to.lat},${leg.to.lng}`
+      if (!result.some((item) => item.id === toId)) {
+        result.push({ id: toId, name: leg.to.name, lat: leg.to.lat, lng: leg.to.lng, isDestination: false })
       }
     }
+    if (result.length > 0) result[result.length - 1].isDestination = true
     return result
   }, [itinerary])
 
-  const current = checkpoints[checkpointIndex]
-  const next = checkpoints[checkpointIndex + 1]
-  const progress = checkpoints.length <= 1 ? 100 : Math.round((checkpointIndex / (checkpoints.length - 1)) * 100)
-  const mapStops: Stop[] = checkpoints.map((checkpoint, index) => {
-    const point = itinerary.legs.flatMap((leg) => [leg.from, leg.to]).find((candidate) => {
-      const id = candidate.stop_id ?? `${candidate.name}:${candidate.lat},${candidate.lng}`
-      return id === checkpoint.id
-    })
-    return { id: checkpoint.id, name: `${index === checkpointIndex ? 'SEKARANG · ' : ''}${checkpoint.name}`, lat: point?.lat ?? 0, lng: point?.lng ?? 0 }
-  }).filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && stop.lat !== 0)
+  const busLeg = useMemo(() => itinerary.legs.find((leg) => leg.mode === 'BUS'), [itinerary])
+  const routeCode = busLeg?.route?.short_name ?? ''
+  const routeHeadsign = busLeg?.headsign ?? ''
+
+  // Drive the simulation timeline.
+  useEffect(() => {
+    let timer: number | undefined
+
+    if (phase === 'waiting') {
+      timer = window.setTimeout(() => {
+        if (etaMinutes > APPROACH_THRESHOLD_MIN) {
+          setEtaMinutes((current) => current - 1)
+        } else {
+          vibrate(VIBRATION_PATTERNS.vehicleApproaching)
+          setPhase('approaching')
+        }
+      }, SIM_MINUTE_MS)
+    } else if (phase === 'approaching') {
+      timer = window.setTimeout(() => {
+        if (etaMinutes > 1) {
+          setEtaMinutes((current) => current - 1)
+        } else {
+          setPhase('boarding')
+        }
+      }, SIM_MINUTE_MS)
+    } else if (phase === 'boarding') {
+      timer = window.setTimeout(() => {
+        setSubStep('approaching')
+        setStopIndex(checkpoints.length > 1 ? 1 : 0)
+        setPhase('enroute')
+      }, 2600)
+    } else if (phase === 'enroute') {
+      const isDestination = checkpoints[stopIndex]?.isDestination ?? false
+      timer = window.setTimeout(() => {
+        if (subStep === 'approaching') {
+          setSubStep('stopped')
+        } else {
+          if (isDestination) {
+            vibrate(VIBRATION_PATTERNS.destinationApproaching)
+            setPhase('arrived')
+          } else {
+            setStopIndex((current) => current + 1)
+            setSubStep('approaching')
+          }
+        }
+      }, subStep === 'approaching' ? 2400 : 2000)
+    }
+
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [phase, etaMinutes, stopIndex, subStep, checkpoints])
+
+  // Move the simulated bus marker toward the relevant stop as the timeline runs.
+  useEffect(() => {
+    const stop = checkpoints[stopIndex]
+    if (!stop || !Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return
+    setBusPos({ lat: stop.lat, lng: stop.lng })
+  }, [stopIndex, checkpoints])
+
+  const current = checkpoints[stopIndex]
+  const next = checkpoints[stopIndex + 1]
+  const progress = checkpoints.length <= 1 ? 100 : Math.round((stopIndex / (checkpoints.length - 1)) * 100)
+
+  const mapStops: Stop[] = checkpoints.map((checkpoint, index) => ({
+    id: checkpoint.id,
+    name: `${index === stopIndex ? 'SEKARANG · ' : ''}${checkpoint.name}`,
+    lat: checkpoint.lat,
+    lng: checkpoint.lng,
+  })).filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && stop.lat !== 0)
+
+  const mapBuses = busPos ? [{ id: 'sim-bus', route_code: routeCode || 'BUS', lat: busPos.lat, lng: busPos.lng, observed_at: new Date().toISOString() }] : []
+
+  const isWarning = phase === 'approaching' || phase === 'enroute'
+  const isStop = phase === 'arrived'
+
+  const renderScreen = () => {
+    if (phase === 'waiting') {
+      return (
+        <section className="planner-simulation__screen planner-simulation__screen--search" aria-live="polite">
+          <BusIcon size={64} className="planner-simulation__icon" />
+          <p className="eyebrow">MENCARI BUS MENUJU ARAHMU</p>
+          <h3>Memeriksa armada di koridor yang sama…</h3>
+          <p className="planner-simulation__eta">Bus Koridor {routeCode}{routeHeadsign ? ` · ${routeHeadsign}` : ''} tiba dalam <strong>{etaMinutes} menit</strong></p>
+        </section>
+      )
+    }
+    if (phase === 'approaching') {
+      return (
+        <section className="planner-simulation__screen planner-simulation__screen--warning" aria-live="assertive">
+          <WarningIcon size={72} className="planner-simulation__icon planner-simulation__icon--pulse" />
+          <p className="eyebrow">BUS MENDEKAT</p>
+          <h3>Bus Koridor {routeCode} · rute {routeHeadsign || routeCode} mendekat</h3>
+          <p className="planner-simulation__eta">Sekitar <strong>{etaMinutes} menit</strong> lagi</p>
+        </section>
+      )
+    }
+    if (phase === 'boarding') {
+      return (
+        <section className="planner-simulation__screen planner-simulation__screen--board" aria-live="polite">
+          <BusIcon size={64} className="planner-simulation__icon" />
+          <p className="eyebrow">BUS TIBA</p>
+          <h3>Naik bus Koridor {routeCode}</h3>
+          <p>Silakan naik dan cari tempat duduk. Perjalanan dimulai.</p>
+        </section>
+      )
+    }
+    if (phase === 'enroute') {
+      const isDest = current?.isDestination ?? false
+      return (
+        <section className="planner-simulation__screen planner-simulation__screen--warning" aria-live="assertive">
+          <WarningIcon size={72} className="planner-simulation__icon planner-simulation__icon--pulse" />
+          <p className="eyebrow">{isDest ? 'MENDEKATI TUJUAN' : 'DI DALAM BUS'}</p>
+          <h3>{subStep === 'approaching' ? `Mendekati ${current?.name ?? 'halte berikutnya'}` : `Berhenti di ${current?.name ?? 'halte'}`}</h3>
+          <p className="planner-simulation__eta">{isDest ? 'Bersiap untuk turun.' : `Halte berikutnya: ${next?.name ?? 'tujuan akhir'}`}</p>
+        </section>
+      )
+    }
+    return (
+      <section className="planner-simulation__screen planner-simulation__screen--stop" aria-live="assertive">
+        <StopIcon size={72} className="planner-simulation__icon planner-simulation__icon--pulse" />
+        <p className="eyebrow">TIBA DI TUJUAN</p>
+        <h3>Anda tiba di {current?.name ?? 'tujuan'}</h3>
+        <p>Terima kasih telah menggunakan Transense.</p>
+      </section>
+    )
+  }
 
   return (
     <main className="page-content inner-page planner-page planner-simulation-page">
       <section className="planner-simulation__header">
         <button type="button" className="schedule-detail__back" onClick={onBack}><ArrowBackIcon size={18} /> Kembali ke rute</button>
-        <p className="eyebrow">SIMULASI PER HALTE</p>
-        <h2>Perjalanan aktif</h2>
-        <p>Gunakan tombol halte berikutnya untuk mensimulasikan posisi perjalanan.</p>
+        <p className="eyebrow">SIMULASI PERJALANAN</p>
+        <h2>Demo rute {routeCode}</h2>
       </section>
 
-      <section className="planner-simulation__status" aria-live="polite">
-        <p className="eyebrow">SEKARANG</p>
-        <h3>{current?.name ?? 'Perjalanan selesai'}</h3>
-        {current?.route ? <span className="state-badge state-badge--safe">BUS {current.route}</span> : null}
+      {isWarning || isStop ? <div className={`edge-flash ${isStop ? 'edge-flash--safe' : 'edge-flash--danger'}`} aria-hidden="true" /> : null}
+
+      {renderScreen()}
+
+      <section className="planner-simulation__status" aria-hidden="true">
         <div className="planner-simulation__progress"><span style={{ width: `${progress}%` }} /></div>
-        <p className="planner-simulation__progress-label">{progress}% perjalanan · {next ? `${checkpoints.length - checkpointIndex - 1} titik tersisa` : 'Tujuan tercapai'}</p>
+        <p className="planner-simulation__progress-label">{progress}% perjalanan</p>
       </section>
 
-      <section className="planner-simulation__next">
-        <p className="eyebrow">BERIKUTNYA</p>
-        <strong>{next?.name ?? 'Selesai'}</strong>
-        <span>{next ? `Naik/lanjut dengan ${next.mode === 'BUS' ? `bus ${next.route ?? ''}` : 'jalan kaki'}` : 'Kamu sudah sampai tujuan.'}</span>
-        <button className="primary-button" type="button" disabled={!next} onClick={() => setCheckpointIndex((index) => Math.min(index + 1, checkpoints.length - 1))}>
-          {next ? 'Halte berikutnya' : 'Perjalanan selesai'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
-        </button>
+      <section className="planner-map-dropdown" aria-label="Peta perjalanan simulasi">
+        <MapboxMap stops={mapStops} routeShapes={planShapes} walkLegs={walkLegs} buses={mapBuses} />
       </section>
-
-      <button className="planner-map-dropdown__toggle" type="button" aria-expanded={mapOpen} onClick={() => setMapOpen((open) => !open)}>
-        {mapOpen ? 'Sembunyikan peta' : 'Lihat peta perjalanan'} <span aria-hidden="true">{mapOpen ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
-      </button>
-      {mapOpen ? (
-        <section className="planner-map-dropdown" aria-label="Peta perjalanan simulasi">
-          <MapboxMap stops={mapStops} routeShapes={planShapes} walkLegs={walkLegs} />
-        </section>
-      ) : null}
 
       <section className="planner-simulation__timeline" aria-label="Urutan halte perjalanan">
         <p className="eyebrow">URUTAN PERJALANAN</p>
         <ol>
           {checkpoints.map((checkpoint, index) => (
-            <li className={index < checkpointIndex ? 'is-complete' : index === checkpointIndex ? 'is-current' : ''} key={checkpoint.id}>
+            <li className={index < stopIndex ? 'is-complete' : index === stopIndex ? 'is-current' : ''} key={checkpoint.id}>
               <span className="planner-simulation__dot" />
               <span>{checkpoint.name}</span>
-              {index === checkpointIndex ? <small>SEKARANG</small> : index === checkpointIndex + 1 ? <small>BERIKUTNYA</small> : null}
+              {index === stopIndex ? <small>SEKARANG</small> : index === stopIndex + 1 ? <small>BERIKUTNYA</small> : null}
             </li>
           ))}
         </ol>
