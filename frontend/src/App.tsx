@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react'
+import type { FormEvent, ReactNode, UIEvent } from 'react'
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
 import NetraScan from './NetraScan'
@@ -1220,61 +1220,6 @@ function SearchEntry() {
   )
 }
 
-function BottomSheet({ children }: { children: ReactNode }) {
-  const dragStartY = useRef(0)
-  const [collapsed, setCollapsed] = useState(true)
-  const [dragging, setDragging] = useState(false)
-  const [dragDistance, setDragDistance] = useState(0)
-
-  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    dragStartY.current = event.clientY
-    setDragDistance(0)
-    setDragging(true)
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!dragging) return
-    const distance = dragStartY.current - event.clientY
-    setDragDistance(distance)
-  }
-
-  const handlePointerUp = () => {
-    if (!dragging) return
-    setDragging(false)
-    if (dragDistance > 40) {
-      setCollapsed(false)
-    } else if (dragDistance < -40) {
-      setCollapsed(true)
-    }
-    setDragDistance(0)
-  }
-
-  const className = `bottom-sheet${collapsed ? ' bottom-sheet--collapsed' : ' bottom-sheet--expanded'}${dragging ? ' bottom-sheet--dragging' : ''}`
-  const inlineStyle = dragging ? { transform: `translateY(${-dragDistance}px)` } : undefined
-
-  return (
-    <div className={className} style={inlineStyle}>
-      <button
-        className="bottom-sheet__handle"
-        type="button"
-        aria-label={collapsed ? 'Buka panel informasi' : 'Tutup panel informasi'}
-        aria-expanded={!collapsed}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onClick={() => setCollapsed((current) => !current)}
-      >
-        <span className="bottom-sheet__grip" aria-hidden="true" />
-      </button>
-      <div className="bottom-sheet__content">
-        {children}
-      </div>
-    </div>
-  )
-}
-
 interface Arrival {
   bus_id: string
   route_code: string
@@ -1455,20 +1400,25 @@ function HomePage({
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
   const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
 
-  // Home content sheet: grows from its default 55% height toward nearly full
-  // height as its content is scrolled to the bottom (Google Maps-style sheet).
+  // Home content sheet: grows from its default 55% height toward the topbar as
+  // its content is scrolled to the bottom, and stops right below .home-topbar
+  // (never covering it), Google-Maps-style sheet.
   const handleSheetScroll = (event: UIEvent<HTMLElement>) => {
     const scroller = event.currentTarget
-    const sheet = scroller.parentElement
-    if (!sheet) return
+    const sheet = scroller.closest<HTMLElement>('.home-sheet')
+    const container = sheet?.parentElement
+    if (!sheet || !container) return
     const maxScroll = scroller.scrollHeight - scroller.clientHeight
     if (maxScroll <= 0) return
     const progress = Math.min(1, scroller.scrollTop / maxScroll)
-    sheet.style.setProperty('--home-sheet-height', `${(55 + progress * 37).toFixed(2)}%`)
+    const topbar = container.querySelector('.home-topbar')
+    const containerBottom = container.getBoundingClientRect().bottom
+    const topbarBottom = topbar ? topbar.getBoundingClientRect().bottom : container.getBoundingClientRect().top
+    const maxPx = Math.max(0, containerBottom - topbarBottom - 8)
+    const defaultPx = container.clientHeight * 0.55
+    const heightPx = Math.min(defaultPx + progress * (maxPx - defaultPx), maxPx)
+    sheet.style.setProperty('--home-sheet-height', `${heightPx.toFixed(1)}px`)
   }
-
-  // "Halte terdekat" is the deterministic seeded/loaded stop list — never GPS.
-  const homeStops = gtfsStops.length > 0 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1848,32 +1798,12 @@ function HomePage({
               </li>
             ) : null}
           </ul>
-          <section className="home-stops" aria-labelledby="home-stops-heading">
-            <p className="eyebrow">HALTE TERDEKAT</p>
-            <h2 id="home-stops-heading">Halte terdekat</h2>
-            {homeStops.length > 0 ? (
-              <ul className="home-stops__list">
-                {homeStops.map((stop) => (
-                  <li key={stop.id}>
-                    <button type="button" className="home-stop" onClick={() => { void handleStopClick(stop.id) }}>
-                      <span className="home-stop__icon" aria-hidden="true"><ScheduleIcon /></span>
-                      <span className="home-stop__name">{stop.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="home-stops__empty" role="status">Halte belum dimuat. Pilih rute untuk menampilkan daftar halte terdekat.</p>
-            )}
-          </section>
+          <ArrivalsSheet />
           {profile === 'netra' ? (
             <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
           ) : null}
         </div>
       </section>
-      <BottomSheet>
-        <ArrivalsSheet />
-      </BottomSheet>
     </main>
   )
 }

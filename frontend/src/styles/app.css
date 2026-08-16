@@ -1052,10 +1052,10 @@ input[aria-invalid='true'] {
 /* ---- Home content sheet (full-bleed map + overlay sheet) ---- */
 
 /* The sheet sits on top of the full-bleed map and reveals the feature tiles,
-   the deterministic "halte terdekat" list, and (for Netra) the camera scan.
-   It starts at 55% of the main area; scrolling its content toward the bottom
-   grows it (via --home-sheet-height set on scroll) until it nearly covers the
-   whole map, Google-Maps style. */
+   the arrivals/nearby-stop list, and (for Netra) the camera scan. It starts at
+   55% of the main area; scrolling its content toward the bottom grows it (via
+   --home-sheet-height set on scroll) until it stops right below .home-topbar,
+   Google-Maps style. */
 .home-sheet {
   position: absolute;
   z-index: 10;
@@ -1065,7 +1065,7 @@ input[aria-invalid='true'] {
   display: flex;
   flex-direction: column;
   height: var(--home-sheet-height, 55%);
-  max-height: 100%;
+  max-height: var(--home-sheet-height, 55%);
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-border);
   border-bottom: 0;
@@ -1098,67 +1098,6 @@ input[aria-invalid='true'] {
   overscroll-behavior: contain;
 }
 
-/* "Halte terdekat": deterministic seeded/loaded stop list, never GPS-derived. */
-.home-stops {
-  display: grid;
-  gap: var(--brand-space-sm);
-}
-
-.home-stops h2 {
-  margin: 0;
-  font-size: var(--brand-font-size-lg);
-}
-
-.home-stops__list {
-  display: grid;
-  gap: var(--brand-space-xs);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.home-stop {
-  display: flex;
-  align-items: center;
-  gap: var(--brand-space-sm);
-  width: 100%;
-  padding: var(--brand-space-sm) var(--brand-space-base);
-  text-align: left;
-  color: var(--brand-color-text);
-  background: var(--brand-color-bg-container);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-lg);
-  cursor: pointer;
-  transition: border-color var(--brand-motion-fast) ease, background-color var(--brand-motion-fast) ease;
-}
-
-.home-stop:hover,
-.home-stop:focus-visible {
-  border-color: var(--brand-color-accent);
-  background: var(--brand-color-accent-bg);
-}
-
-.home-stop__icon {
-  display: grid;
-  width: var(--brand-control-height-base);
-  height: var(--brand-control-height-base);
-  flex: 0 0 auto;
-  place-items: center;
-  color: var(--brand-color-accent);
-  background: var(--brand-color-accent-bg);
-  border-radius: var(--brand-radius-base);
-}
-
-.home-stop__name {
-  font-size: var(--brand-font-size-base);
-  font-weight: var(--brand-font-weight-strong);
-}
-
-.home-stops__empty {
-  margin: 0;
-  color: var(--brand-color-text-secondary);
-}
-
 /* Notification panel overlays the top of the map when the bell is opened. */
 .home-hero .notification-panel {
   position: absolute;
@@ -1188,75 +1127,6 @@ input[aria-invalid='true'] {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-/* ---- Bottom Sheet ---- */
-
-.bottom-sheet {
-  position: fixed;
-  z-index: 20;
-  right: 0;
-  bottom: calc(var(--brand-bottom-nav-height) + env(safe-area-inset-bottom));
-  left: 0;
-  display: flex;
-  flex-direction: column;
-  max-height: 50vh;
-  width: min(100%, var(--brand-max-width));
-  margin: 0 auto;
-  background: var(--brand-color-bg-container);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-bottom: 0;
-  border-radius: var(--brand-radius-xl) var(--brand-radius-xl) 0 0;
-  box-shadow: var(--brand-shadow-elevated);
-  transition: transform var(--brand-motion-base) var(--brand-motion-ease-out);
-  touch-action: pan-y;
-}
-
-.bottom-sheet--dragging {
-  transition: none;
-}
-
-.bottom-sheet--collapsed {
-  transform: translateY(0);
-}
-
-.bottom-sheet__handle {
-  display: grid;
-  width: 100%;
-  min-height: 40px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  background: var(--brand-color-bg-container);
-  border: 0;
-  border-radius: var(--brand-radius-xl) var(--brand-radius-xl) 0 0;
-  cursor: grab;
-  touch-action: none;
-}
-
-.bottom-sheet__grip {
-  display: block;
-  width: 48px;
-  height: 4px;
-  border-radius: var(--brand-radius-pill);
-  background: var(--brand-color-fill);
-}
-
-.bottom-sheet__content {
-  display: grid;
-  gap: var(--brand-space-base);
-  max-height: 0;
-  overflow: hidden;
-  padding: 0 var(--brand-screen-padding);
-  opacity: 0;
-  transition: max-height var(--brand-motion-base) var(--brand-motion-ease-out), opacity var(--brand-motion-base) var(--brand-motion-ease-out), padding var(--brand-motion-base) var(--brand-motion-ease-out);
-}
-
-.bottom-sheet--expanded .bottom-sheet__content {
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: var(--brand-space-base) var(--brand-screen-padding) var(--brand-space-lg);
-  opacity: 1;
 }
 
 /* ---- Arrivals Sheet ---- */
