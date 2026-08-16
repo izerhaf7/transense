@@ -68,11 +68,11 @@
 
   /* === Typography === */
   --brand-font-family: "PlusJakartaSans VariableFont wght", system-ui, sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --brand-font-size-sm: 14px;
-  --brand-font-size-base: 18px;
-  --brand-font-size-lg: 22px;
-  --brand-font-size-xl: 26px;
-  --brand-font-size-transcript: 32px;
+  --brand-font-size-sm: 13px;
+  --brand-font-size-base: 16px;
+  --brand-font-size-lg: 19px;
+  --brand-font-size-xl: 22px;
+  --brand-font-size-transcript: 28px;
   --brand-font-weight-normal: 400;
   --brand-font-weight-strong: 600;
   --brand-line-height: 1.5;
@@ -84,9 +84,9 @@
   --brand-space-sm: 12px;
   --brand-space-base: 16px;
   --brand-space-md: 20px;
-  --brand-space-lg: 24px;
+  --brand-space-lg: 22px;
   --brand-space-xl: 32px;
-  --brand-space-xxl: 48px;
+  --brand-space-xxl: 40px;
 
   /* === Border radius === */
   --brand-radius-xs: 3px;
@@ -94,7 +94,7 @@
   --brand-radius-base: 8px;
   --brand-radius-lg: 10px;
   --brand-radius-xl: 16px;
-  --brand-radius-2xl: 20px;
+  --brand-radius-2xl: 18px;
   --brand-radius-pill: 999px;
 
   /* === Border === */
@@ -102,9 +102,9 @@
   --brand-border-width-strong: 3px;
 
   /* === Control heights (accessibility boosted) === */
-  --brand-control-height-sm: 32px;
-  --brand-control-height-base: 40px;
-  --brand-control-height-lg: 48px;
+  --brand-control-height-sm: 30px;
+  --brand-control-height-base: 38px;
+  --brand-control-height-lg: 46px;
 
   /* === Motion === */
   --brand-motion-fast: 0.1s;
@@ -114,8 +114,8 @@
 
   /* === Transense-specific === */
   --brand-screen-padding: var(--brand-space-base);
-  --brand-max-width: 560px;
-  --brand-bottom-nav-height: 72px;
+  --brand-max-width: 480px;
+  --brand-bottom-nav-height: 64px;
   --brand-notification-z: 20;
   --brand-opacity-muted: 0.72;
 

@@ -138,7 +138,6 @@ function MapboxMap({
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const railStationPopupRef = useRef<mapboxgl.Popup | null>(null)
-  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const firstFitDoneRef = useRef(false)
 
   const selectedRef = useRef(selectedRouteNames)
@@ -237,10 +236,6 @@ function MapboxMap({
       busMarkersRef.current = []
       railStationMarkersRef.current.forEach((m) => m.remove())
       railStationMarkersRef.current = []
-      if (userMarkerRef.current) {
-        userMarkerRef.current.remove()
-        userMarkerRef.current = null
-      }
       map.remove()
       mapRef.current = null
       firstFitDoneRef.current = false
@@ -571,33 +566,17 @@ function MapboxMap({
     railStationPopupRef.current = popup
   }, [railStationPopup])
 
-  // User location: fly to the reported position and keep a blue "Lokasi saya"
-  // marker synced on top of the transit markers. No auto-locate on mount —
-  // this only reacts to a value reported by the parent (user-triggered).
+  // User location: fly to the reported position. The visible "Lokasi saya" pin
+  // is rendered by HomePage as an overlay on the hero (`.home-user-pin`) rather
+  // than as a Mapbox marker, so it stays visible above the maximized content
+  // sheet — a Mapbox marker lives inside `.home-hero`'s subtree and would be
+  // covered by the sheet (z-index 10). No auto-locate on mount — this only
+  // reacts to a value reported by the parent (user-triggered).
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (!userLocation || typeof userLocation.lat !== 'number' || typeof userLocation.lng !== 'number') {
-      if (userMarkerRef.current) {
-        userMarkerRef.current.remove()
-        userMarkerRef.current = null
-      }
-      return
-    }
+    if (!userLocation || typeof userLocation.lat !== 'number' || typeof userLocation.lng !== 'number') return
     map.flyTo({ center: [userLocation.lng, userLocation.lat], zoom: 14, essential: true })
-    if (!userMarkerRef.current) {
-      const el = document.createElement('div')
-      el.className = 'map-user-marker'
-      el.setAttribute('aria-label', 'Lokasi saya')
-      el.style.cssText =
-        'width:18px;height:18px;position:relative;z-index:1000;border-radius:50%;background:var(--brand-color-accent);' +
-        'border:3px solid #fff;box-shadow:0 0 0 4px color-mix(in srgb, var(--brand-color-accent) 25%, transparent),0 2px 6px rgba(0,0,0,0.3)'
-      userMarkerRef.current = new mapboxgl.Marker({ element: el })
-        .setLngLat([userLocation.lng, userLocation.lat])
-        .addTo(map)
-    } else {
-      userMarkerRef.current.setLngLat([userLocation.lng, userLocation.lat])
-    }
   }, [userLocation])
 
   if (!MAPBOX_TOKEN) {
