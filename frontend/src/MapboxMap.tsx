@@ -136,6 +136,7 @@ function MapboxMap({
   const stopMarkersRef = useRef<mapboxgl.Marker[]>([])
   const railStationMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const railStationPopupRef = useRef<mapboxgl.Popup | null>(null)
   const firstFitDoneRef = useRef(false)
@@ -236,6 +237,8 @@ function MapboxMap({
       busMarkersRef.current = []
       railStationMarkersRef.current.forEach((m) => m.remove())
       railStationMarkersRef.current = []
+      userMarkerRef.current?.remove()
+      userMarkerRef.current = null
       map.remove()
       mapRef.current = null
       firstFitDoneRef.current = false
@@ -566,17 +569,40 @@ function MapboxMap({
     railStationPopupRef.current = popup
   }, [railStationPopup])
 
-  // User location: fly to the reported position. The visible "Lokasi saya" pin
-  // is rendered by HomePage as an overlay on the hero (`.home-user-pin`) rather
-  // than as a Mapbox marker, so it stays visible above the maximized content
-  // sheet — a Mapbox marker lives inside `.home-hero`'s subtree and would be
-  // covered by the sheet (z-index 10). No auto-locate on mount — this only
+  // User location: fly to the reported position and pin it with a real Mapbox
+  // marker at the user's geographic coordinates (so it tracks the location while
+  // panning/zooming — not an overlay pinned to the hero center). The marker
+  // element carries `z-index: 18`, and because `.home-hero`/`.home-hero__map`
+  // are z-auto and never create a stacking context, that competes at the
+  // `.home-page` level: above the content sheet (z-index 10) and notification
+  // panel (z-index 12), below the edge flash (z-index 20) — the pin stays
+  // visible through a maximized sheet. No auto-locate on mount; this only
   // reacts to a value reported by the parent (user-triggered).
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (!userLocation || typeof userLocation.lat !== 'number' || typeof userLocation.lng !== 'number') return
-    map.flyTo({ center: [userLocation.lng, userLocation.lat], zoom: 14, essential: true })
+    if (!userLocation || typeof userLocation.lat !== 'number' || typeof userLocation.lng !== 'number') {
+      userMarkerRef.current?.remove()
+      userMarkerRef.current = null
+      return
+    }
+    const [lng, lat] = [userLocation.lng, userLocation.lat]
+    // Geolocation can resolve before the map finishes loading (cached position,
+    // `maximumAge`); fly once the map is ready instead of silently dropping it.
+    const flyTo = () => map.flyTo({ center: [lng, lat], zoom: 14, essential: true })
+    if (map.loaded()) flyTo()
+    else map.once('load', flyTo)
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLngLat([lng, lat])
+    } else {
+      const el = document.createElement('div')
+      el.className = 'map-user-marker'
+      el.setAttribute('aria-label', 'Lokasi saya')
+      el.style.cssText = 'width:18px;height:18px;position:relative;z-index:18;border-radius:50%;background:var(--brand-color-accent);border:3px solid #fff;box-shadow:0 0 0 4px color-mix(in srgb, var(--brand-color-accent) 25%, transparent),0 2px 6px rgba(0,0,0,0.3)'
+      userMarkerRef.current = new mapboxgl.Marker({ element: el })
+        .setLngLat([lng, lat])
+        .addTo(map)
+    }
   }, [userLocation])
 
   if (!MAPBOX_TOKEN) {
