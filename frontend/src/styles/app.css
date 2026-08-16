@@ -748,6 +748,33 @@ input[aria-invalid='true'] {
   border-radius: 0;
 }
 
+/* "Lokasi saya" pin: rendered by HomePage as an overlay on the hero (not as a
+   Mapbox marker) so it stays visible above the maximized content sheet. The
+   map always flyTo-centers on the reported location, so the pin centered on
+   the hero marks the user's position. `.home-hero` is z-auto (no stacking
+   context), so z-index 30 competes at `.home-page` level and beats the sheet
+   (z-index 10) and the notification panel (z-index 12). */
+.home-user-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  pointer-events: none;
+}
+
+.home-user-pin__core {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--brand-color-accent);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-color-accent) 25%, transparent), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
 /* Keep the route filter usable inside the full-height map layer. */
 .home-hero .map-filter-panel {
   max-height: calc(100% - var(--brand-control-height-base) - var(--brand-space-base));
