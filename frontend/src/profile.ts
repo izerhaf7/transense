@@ -16,16 +16,21 @@
 
 export type ProfileType = 'tuli' | 'netra' | 'daksa'
 
+export type OutputChannel = 'visual' | 'haptic' | 'audio' | 'auto'
+
 export interface DemoProfile {
   displayName: string
   profile: ProfileType
   createdAt: string
+  /** Preferred notification output channel; missing/unknown values default to 'auto'. */
+  outputChannel?: OutputChannel
 }
 
 export const PROFILE_STORAGE_KEY_V1 = 'transense.demo-profile.v1'
 export const PROFILE_STORAGE_KEY_V2 = 'transense.demo-profile.v2'
 
 const PROFILE_TYPES = ['tuli', 'netra', 'daksa'] as const
+const OUTPUT_CHANNELS = ['visual', 'haptic', 'audio', 'auto'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -35,9 +40,18 @@ export function isProfileType(value: unknown): value is ProfileType {
   return typeof value === 'string' && (PROFILE_TYPES as readonly string[]).includes(value)
 }
 
+export function isOutputChannel(value: unknown): value is OutputChannel {
+  return typeof value === 'string' && (OUTPUT_CHANNELS as readonly string[]).includes(value)
+}
+
 /** Unknown/missing profile values fall back to the historical default. */
 export function normalizeProfileType(value: unknown): ProfileType {
   return isProfileType(value) ? value : 'tuli'
+}
+
+/** Unknown/missing output channel values fall back to the automatic default. */
+export function normalizeOutputChannel(value: unknown): OutputChannel {
+  return isOutputChannel(value) ? value : 'auto'
 }
 
 /**
@@ -59,6 +73,7 @@ export function normalizeProfile(value: unknown): DemoProfile | null {
     displayName,
     profile: normalizeProfileType(value.profile),
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+    outputChannel: normalizeOutputChannel(value.outputChannel),
   }
 }
 

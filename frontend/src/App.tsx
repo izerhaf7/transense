@@ -13,7 +13,7 @@ import MapboxMap, { type StopPopupData, type RailStationPopupData } from './Mapb
 import { AccessibilityIcon, AntarAkuIcon, ArrowBackIcon, BellIcon, CameraIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
 import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
-import type { DemoProfile, ProfileType } from './profile'
+import type { DemoProfile, OutputChannel, ProfileType } from './profile'
 import OccupancyCard from './OccupancyCard'
 import { createTtsProvider } from './tts'
 import type { TtsProvider } from './tts'
@@ -1083,6 +1083,20 @@ const PROFILE_OPTIONS: { type: ProfileType; label: string; description: string; 
     icon: <AccessibilityIcon />,
   },
 ]
+
+const OUTPUT_CHANNEL_OPTIONS: { value: OutputChannel; label: string }[] = [
+  { value: 'visual', label: 'Visual' },
+  { value: 'haptic', label: 'Getar' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'auto', label: 'Otomatis' },
+]
+
+const OUTPUT_CHANNEL_LABELS: Record<OutputChannel, string> = {
+  visual: 'Visual',
+  haptic: 'Getar',
+  audio: 'Audio',
+  auto: 'Otomatis (sesuai profil)',
+}
 
 function Onboarding({ onComplete }: { onComplete: (displayName: string, profile: ProfileType) => void }) {
   const [step, setStep] = useState<'profile' | 'name'>('profile')
@@ -2394,7 +2408,18 @@ function AntarAkuPage() {
   return <PlannerPage apiBaseUrl={apiBaseUrl} />
 }
 
-function ProfilePage({ profile, onReset, lastRampAck, sendRampRequest }: { profile: DemoProfile; onReset: () => void; lastRampAck: string | null; sendRampRequest: (stopId: string) => void }) {
+function ProfilePage({ profile, onReset, onUpdateProfile, lastRampAck, sendRampRequest }: {
+  profile: DemoProfile
+  onReset: () => void
+  onUpdateProfile?: (patch: Partial<DemoProfile>) => void
+  lastRampAck: string | null
+  sendRampRequest: (stopId: string) => void
+}) {
+  const [editOpen, setEditOpen] = useState(false)
+  const profileLabel = PROFILE_OPTIONS.find((option) => option.type === profile.profile)?.label
+    ?? profile.profile.charAt(0).toUpperCase() + profile.profile.slice(1)
+  const outputChannel = profile.outputChannel ?? 'auto'
+
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
@@ -2410,10 +2435,50 @@ function ProfilePage({ profile, onReset, lastRampAck, sendRampRequest }: { profi
           <p>Dibuat {new Date(profile.createdAt).toLocaleDateString('id-ID')}</p>
         </div>
       </section>
+      <dl className="profile-fields">
+        <div className="profile-field">
+          <dt>Tipe disabilitas</dt>
+          <dd>{profileLabel}</dd>
+        </div>
+        <div className="profile-field">
+          <dt>Preferensi kanal keluaran</dt>
+          <dd>{OUTPUT_CHANNEL_LABELS[outputChannel]}</dd>
+        </div>
+      </dl>
       {profile.profile === 'daksa' ? (
         <OccupancyCard apiBaseUrl={apiBaseUrl} sendRampRequest={sendRampRequest} lastRampAck={lastRampAck} />
       ) : null}
-      <button className="secondary-button" type="button" onClick={onReset}>Hapus profil</button>
+      <button
+        className="secondary-button profile-edit-btn"
+        type="button"
+        onClick={() => setEditOpen((open) => !open)}
+        aria-expanded={editOpen}
+        aria-controls={editOpen ? 'profile-edit-panel' : undefined}
+      >
+        Ubah personalisasi
+      </button>
+      {editOpen ? (
+        <section className="profile-edit-panel" id="profile-edit-panel" aria-label="Ubah personalisasi">
+          <fieldset className="profile-edit-options">
+            <legend>Preferensi kanal keluaran</legend>
+            {OUTPUT_CHANNEL_OPTIONS.map((option) => (
+              <label className="profile-edit-option" key={option.value}>
+                <input
+                  type="radio"
+                  name="output-channel"
+                  value={option.value}
+                  checked={outputChannel === option.value}
+                  onChange={() => onUpdateProfile?.({ outputChannel: option.value })}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </fieldset>
+          <hr className="profile-edit-divider" />
+          <button className="secondary-button profile-edit-danger" type="button" onClick={onReset}>Hapus profil</button>
+        </section>
+      ) : null}
+      <p className="profile-version">Transense v0.1.0</p>
     </main>
   )
 }
@@ -2440,7 +2505,7 @@ function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: 
   )
 }
 
-function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetProfile: () => void }) {
+function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: DemoProfile; onResetProfile: () => void; onUpdateProfile: (patch: Partial<DemoProfile>) => void }) {
   const [screen, setScreen] = useState<Screen>('home')
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
@@ -2480,7 +2545,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
-      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
+      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} onUpdateProfile={onUpdateProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
       {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
       {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
@@ -2530,6 +2595,14 @@ export default function App() {
     }
   }
 
+  const handleUpdateProfile = (patch: Partial<DemoProfile>) => {
+    if (!profile) return
+    const nextProfile: DemoProfile = { ...profile, ...patch }
+    if (persistProfile(nextProfile)) {
+      setProfile(nextProfile)
+    }
+  }
+
   if (!splashDone) {
     return <SplashScreen leaving={splashLeaving} />
   }
@@ -2538,5 +2611,5 @@ export default function App() {
     return <Onboarding onComplete={handleCompleteOnboarding} />
   }
 
-  return <MainShell profile={profile} onResetProfile={handleResetProfile} />
+  return <MainShell profile={profile} onResetProfile={handleResetProfile} onUpdateProfile={handleUpdateProfile} />
 }
