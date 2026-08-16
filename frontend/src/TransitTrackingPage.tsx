@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import MapboxMap from './MapboxMap'
+import { ArrowRightIcon } from './icons'
 import type { Stop } from './journey'
 
 type ViewMode = 'schematic' | 'mapbox'
@@ -161,7 +162,7 @@ function TransitTrackingPage({ apiBaseUrl, initialTarget, initialVehicleId, init
         </label>
         {suggestions.length ? <div className="tracking-suggestions">{suggestions.map((stop) => <button type="button" key={stop.id} onClick={() => chooseTarget(stop)}>{stop.name}</button>)}</div> : null}
         <button className="primary-button" type="button" onClick={tracking ? () => { setTracking(false); setTrack(null); lastAlert.current = '' } : startTracking}>
-          {tracking ? 'Hentikan tracking' : 'Mulai tracking'} <span aria-hidden="true">→</span>
+          {tracking ? 'Hentikan tracking' : 'Mulai tracking'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
         </button>
       </section>
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useScribe, CommitStrategy } from '@elevenlabs/react'
+import { ArrowUpRightIcon, CloseIcon } from './icons'
 
 type Sender = 'user' | 'other'
 
@@ -233,7 +234,7 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
                 <span>{new Date(conv.updated_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
               </div>
               <span className="chat-history__card-count">{conv.messages.length}</span>
-              <button className="chat-history__delete" type="button" onClick={(event) => { event.stopPropagation(); void removeConversation(conv.id) }} aria-label="Hapus percakapan">✕</button>
+              <button className="chat-history__delete" type="button" onClick={(event) => { event.stopPropagation(); void removeConversation(conv.id) }} aria-label="Hapus percakapan"><CloseIcon size={20} /></button>
             </button>
           )) : null}
           {!loading && !conversations.length ? (
@@ -337,7 +338,7 @@ function ChatTranscribe({ apiBaseUrl }: ChatTranscribeProps) {
                 aria-label="Ketik pesan"
               />
               <button className="chat-composer__send" type="button" onClick={() => sendDraft(typingAs)} aria-label="Kirim">
-                Kirim ↗
+                Kirim <ArrowUpRightIcon size={18} />
               </button>
             </div>
           </div>

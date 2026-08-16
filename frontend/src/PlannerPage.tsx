@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
+import { ArrowBackIcon, ArrowRightIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, WalkIcon } from './icons'
 import type { Stop } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import {
@@ -128,7 +129,7 @@ function SimulatedTrackingPage({
   return (
     <main className="page-content inner-page planner-page planner-simulation-page">
       <section className="planner-simulation__header">
-        <button type="button" className="schedule-detail__back" onClick={onBack}>← Kembali ke rute</button>
+        <button type="button" className="schedule-detail__back" onClick={onBack}><ArrowBackIcon size={18} /> Kembali ke rute</button>
         <p className="eyebrow">SIMULASI PER HALTE</p>
         <h2>Perjalanan aktif</h2>
         <p>Gunakan tombol halte berikutnya untuk mensimulasikan posisi perjalanan.</p>
@@ -147,12 +148,12 @@ function SimulatedTrackingPage({
         <strong>{next?.name ?? 'Selesai'}</strong>
         <span>{next ? `Naik/lanjut dengan ${next.mode === 'BUS' ? `bus ${next.route ?? ''}` : 'jalan kaki'}` : 'Kamu sudah sampai tujuan.'}</span>
         <button className="primary-button" type="button" disabled={!next} onClick={() => setCheckpointIndex((index) => Math.min(index + 1, checkpoints.length - 1))}>
-          {next ? 'Halte berikutnya' : 'Perjalanan selesai'} <span aria-hidden="true">→</span>
+          {next ? 'Halte berikutnya' : 'Perjalanan selesai'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
         </button>
       </section>
 
       <button className="planner-map-dropdown__toggle" type="button" aria-expanded={mapOpen} onClick={() => setMapOpen((open) => !open)}>
-        {mapOpen ? 'Sembunyikan peta' : 'Lihat peta perjalanan'} <span aria-hidden="true">{mapOpen ? '▲' : '▼'}</span>
+        {mapOpen ? 'Sembunyikan peta' : 'Lihat peta perjalanan'} <span aria-hidden="true">{mapOpen ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
       </button>
       {mapOpen ? (
         <section className="planner-map-dropdown" aria-label="Peta perjalanan simulasi">
@@ -301,7 +302,7 @@ function LegRow({ leg, index, affected }: { leg: PlanLeg; index: number; affecte
   if (leg.mode === 'WALK') {
     return (
       <li className="leg leg--walk">
-        <span className="leg__marker" aria-hidden="true">⌁</span>
+        <span className="leg__marker" aria-hidden="true"><WalkIcon size={24} /></span>
         <div className="leg__body">
           <p className="leg__eyebrow">LANGKAH {index + 1} · JALAN KAKI</p>
           <strong>Jalan kaki dari {leg.from.name} ke {leg.to.name}</strong>
@@ -321,7 +322,7 @@ function LegRow({ leg, index, affected }: { leg: PlanLeg; index: number; affecte
         <strong>Koridor {leg.route?.short_name ?? leg.route?.id ?? 'bus'} · {leg.headsign ?? 'menuju tujuan'}</strong>
         <p className="leg__stops">
           <span>{formatClock(leg.start_time)} naik di {leg.from.name}</span>
-          <span aria-hidden="true">→</span>
+          <span aria-hidden="true"><ArrowRightIcon size={16} /></span>
           <span>{formatClock(leg.end_time)} turun di {leg.to.name}</span>
         </p>
         <p className="leg__meta">{leg.duration_minutes} menit · {formatDistance(leg.distance_m)}</p>
@@ -579,7 +580,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             if (!response.ok) continue
             const data = await response.json() as { coordinates: [number, number][] }
             if (data.coordinates.length >= 2) {
-              shapes.push({ id: leg.route.id, name: leg.route.short_name, color: leg.route.color ?? '#1677ff', coordinates: data.coordinates })
+              shapes.push({ id: leg.route.id, name: leg.route.short_name, color: leg.route.color ?? 'var(--brand-color-accent)', coordinates: data.coordinates })
             }
           } catch (error: unknown) {
             if (error instanceof DOMException && error.name === 'AbortError') return
@@ -653,7 +654,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
         <h2>Cari rute TransJakarta</h2>
         <p>Masukkan asal dan tujuan, lalu pilih rute terbaik. Setelah memilih, kamu bisa mengikuti armada secara langsung.</p>
         <button className="secondary-button demo-route-btn" type="button" onClick={() => { void runDemo() }} disabled={planState === 'loading'}>
-          Demo: JIS → Blok M
+          Demo: JIS <ArrowRightIcon size={16} /> Blok M
         </button>
       </section>
 
@@ -668,7 +669,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           />
         </label>
         <button type="button" className="planner-locate-btn" onClick={() => locateOrigin()} disabled={locating}>
-          <span aria-hidden="true">◎</span>
+          <LocateIcon size={20} />
           {locating ? 'Mencari…' : 'Pakai lokasi saya'}
         </button>
         {originFromLocation && origin ? (
@@ -729,7 +730,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           </label>
         </div>
         <button className="primary-button" type="submit" disabled={planState === 'loading'}>
-          {planState === 'loading' ? 'Mencari rute…' : 'Cari rute'} <span aria-hidden="true">→</span>
+          {planState === 'loading' ? 'Mencari rute…' : 'Cari rute'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
         </button>
       </form>
 
@@ -763,12 +764,12 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           <div className="saved-stop-actions">
             {origin ? (
               <button type="button" className="secondary-button" onClick={() => beginSaveStop('origin')}>
-                Simpan asal sebagai favorit <span aria-hidden="true">★</span>
+                Simpan asal sebagai favorit <StarIcon size={18} />
               </button>
             ) : null}
             {destination ? (
               <button type="button" className="secondary-button" onClick={() => beginSaveStop('destination')}>
-                Simpan tujuan sebagai favorit <span aria-hidden="true">★</span>
+                Simpan tujuan sebagai favorit <StarIcon size={18} />
               </button>
             ) : null}
           </div>
@@ -776,7 +777,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
 
         {savedStops.length === 0 ? (
           <div className="empty-state">
-            <span className="empty-state__mark" aria-hidden="true">☆</span>
+            <StarIcon className="empty-state__mark" size={24} filled={false} />
             <h3>Belum ada halte favorit</h3>
             <p>Pilih asal atau tujuan, lalu simpan sebagai favorit untuk pencarian yang lebih cepat.</p>
           </div>
@@ -784,7 +785,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           <ul className="saved-stops-list">
             {savedStops.map((stop) => (
               <li key={stop.id} className="saved-stop-item">
-                <span className="saved-stop-item__mark" aria-hidden="true">★</span>
+                <span className="saved-stop-item__mark" aria-hidden="true"><StarIcon size={20} /></span>
                 <div className="saved-stop-item__body">
                   <strong>{stop.name}</strong>
                   {stop.stopName !== stop.name ? <span>{stop.stopName}</span> : null}
@@ -792,7 +793,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
                 <div className="saved-stop-item__actions">
                   <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'origin')}>Dari</button>
                   <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'destination')}>Ke</button>
-                  <button type="button" className="saved-stop-item__delete" aria-label={`Hapus favorit ${stop.name}`} onClick={() => removeStoredStop(stop.id)}>×</button>
+                  <button type="button" className="saved-stop-item__delete" aria-label={`Hapus favorit ${stop.name}`} onClick={() => removeStoredStop(stop.id)}><CloseIcon size={20} /></button>
                 </div>
               </li>
             ))}
@@ -813,14 +814,14 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             aria-expanded={historyOpen}
             aria-controls="search-history-list"
           >
-            {historyOpen ? 'Sembunyikan' : 'Tampilkan'} <span aria-hidden="true">{historyOpen ? '▲' : '▼'}</span>
+            {historyOpen ? 'Sembunyikan' : 'Tampilkan'} <span aria-hidden="true">{historyOpen ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
           </button>
         </div>
 
         {historyOpen ? (
           history.length === 0 ? (
             <div className="empty-state">
-              <span className="empty-state__mark" aria-hidden="true">⌕</span>
+              <SearchIcon className="empty-state__mark" size={24} />
               <h3>Belum ada riwayat pencarian</h3>
               <p>Rute yang berhasil dicari akan muncul di sini agar bisa dipakai lagi dengan cepat.</p>
             </div>
@@ -829,10 +830,10 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
               {history.map((entry) => (
                 <li key={entry.at} className="history-item">
                   <button type="button" className="history-item__fill" onClick={() => fillFromHistory(entry)}>
-                    <strong>{entry.origin.name} <span aria-hidden="true">→</span> {entry.destination.name}</strong>
+                    <strong>{entry.origin.name} <span aria-hidden="true"><ArrowRightIcon size={16} /></span> {entry.destination.name}</strong>
                     <span>{formatHistoryTime(entry.at)}</span>
                   </button>
-                  <button type="button" className="history-item__delete" aria-label={`Hapus riwayat ${entry.origin.name} ke ${entry.destination.name}`} onClick={() => removeStoredHistoryEntry(entry.at)}>×</button>
+                  <button type="button" className="history-item__delete" aria-label={`Hapus riwayat ${entry.origin.name} ke ${entry.destination.name}`} onClick={() => removeStoredHistoryEntry(entry.at)}><CloseIcon size={20} /></button>
                 </li>
               ))}
             </ul>
@@ -944,7 +945,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           </div>
 
           <button className="primary-button planner-track-button" type="button" onClick={startTrackingForChosenRoute}>
-            Lanjut ke tracking rute ini <span aria-hidden="true">→</span>
+            Lanjut ke tracking rute ini <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
           </button>
         </>
       ) : null}

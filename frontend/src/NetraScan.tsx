@@ -178,7 +178,7 @@ function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
 
       <button
         type="button"
-        className="netra-scan__demo-toggle"
+        className="primary-button netra-scan__demo-toggle"
         onClick={() => setDemoMode((current) => !current)}
         style={{
           minHeight: 'var(--brand-control-height-lg)',

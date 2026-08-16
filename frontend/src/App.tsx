@@ -10,7 +10,7 @@ import {
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
-import { AccessibilityIcon, AntarAkuIcon, ArrowBackIcon, BellIcon, CameraIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { AccessibilityIcon, AntarAkuIcon, ArrowBackIcon, ArrowRightIcon, BellIcon, CameraIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, DelaysIcon, HomeIcon, ScheduleIcon, SearchIcon, TranscribeIcon, UserIcon } from './icons'
 import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, OutputChannel, ProfileType } from './profile'
@@ -1148,13 +1148,13 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string, profile:
               ))}
             </div>
             <button className="primary-button" type="button" disabled={!selectedProfile} onClick={() => setStep('name')}>
-              Lanjut <span aria-hidden="true">→</span>
+              Lanjut <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
             </button>
           </>
         ) : (
           <>
             <button className="secondary-button onboarding-back" type="button" onClick={() => setStep('profile')}>
-              <span aria-hidden="true">←</span> Pilih ulang profil
+              <span aria-hidden="true"><ArrowBackIcon size={20} /></span> Pilih ulang profil
             </button>
             <p className="eyebrow">ISI NAMA</p>
             <h1>Informasi perjalanan yang terlihat jelas.</h1>
@@ -1179,9 +1179,9 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string, profile:
                 aria-describedby={errorMessage ? 'display-name-error' : undefined}
               />
               {errorMessage ? <p id="display-name-error" className="form-error" role="alert">{errorMessage}</p> : null}
-              <button className="primary-button" type="submit">Masuk ke Transense <span aria-hidden="true">→</span></button>
+              <button className="primary-button" type="submit">Masuk ke Transense <span aria-hidden="true"><ArrowRightIcon size={20} /></span></button>
             </form>
-            <p className="onboarding-note"><span aria-hidden="true">●</span> Tampilan dirancang audio-blind: status selalu terlihat di layar.</p>
+            <p className="onboarding-note">Tampilan dirancang audio-blind: status selalu terlihat di layar.</p>
           </>
         )}
       </div>
@@ -1223,7 +1223,7 @@ function SearchEntry() {
       </div>
       <form className="search-form" onSubmit={handleSubmit} role="search">
         <label className="sr-only" htmlFor="route-search">Cari halte atau rute</label>
-        <span className="search-form__icon" aria-hidden="true">⌕</span>
+        <span className="search-form__icon" aria-hidden="true"><SearchIcon size={20} /></span>
         <input
           id="route-search"
           value={query}
@@ -1344,7 +1344,7 @@ function ArrivalsSheet() {
         <div className="arrivals-sheet__manual">
           <p className="arrivals-sheet__detail" role="status">{detail}</p>
           <div className="search-form arrivals-sheet__search">
-            <span className="search-form__icon" aria-hidden="true">⌕</span>
+            <span className="search-form__icon" aria-hidden="true"><SearchIcon size={20} /></span>
             <input
               value={manualQuery}
               onChange={(event) => { void handleSearch(event.target.value) }}
@@ -1377,7 +1377,7 @@ function ArrivalsSheet() {
             <span className="arrival-card__eta">{arrival.eta_minutes}′</span>
           </article>
         )) : (
-          <div className="empty-state"><span className="empty-state__mark" aria-hidden="true">□</span><h3>Belum ada bus</h3><p>{gpsStatus === 'locating' ? 'Sedang mencari halte terdekat…' : 'Cari halte lain atau tunggu update berikutnya.'}</p></div>
+          <div className="empty-state"><SearchIcon className="empty-state__mark" size={24} /><h3>Belum ada bus</h3><p>{gpsStatus === 'locating' ? 'Sedang mencari halte terdekat…' : 'Cari halte lain atau tunggu update berikutnya.'}</p></div>
         )}
       </div>
     </section>
@@ -1510,10 +1510,14 @@ function HomePage({
   useEffect(() => {
     const controller = new AbortController()
     const load = async () => {
-      const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
-      if (!res.ok) return
-      const data = await res.json() as { routes: { id: string; name: string; color: string; stop_ids: string[] }[] }
-      setAllRoutes(data.routes)
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/gtfs/routes`, { signal: controller.signal })
+        if (!res.ok) return
+        const data = await res.json() as { routes: { id: string; name: string; color: string; stop_ids: string[] }[] }
+        setAllRoutes(data.routes)
+      } catch {
+        // Abort on unmount is expected; other failures keep the seed routes.
+      }
     }
     void load()
     return () => controller.abort()
@@ -2107,8 +2111,8 @@ function SchedulePage() {
   const detailView = (
     <section className="schedule-detail" aria-label={`Jadwal halte ${selectedStop?.name}`}>
       <div className="schedule-detail__header">
-        <button type="button" className="schedule-detail__back" onClick={() => setSelectedStop(null)}>← Kembali</button>
-        <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal">✕</button>
+        <button type="button" className="schedule-detail__back" onClick={() => setSelectedStop(null)}><ArrowBackIcon size={18} /> Kembali</button>
+        <button type="button" className="schedule-detail__close" onClick={() => setSelectedStop(null)} aria-label="Tutup jadwal"><CloseIcon size={18} /></button>
       </div>
       <div>
         <p className="eyebrow">JADWAL KEDATANGAN</p>
@@ -2120,7 +2124,7 @@ function SchedulePage() {
           <p className="eyebrow">LIVE — BUS MENDEKAT</p>
           {schedule.live.map((bus) => (
             <div className="schedule-detail__live-row" key={`${bus.bus_id}-${bus.route_code}`}>
-              <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? '#1677ff' }}>{bus.route_code}</span>
+              <span className="schedule-route__badge" style={{ background: schedule.timetable.find((g) => g.route_code === bus.route_code)?.color ?? 'var(--brand-color-accent)' }}>{bus.route_code}</span>
               <span className="schedule-detail__live-eta">{bus.eta_minutes} menit</span>
               <span className="schedule-detail__live-headsign">{bus.headsign}</span>
             </div>
@@ -2175,7 +2179,7 @@ function SchedulePage() {
               <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
               <span className="schedule-route__name">{line.name}</span>
               <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
-              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
             </button>
             {expanded ? (
               <div className="schedule-route__stops">
@@ -2187,7 +2191,7 @@ function SchedulePage() {
                     onClick={() => { void openRailStopSchedule(stop.id, stop.name) }}
                   >
                     <span className="schedule-stop-row__name">{stop.name}</span>
-                    <span className="schedule-stop-row__cta">Jadwal →</span>
+                    <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
                   </button>
                 )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
               </div>
@@ -2213,7 +2217,7 @@ function SchedulePage() {
             >
               <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
               <span className="schedule-route__name">{route.long_name}</span>
-              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
             </button>
             {expanded ? (
               <div className="schedule-route__stops">
@@ -2225,7 +2229,7 @@ function SchedulePage() {
                     onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
                   >
                     <span className="schedule-stop-row__name">{stop.name}</span>
-                    <span className="schedule-stop-row__cta">Jadwal →</span>
+                    <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
                   </button>
                 )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
               </div>
@@ -2255,7 +2259,7 @@ function SchedulePage() {
                   <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
                   <span className="schedule-route__name">{route.long_name}</span>
                   <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
-                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
                 </button>
                 {expanded ? (
                   <div className="schedule-route__stops">
@@ -2267,7 +2271,7 @@ function SchedulePage() {
                         onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
                       >
                         <span className="schedule-stop-row__name">{stop.name}</span>
-                        <span className="schedule-stop-row__cta">Jadwal →</span>
+                        <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
                       </button>
                     )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
                   </div>
@@ -2284,7 +2288,7 @@ function SchedulePage() {
             >
               <span className="schedule-result-tag schedule-result-tag--stop">HALTE</span>
               <span className="schedule-stop-row__name">{stop.name}</span>
-              <span className="schedule-stop-row__cta">Jadwal →</span>
+              <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
             </button>
           ))}
           {filteredRoutes.length === 0 && searchStops.length === 0 ? <p className="schedule-routes__loading">Tidak ada halte atau trayek yang cocok.</p> : null}
@@ -2306,7 +2310,7 @@ function SchedulePage() {
                   <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
                   <span className="schedule-route__name">{line.name}</span>
                   <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
-                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? '−' : '+'}</span>
+                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
                 </button>
                 {expanded ? (
                   <div className="schedule-route__stops">
@@ -2318,7 +2322,7 @@ function SchedulePage() {
                         onClick={() => { void openRailStopSchedule(stop.id, stop.name) }}
                       >
                         <span className="schedule-stop-row__name">{stop.name}</span>
-                        <span className="schedule-stop-row__cta">Jadwal →</span>
+                        <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
                       </button>
                     )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
                   </div>
@@ -2363,7 +2367,7 @@ function SchedulePage() {
 
       <section className="schedule-search" role="search">
         <label className="sr-only" htmlFor="schedule-search">{mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}</label>
-        <span className="schedule-search__icon" aria-hidden="true">⌕</span>
+        <span className="schedule-search__icon" aria-hidden="true"><SearchIcon size={20} /></span>
         <input
           id="schedule-search"
           value={query}
@@ -2485,9 +2489,9 @@ function ProfilePage({ profile, onReset, onUpdateProfile, lastRampAck, sendRampR
 
 function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void }) {
   const navigationItems: Array<{ screen: Exclude<Screen, 'placeholder'>; label: string; icon: ReactNode }> = [
-    { screen: 'home', label: 'Beranda', icon: '⌂' },
+    { screen: 'home', label: 'Beranda', icon: <HomeIcon size={20} /> },
     { screen: 'schedule', label: 'Jadwal', icon: <ScheduleIcon size={20} /> },
-    { screen: 'profile', label: 'Profil', icon: '◉' },
+    { screen: 'profile', label: 'Profil', icon: <UserIcon size={20} /> },
   ]
 
   return (

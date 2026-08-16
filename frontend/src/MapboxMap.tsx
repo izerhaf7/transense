@@ -8,6 +8,20 @@ const DEFAULT_CENTER: [number, number] = [106.8227, -6.1944]
 const DEFAULT_ZOOM = 12
 const STOP_VISIBLE_ZOOM = 13
 
+/**
+ * Mapbox paint properties are parsed as color literals and do not understand
+ * CSS custom properties. Resolve `var(--brand-*)` design tokens to their
+ * computed hex at render time; non-token colors (backend route/rail colors)
+ * pass through unchanged.
+ */
+function resolvePaintColor(color: string): string {
+  if (!color.startsWith('var(') || typeof window === 'undefined' || typeof document === 'undefined') {
+    return color
+  }
+  const token = color.slice(4, -1).trim()
+  return window.getComputedStyle(document.documentElement).getPropertyValue(token).trim() || color
+}
+
 interface RouteShape {
   id: string
   name: string
@@ -274,7 +288,7 @@ function MapboxMap({
         type: 'line',
         source: sourceId,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': shape.color, 'line-width': 3, 'line-opacity': 0.7 },
+        paint: { 'line-color': resolvePaintColor(shape.color), 'line-width': 3, 'line-opacity': 0.7 },
       })
     }
     for (const [index, walk] of (walkLegs ?? []).entries()) {
@@ -293,7 +307,7 @@ function MapboxMap({
         type: 'line',
         source: sourceId,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#6b7280', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] },
+        paint: { 'line-color': resolvePaintColor('var(--brand-color-muted)'), 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] },
       })
     }
   }, [routeShapes, walkLegs])
@@ -332,7 +346,7 @@ function MapboxMap({
         type: 'line',
         source: sourceId,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': line.color, 'line-width': 4, 'line-opacity': 0.85 },
+        paint: { 'line-color': resolvePaintColor(line.color), 'line-width': 4, 'line-opacity': 0.85 },
       })
     }
   }, [railLines])
@@ -350,7 +364,7 @@ function MapboxMap({
       el.type = 'button'
       el.title = station.name
       el.setAttribute('aria-label', `Stasiun ${station.name}`)
-      el.style.cssText = 'width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:#374151;border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
+      el.style.cssText = 'width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:var(--brand-color-text-secondary);border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
       el.innerHTML =
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="#fff" aria-hidden="true">' +
         '<path d="M12 2c-4 0-8 .5-8 4v9.5A3.5 3.5 0 0 0 7.5 19L6 20.5v.5h2l1-1h6l1 1h2v-.5L16.5 19a3.5 3.5 0 0 0 3.5-3.5V6c0-3.5-4-4-8-4zM7 16a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm10 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm-1-4.5H8V6h8v5.5z"/>' +
@@ -398,7 +412,7 @@ function MapboxMap({
       el.className = 'stop-marker'
       el.type = 'button'
       el.setAttribute('aria-label', stop.name)
-      el.style.cssText = 'width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:#1677ff;border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
+      el.style.cssText = 'width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:var(--brand-color-accent);border:2px solid #fff;border-radius:8px 8px 8px 2px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;padding:0'
       el.innerHTML =
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="#fff" aria-hidden="true">' +
         '<path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4S4 2.5 4 6v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM18 11H6V6h12v5z"/>' +
@@ -437,7 +451,7 @@ function MapboxMap({
 
     const shown = buses.length > 300 ? buses.filter((_, i) => i % Math.floor(buses.length / 100) === 0) : buses
     for (const bus of shown) {
-      const color = routeColorsRef.current?.get(bus.route_code) ?? '#FF7A1A'
+      const color = routeColorsRef.current?.get(bus.route_code) ?? 'var(--brand-color-warning)'
       const el = document.createElement('div')
       el.className = 'vehicle-marker'
       el.title = `${bus.route_code} · ${bus.id}`
@@ -483,7 +497,7 @@ function MapboxMap({
     const arrivalRows = stopPopup.arrivals.length === 0
       ? '<p class="stop-popup__empty">Tidak ada bus yang akan tiba dalam waktu dekat.</p>'
       : stopPopup.arrivals.map((a) => {
-          const color = routeColorsMap.get(a.route_code) ?? '#1677ff'
+          const color = routeColorsMap.get(a.route_code) ?? 'var(--brand-color-accent)'
           return [
             '<div class="bus-popup__row">',
             `<span class="bus-popup__route" style="background:${color}">${a.route_code}</span>`,
@@ -576,8 +590,8 @@ function MapboxMap({
       el.className = 'map-user-marker'
       el.setAttribute('aria-label', 'Lokasi saya')
       el.style.cssText =
-        'width:18px;height:18px;position:relative;z-index:1000;border-radius:50%;background:#1677ff;' +
-        'border:3px solid #fff;box-shadow:0 0 0 4px rgba(22,119,255,0.25),0 2px 6px rgba(0,0,0,0.3)'
+        'width:18px;height:18px;position:relative;z-index:1000;border-radius:50%;background:var(--brand-color-accent);' +
+        'border:3px solid #fff;box-shadow:0 0 0 4px color-mix(in srgb, var(--brand-color-accent) 25%, transparent),0 2px 6px rgba(0,0,0,0.3)'
       userMarkerRef.current = new mapboxgl.Marker({ element: el })
         .setLngLat([userLocation.lng, userLocation.lat])
         .addTo(map)

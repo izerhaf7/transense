@@ -267,7 +267,7 @@ function CameraScan({ apiBaseUrl, onDetection, onFrame, simulated }: CameraScanP
           position: 'relative',
           overflow: 'hidden',
           borderRadius: 'var(--brand-radius-xl)',
-          background: '#000000',
+          background: 'var(--brand-color-foreground)',
           boxShadow: 'var(--brand-shadow-card)',
         }}
       >
@@ -313,7 +313,7 @@ function CameraScan({ apiBaseUrl, onDetection, onFrame, simulated }: CameraScanP
 
       <button
         type="button"
-        className="camera-scan__simulate"
+        className="primary-button camera-scan__simulate"
         onClick={postSimulatedDetection}
         style={{
           minHeight: 'var(--brand-control-height-lg)',
