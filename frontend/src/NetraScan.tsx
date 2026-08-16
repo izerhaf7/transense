@@ -184,11 +184,6 @@ function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
           minHeight: 'var(--brand-control-height-lg)',
           padding: '0 var(--brand-space-lg)',
           borderRadius: 'var(--brand-radius-pill)',
-          border: 'var(--brand-border-width) solid var(--brand-color-accent-border)',
-          background: 'var(--brand-color-accent)',
-          color: 'var(--brand-color-text-on-accent)',
-          fontSize: 'var(--brand-font-size-base)',
-          fontWeight: 'var(--brand-font-weight-strong)',
         }}
       >
         {demoMode ? 'Kembali ke kamera asli' : 'Aktifkan mode demo tersimulasi'}

@@ -2544,14 +2544,20 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
       <NotificationRenderer notification={currentNotification} profile={profile.profile} tts={tts} onDismiss={() => {
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} profile={profile.profile} /> : null}
-      {screen === 'schedule' ? <SchedulePage /> : null}
-      {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
-      {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
-      {screen === 'antar-aku' ? <AntarAkuPage /> : null}
-      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} onUpdateProfile={onUpdateProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
-      {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
-      {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} /> : null}
+      <div
+        key={screen}
+        className="screen-transition"
+        style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}
+      >
+        {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} profile={profile.profile} /> : null}
+        {screen === 'schedule' ? <SchedulePage /> : null}
+        {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
+        {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
+        {screen === 'antar-aku' ? <AntarAkuPage /> : null}
+        {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} onUpdateProfile={onUpdateProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
+        {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
+        {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} /> : null}
+      </div>
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
   )

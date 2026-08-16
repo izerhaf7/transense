@@ -94,6 +94,7 @@
   --brand-radius-base: 8px;
   --brand-radius-lg: 10px;
   --brand-radius-xl: 16px;
+  --brand-radius-2xl: 20px;
   --brand-radius-pill: 999px;
 
   /* === Border === */
@@ -118,7 +119,14 @@
   --brand-notification-z: 20;
   --brand-opacity-muted: 0.72;
 
-  /* === Shadow (subtle, no brutalist) === */
-  --brand-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
+  /* === Shadow (soft, raised for a "modern & hidup" feel) === */
+  --brand-shadow-card: 0 4px 16px rgba(17, 17, 17, 0.08);
+  --brand-shadow-card-hover: 0 8px 24px rgba(17, 17, 17, 0.12);
+  --brand-shadow-accent: 0 4px 14px rgba(22, 119, 255, 0.35);
+  --brand-shadow-accent-strong: 0 6px 18px rgba(22, 119, 255, 0.45);
+  --brand-shadow-accent-topbar: 0 8px 24px rgba(22, 119, 255, 0.28);
+  --brand-shadow-accent-tile: 0 8px 20px rgba(22, 119, 255, 0.28);
+  --brand-shadow-sheet: 0 -8px 32px rgba(17, 17, 17, 0.12);
+  --brand-color-white-soft: rgba(255, 255, 255, 0.16);
   --brand-shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
