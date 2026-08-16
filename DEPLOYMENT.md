@@ -38,8 +38,26 @@ TRANSENSE_DATABASE_PATH=/tmp/transense.sqlite3
 `TRANSENSE_ALLOWED_ORIGINS` is a comma-separated exact-origin allowlist used by
 both REST CORS and the WebSocket handshake. Do not use `*` for the demo.
 
-Cloud STT credentials are not part of this foundation and must be added later
-as environment variables, never as committed config.
+#### Optional feature keys (multi-profil change, 2026-08-16)
+
+```text
+ELEVENLABS_API_KEY=sk-...              # used by /api/scribe-token (STT) and /api/tts
+ELEVENLABS_TTS_VOICE_ID=...            # enables /api/tts (Netra audio announcements)
+GOOGLE_VISION_API_KEY=...              # enables /api/vision/ocr (Netra corridor OCR)
+TRANSENSE_REALTIME_ENABLED=1           # enables TJ realtime client for /api/buses, /api/arrivals
+```
+
+Behavior when a key is missing (all degrade, never 500):
+- `/api/tts` → `503 ElevenLabs TTS not configured`; the frontend falls back to
+  visible text.
+- `/api/vision/ocr` → `503 Google Cloud Vision not configured`; the Netra scan
+  continues in camera-only/simulated mode.
+- Realtime endpoints (`/api/buses`, `/api/arrivals`, `/api/journey/track`) →
+  `source: "unavailable"`.
+
+Cloud STT/ElevenLabs/Google Vision credentials are backend-only environment
+variables, never committed config and never exposed to the browser. Vercel only
+needs `VITE_API_BASE_URL` (see above).
 
 ## Deployment verification
 
