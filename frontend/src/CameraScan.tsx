@@ -70,8 +70,10 @@ function CameraScan({ apiBaseUrl, onDetection, onFrame, simulated }: CameraScanP
       return
     }
     const video = videoRef.current
-    const width = video?.videoWidth ?? 640
-    const height = video?.videoHeight ?? 480
+    // `||` (bukan `??`): saat kamera ditolak/belum siap videoWidth/videoHeight = 0,
+    // tetap pakai ukuran default agar box simulasi punya luas > 0 (approach heuristic).
+    const width = video?.videoWidth || 640
+    const height = video?.videoHeight || 480
     const message: CameraWorkerRequest = {
       type: 'detect',
       timestamp: video?.currentTime ? Math.round(video.currentTime * 1000) : Math.round(performance.now()),
