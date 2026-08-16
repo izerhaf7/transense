@@ -1053,8 +1053,10 @@ input[aria-invalid='true'] {
 
 /* The sheet sits on top of the full-bleed map. It starts minimized (auto
    height, search only) so the map stays dominant; the handle strip toggles it
-   to maximized (92% of the main area, right above the bottom nav) where the
-   feature tiles, arrivals list, and (for Netra) camera scan scroll together.
+   to maximized, where the feature tiles, arrivals list, and (for Netra) camera
+   scan scroll together. The maximized height is measured in px by App.tsx
+   (--home-sheet-max) to stop just below the top bar so the top bar stays
+   visible, with a 92% fallback before the measurement applies.
    Scrolling inside the sheet never resizes it — only the toggle does. */
 .home-sheet {
   position: absolute;
@@ -1075,8 +1077,8 @@ input[aria-invalid='true'] {
 }
 
 .home-sheet--maximized {
-  height: 92%;
-  max-height: 92%;
+  height: var(--home-sheet-max, 92%);
+  max-height: var(--home-sheet-max, 92%);
 }
 
 .home-sheet__handle {
@@ -2668,7 +2670,7 @@ input[aria-invalid='true'] {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   width: min(100%, var(--brand-max-width));
   /* box-sizing: border-box keeps the item area at --brand-bottom-nav-height
      while the bar extends into the device safe-area. */

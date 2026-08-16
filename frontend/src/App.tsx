@@ -10,7 +10,7 @@ import {
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
-import { AccessibilityIcon, AntarAkuIcon, BellIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { AccessibilityIcon, AntarAkuIcon, BellIcon, CameraIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
 import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
@@ -18,7 +18,7 @@ import OccupancyCard from './OccupancyCard'
 import { createTtsProvider } from './tts'
 import type { TtsProvider } from './tts'
 
-type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'side-by-side' | 'placeholder'
+type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'side-by-side' | 'netra-scan' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
 type MicrophonePermission = 'unknown' | 'granted' | 'denied' | 'unsupported'
@@ -1375,7 +1375,6 @@ function HomePage({
   onNavigate,
   onDismissNotification,
   profile,
-  tts,
 }: {
   displayName: string
   transitState: TransitState | null
@@ -1384,7 +1383,6 @@ function HomePage({
   onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void
   onDismissNotification: (notificationId: string) => void
   profile: ProfileType
-  tts?: TtsProvider
 }) {
   const [gtfsStops, setGtfsStops] = useState<Stop[]>(() => transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
   const [routeShapes, setRouteShapes] = useState<{ id: string; name: string; color: string; coordinates: [number, number][] }[]>([])
@@ -1401,9 +1399,33 @@ function HomePage({
   const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
 
   // Home content sheet: minimized by default (search only, map dominant). The
-  // handle strip toggles it between minimized and a 92%-height maximized
-  // overlay; scrolling inside the sheet only browses content, never resizes it.
+  // handle strip toggles it between minimized and a maximized overlay;
+  // scrolling inside the sheet only browses content, never resizes it.
   const [sheetExpanded, setSheetExpanded] = useState(false)
+  const sheetRef = useRef<HTMLElement | null>(null)
+
+  // The sheet is absolute inside .home-page, which ALSO contains the top bar,
+  // so a percentage height would swallow the top bar when maximized. Measure
+  // the area below the top bar in px and expose it as --home-sheet-max
+  // (re-measured on resize/rotation, since the top bar height can change).
+  useEffect(() => {
+    const recomputeSheetMaxHeight = () => {
+      const sheet = sheetRef.current
+      if (!sheet) return
+      const container = sheet.parentElement
+      if (!container) return
+      const containerBottom = container.getBoundingClientRect().bottom
+      const topbar = container.querySelector('.home-topbar')
+      const topbarBottom = topbar
+        ? topbar.getBoundingClientRect().bottom
+        : container.getBoundingClientRect().top
+      const maxPx = Math.max(120, containerBottom - topbarBottom - 8)
+      sheet.style.setProperty('--home-sheet-max', `${maxPx}px`)
+    }
+    recomputeSheetMaxHeight()
+    window.addEventListener('resize', recomputeSheetMaxHeight)
+    return () => window.removeEventListener('resize', recomputeSheetMaxHeight)
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1744,7 +1766,7 @@ function HomePage({
           </section>
         ) : null}
       </section>
-      <section className={`home-sheet${sheetExpanded ? ' home-sheet--maximized' : ''}`} aria-label="Fitur dan halte terdekat">
+      <section ref={sheetRef} className={`home-sheet${sheetExpanded ? ' home-sheet--maximized' : ''}`} aria-label="Fitur dan halte terdekat">
         <button
           type="button"
           className="home-sheet__handle"
@@ -1765,38 +1787,38 @@ function HomePage({
                 <span className="feature-tile__label">Antar Aku</span>
               </button>
             </li>
-            <li>
-              <button type="button" className="feature-tile" onClick={() => onNavigate('transcribe')}>
-                <span className="feature-tile__icon"><TranscribeIcon /></span>
-                <span className="feature-tile__label">Transcribe</span>
-              </button>
-            </li>
+            {profile === 'tuli' ? (
+              <li>
+                <button type="button" className="feature-tile" onClick={() => onNavigate('transcribe')}>
+                  <span className="feature-tile__icon"><TranscribeIcon /></span>
+                  <span className="feature-tile__label">Transcribe</span>
+                </button>
+              </li>
+            ) : null}
             <li>
               <button type="button" className="feature-tile" onClick={() => onNavigate('delays')}>
                 <span className="feature-tile__icon"><DelaysIcon /></span>
                 <span className="feature-tile__label">Keterlambatan</span>
               </button>
             </li>
-            <li>
-              <button type="button" className="feature-tile" onClick={() => onNavigate('schedule')}>
-                <span className="feature-tile__icon"><ScheduleIcon /></span>
-                <span className="feature-tile__label">Jadwal Transportasi Umum</span>
-              </button>
-            </li>
             {profile === 'netra' || profile === 'daksa' ? (
               <li>
                 <button type="button" className="feature-tile" onClick={() => onNavigate('side-by-side')}>
                   <span className="feature-tile__icon"><AccessibilityIcon /></span>
-                  <span className="feature-tile__label">Side by Side</span>
-                  <span>Fasilitas halte</span>
+                  <span className="feature-tile__label">Fasilitas halte</span>
+                </button>
+              </li>
+            ) : null}
+            {profile === 'netra' ? (
+              <li>
+                <button type="button" className="feature-tile" onClick={() => onNavigate('netra-scan')}>
+                  <span className="feature-tile__icon"><CameraIcon /></span>
+                  <span className="feature-tile__label">Pemindai Netra</span>
                 </button>
               </li>
             ) : null}
           </ul>
           <ArrivalsSheet />
-          {profile === 'netra' ? (
-            <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
-          ) : null}
           </div>
         </div>
       </section>
@@ -2331,8 +2353,9 @@ function ProfilePage({ profile, onReset, lastRampAck, sendRampRequest }: { profi
 }
 
 function BottomNavigation({ screen, onNavigate }: { screen: Screen; onNavigate: (screen: Exclude<Screen, 'placeholder'>) => void }) {
-  const navigationItems: Array<{ screen: Exclude<Screen, 'placeholder'>; label: string; icon: string }> = [
+  const navigationItems: Array<{ screen: Exclude<Screen, 'placeholder'>; label: string; icon: ReactNode }> = [
     { screen: 'home', label: 'Beranda', icon: '⌂' },
+    { screen: 'schedule', label: 'Jadwal', icon: <ScheduleIcon size={20} /> },
     { screen: 'profile', label: 'Profil', icon: '◉' },
   ]
 
@@ -2364,10 +2387,11 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
     if (screen === 'home') return 'Beranda'
     if (screen === 'delays') return 'Keterlambatan'
     if (screen === 'profile') return 'Profil'
-    if (screen === 'schedule') return 'Jadwal Transportasi Umum'
+    if (screen === 'schedule') return 'Jadwal'
     if (screen === 'antar-aku') return 'Antar Aku'
     if (screen === 'transcribe') return 'Transcribe'
-    if (screen === 'side-by-side') return 'Side by Side'
+    if (screen === 'side-by-side') return 'Fasilitas halte'
+    if (screen === 'netra-scan') return 'Pemindai Netra'
     return 'Fitur Transense'
   }, [screen])
 
@@ -2385,13 +2409,14 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       <NotificationRenderer notification={currentNotification} profile={profile.profile} tts={tts} onDismiss={() => {
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
-      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} profile={profile.profile} tts={tts} /> : null}
+      {screen === 'home' ? <HomePage displayName={profile.displayName} transitState={backend.transitState} notificationCount={unreadCount} notifications={unreadNotifications} onNavigate={handleNavigate} onDismissNotification={dismissNotification} profile={profile.profile} /> : null}
       {screen === 'schedule' ? <SchedulePage /> : null}
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
       {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
       {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
+      {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
   )
