@@ -70,9 +70,11 @@ export interface CameraWorkerErrorMessage {
 
 export type CameraWorkerResponse = CameraWorkerReadyMessage | CameraWorkerDetectionMessage | CameraWorkerErrorMessage
 
-// Pinned CDN defaults. Self-hosting (e.g. copy the package `wasm/` folder into
-// `public/wasm/` on Vercel) only swaps these two URLs for same-origin paths.
-const DEFAULT_WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
+// WASM is self-hosted at /wasm (copied from node_modules/@mediapipe/tasks-vision
+// on build; Vite copies public/ into dist) so the detector never depends on a
+// third-party CDN — a CDN load failure surfaces as "ModuleFactory not set".
+// The COCO model stays on the Google-hosted storage URL.
+const DEFAULT_WASM_URL = '/wasm'
 const DEFAULT_MODEL_URL = 'https://storage.googleapis.com/mediapipe-tasks/object_detector/efficientdet_lite0_uint8.tflite'
 
 const SCORE_THRESHOLD = 0.5
