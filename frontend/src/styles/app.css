@@ -467,15 +467,45 @@ input[aria-invalid='true'] {
 }
 
 .app-header {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: var(--brand-space-sm);
   padding: var(--brand-space-base) var(--brand-screen-padding);
   background: var(--brand-color-bg-container);
   border-bottom: var(--brand-border-width) solid var(--brand-color-border);
 }
 
+.app-header__back {
+  display: inline-flex;
+  width: var(--brand-control-height-lg);
+  height: var(--brand-control-height-lg);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  cursor: pointer;
+  transition: all var(--brand-motion-fast) var(--brand-motion-ease-out);
+}
+
+.app-header__back:hover,
+.app-header__back:focus-visible {
+  color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+  border-color: var(--brand-color-accent);
+}
+
+.app-header__back:active {
+  background: var(--brand-color-accent-bg-hover);
+}
+
 .app-header__title {
   gap: var(--brand-space-xs);
+  flex: 1;
+  min-width: 0;
 }
 
 .app-header h1 {

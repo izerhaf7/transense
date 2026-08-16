@@ -10,7 +10,7 @@ import {
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
-import { AccessibilityIcon, AntarAkuIcon, BellIcon, CameraIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { AccessibilityIcon, AntarAkuIcon, ArrowBackIcon, BellIcon, CameraIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
 import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
@@ -1175,9 +1175,12 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string, profile:
   )
 }
 
-function AppHeader({ title }: { title: string }) {
+function AppHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
     <header className="app-header">
+      <button type="button" className="app-header__back" onClick={onBack} aria-label="Kembali ke Beranda">
+        <ArrowBackIcon />
+      </button>
       <div className="app-header__title">
         <span className="brand-mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
         <div>
@@ -2405,7 +2408,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
 
   return (
     <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
-      {screen === 'home' ? null : <AppHeader title={title} />}
+      {screen === 'home' ? null : <AppHeader title={title} onBack={() => handleNavigate('home')} />}
       <NotificationRenderer notification={currentNotification} profile={profile.profile} tts={tts} onDismiss={() => {
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />

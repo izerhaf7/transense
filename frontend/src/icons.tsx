@@ -83,3 +83,11 @@ export function CameraIcon({ size = 24, className }: IconProps) {
     </svg>
   )
 }
+
+export function ArrowBackIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" className={className}>
+      <path d="M20 12H5M11 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
