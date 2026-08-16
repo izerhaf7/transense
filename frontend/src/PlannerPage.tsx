@@ -488,11 +488,12 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
   const [walkLegs, setWalkLegs] = useState<WalkLine[]>([])
   const [phase, setPhase] = useState<PlannerPhase>('plan')
 
-  // Departure vs arrive-by planning. Default = "Berangkat jam" (backward
-  // compatible: sends `time`). Toggle on = "Tiba jam": sends `arrive_by` and
-  // the backend plans a latest departure that still arrives by that clock.
-  const [arriveByMode, setArriveByMode] = useState(false)
-  const [travelTime, setTravelTime] = useState(() => new Date().toTimeString().slice(0, 5))
+  // Departure and arrival are two independent, optional clock inputs. The
+  // departure time anchors the forward plan (`time`); the arrival time is sent
+  // as `arrive_by` so the backend plans a latest departure that still arrives
+  // by that clock. They never share a value.
+  const [departureTime, setDepartureTime] = useState('')
+  const [arrivalTime, setArrivalTime] = useState('')
 
   const { savedStops, addSavedStop, removeSavedStop: removeStoredStop } = useSavedStops()
   const { history, recordSearch, removeHistoryEntry: removeStoredHistoryEntry } = useSearchHistory()
@@ -614,7 +615,11 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     resetPlanResults()
   }
 
-  const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
+  const executePlan = async (
+    from: PlanPoint | null = origin,
+    to: PlanPoint | null = destination,
+    timeOverride?: { departure?: string; arrival?: string },
+  ) => {
     if (!from) {
       setPlanState('error')
       setPlanError('Pilih titik asal dari saran halte dulu.')
@@ -646,13 +651,13 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       params.set('to_lng', String(to.lng))
     }
 
-    // Departure vs arrive-by: when the toggle is ON ("Tiba jam") we send only
-    // `arrive_by`; when OFF ("Berangkat jam") we send only `time` (the original
-    // departure param, backward compatible). Never both at once.
-    if (travelTime) {
-      if (arriveByMode) params.set('arrive_by', travelTime)
-      else params.set('time', travelTime)
-    }
+    // Departure vs arrive-by: send both as independent params. The backend uses
+    // `time` for a forward plan and `arrive_by` for a latest-departure plan;
+    // when only one is set, only that one is sent.
+    const departure = timeOverride?.departure ?? departureTime
+    const arrival = timeOverride?.arrival ?? arrivalTime
+    if (departure) params.set('time', departure)
+    if (arrival) params.set('arrive_by', arrival)
     // Always request ETA metadata so the demo renders delay badges whenever the
     // backend has them (`delay_minutes` / `live_eta_minutes` / `eta_source`).
     params.set('include_eta', '1')
@@ -686,8 +691,13 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     const blokM: PlanPoint = { stop_id: 'B02860P', name: 'Plaza Blok M', lat: -6.244, lng: 106.798 }
     choosePoint('origin', jis)
     choosePoint('destination', blokM)
+    // JIS is served by early-morning feeder routes (14/14A/12P); pin the demo
+    // to a departure window where those trips actually run, otherwise the plan
+    // legitimately returns zero itineraries.
+    setDepartureTime('05:00')
+    setArrivalTime('')
     setPhase('plan')
-    await executePlan(jis, blokM)
+    await executePlan(jis, blokM, { departure: '05:00', arrival: '' })
   }
 
   useEffect(() => {
@@ -830,30 +840,20 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
           </div>
         ) : null}
         <div className="planner-time-controls" role="group" aria-label="Waktu perjalanan">
-          <div className="planner-time-toggle" role="radiogroup" aria-label="Mode waktu">
-            <button
-              type="button"
-              className={`planner-time-toggle__option${arriveByMode ? '' : ' planner-time-toggle__option--active'}`}
-              aria-pressed={!arriveByMode}
-              onClick={() => setArriveByMode(false)}
-            >
-              Berangkat jam
-            </button>
-            <button
-              type="button"
-              className={`planner-time-toggle__option${arriveByMode ? ' planner-time-toggle__option--active' : ''}`}
-              aria-pressed={arriveByMode}
-              onClick={() => setArriveByMode(true)}
-            >
-              Tiba jam
-            </button>
-          </div>
           <label className="planner-field">
-            <span className="planner-field__label">{arriveByMode ? 'Tiba jam' : 'Berangkat jam'}</span>
+            <span className="planner-field__label">Berangkat jam</span>
             <input
               type="time"
-              value={travelTime}
-              onChange={(event) => setTravelTime(event.target.value)}
+              value={departureTime}
+              onChange={(event) => setDepartureTime(event.target.value)}
+            />
+          </label>
+          <label className="planner-field">
+            <span className="planner-field__label">Tiba jam</span>
+            <input
+              type="time"
+              value={arrivalTime}
+              onChange={(event) => setArrivalTime(event.target.value)}
             />
           </label>
         </div>
@@ -1040,7 +1040,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
 
           <section className="planner-summary" aria-labelledby="planner-summary-heading">
             <p className="eyebrow">RINGKASAN PERJALANAN</p>
-            {arriveByMode && selected.legs[0] ? (
+            {arrivalTime && selected.legs[0] ? (
               <p className="planner-summary__departure" role="status">
                 <span>Berangkat pukul</span>
                 <strong>{formatClock(selected.legs[0].start_time)}</strong>
