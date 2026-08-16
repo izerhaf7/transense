@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react'
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
 import NetraScan from './NetraScan'
@@ -10,7 +10,7 @@ import {
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
 import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
-import { AccessibilityIcon, AntarAkuIcon, BellIcon, DelaysIcon, MaximizeIcon, MinimizeIcon, ScheduleIcon, TranscribeIcon } from './icons'
+import { AccessibilityIcon, AntarAkuIcon, BellIcon, DelaysIcon, ScheduleIcon, TranscribeIcon } from './icons'
 import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
@@ -1447,7 +1447,6 @@ function HomePage({
   const [routeStopIds, setRouteStopIds] = useState<Record<string, string[]>>({})
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
-  const [mapExpanded, setMapExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [mapMode, setMapMode] = useState<'bus' | 'rail'>('bus')
   const [selectedRailKeys, setSelectedRailKeys] = useState<Set<string>>(new Set())
@@ -1455,6 +1454,21 @@ function HomePage({
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
   const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
+
+  // Home content sheet: grows from its default 55% height toward nearly full
+  // height as its content is scrolled to the bottom (Google Maps-style sheet).
+  const handleSheetScroll = (event: UIEvent<HTMLElement>) => {
+    const scroller = event.currentTarget
+    const sheet = scroller.parentElement
+    if (!sheet) return
+    const maxScroll = scroller.scrollHeight - scroller.clientHeight
+    if (maxScroll <= 0) return
+    const progress = Math.min(1, scroller.scrollTop / maxScroll)
+    sheet.style.setProperty('--home-sheet-height', `${(55 + progress * 37).toFixed(2)}%`)
+  }
+
+  // "Halte terdekat" is the deterministic seeded/loaded stop list — never GPS.
+  const homeStops = gtfsStops.length > 0 ? gtfsStops : (transitState?.stops ?? SEEDED_TRANSIT_STATE.stops)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1677,8 +1691,8 @@ function HomePage({
   }
 
   return (
-    <main className="page-content home-page">
-      <header className={`home-topbar${mapExpanded ? ' home-topbar--minimized' : ''}`}>
+    <main className="home-page">
+      <header className="home-topbar">
         <div>
           <p className="eyebrow">SELAMAT DATANG KEMBALI</p>
           <h2 id="welcome-heading">Halo, {displayName}!</h2>
@@ -1695,30 +1709,7 @@ function HomePage({
           {notificationCount > 0 ? <span className="notification-btn__badge" data-count={notificationCount}>{notificationCount}</span> : null}
         </button>
       </header>
-      {notificationsOpen ? (
-        <section className="notification-panel" id="notification-panel" aria-label="Daftar notifikasi">
-          <p className="eyebrow">NOTIFIKASI AKTIF</p>
-          {notifications.length === 0 ? (
-            <p className="notification-panel__empty" role="status">Tidak ada notifikasi aktif.</p>
-          ) : (
-            <ul className="notification-panel__list">
-              {notifications.map((notification) => (
-                <li key={notification.id}>
-                  <article className="notification-banner notification-banner--safe">
-                    <div>
-                      <strong>{notification.title}</strong>
-                      <span>{notification.message}</span>
-                    </div>
-                    <button className="notification-banner__dismiss" type="button" onClick={() => onDismissNotification(notification.id)} aria-label={`Tutup notifikasi ${notification.title}`}>Tutup</button>
-                  </article>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-      <SearchEntry />
-      <section id="home-hero" className={`home-hero${mapExpanded ? ' home-hero--maximized' : ' home-hero--minimized'}`}>
+      <section id="home-hero" className="home-hero">
         <div className="home-hero__map">
           <button className={`map-filter-btn${showFilter ? ' map-filter-btn--active' : ''}`} type="button" onClick={() => setShowFilter((v) => !v)}>
             Filter Rute ({selectedRoutes.size})
@@ -1795,55 +1786,91 @@ function HomePage({
             onRailStationPopupClose={() => setRailStationPopup(null)}
           />
         </div>
-        <button
-          type="button"
-          className="map-toggle-btn"
-          aria-label={mapExpanded ? 'Ciutkan peta' : 'Perbesar peta'}
-          aria-expanded={mapExpanded}
-          aria-controls="home-hero"
-          onClick={() => setMapExpanded((expanded) => !expanded)}
-        >
-          {mapExpanded ? <MinimizeIcon /> : <MaximizeIcon />}
-        </button>
-      </section>
-      <ul className="feature-list">
-        <li>
-          <button type="button" className="feature-tile" onClick={() => onNavigate('antar-aku')}>
-            <span className="feature-tile__icon"><AntarAkuIcon /></span>
-            <span className="feature-tile__label">Antar Aku</span>
-          </button>
-        </li>
-        <li>
-          <button type="button" className="feature-tile" onClick={() => onNavigate('transcribe')}>
-            <span className="feature-tile__icon"><TranscribeIcon /></span>
-            <span className="feature-tile__label">Transcribe</span>
-          </button>
-        </li>
-        <li>
-          <button type="button" className="feature-tile" onClick={() => onNavigate('delays')}>
-            <span className="feature-tile__icon"><DelaysIcon /></span>
-            <span className="feature-tile__label">Keterlambatan</span>
-          </button>
-        </li>
-        <li>
-          <button type="button" className="feature-tile" onClick={() => onNavigate('schedule')}>
-            <span className="feature-tile__icon"><ScheduleIcon /></span>
-            <span className="feature-tile__label">Jadwal Transportasi Umum</span>
-          </button>
-        </li>
-        {profile === 'netra' || profile === 'daksa' ? (
-          <li>
-            <button type="button" className="feature-tile" onClick={() => onNavigate('side-by-side')}>
-              <span className="feature-tile__icon"><AccessibilityIcon /></span>
-              <span className="feature-tile__label">Side by Side</span>
-              <span>Fasilitas halte</span>
-            </button>
-          </li>
+        {notificationsOpen ? (
+          <section className="notification-panel" id="notification-panel" aria-label="Daftar notifikasi">
+            <p className="eyebrow">NOTIFIKASI AKTIF</p>
+            {notifications.length === 0 ? (
+              <p className="notification-panel__empty" role="status">Tidak ada notifikasi aktif.</p>
+            ) : (
+              <ul className="notification-panel__list">
+                {notifications.map((notification) => (
+                  <li key={notification.id}>
+                    <article className="notification-banner notification-banner--safe">
+                      <div>
+                        <strong>{notification.title}</strong>
+                        <span>{notification.message}</span>
+                      </div>
+                      <button className="notification-banner__dismiss" type="button" onClick={() => onDismissNotification(notification.id)} aria-label={`Tutup notifikasi ${notification.title}`}>Tutup</button>
+                    </article>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         ) : null}
-      </ul>
-      {profile === 'netra' ? (
-        <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
-      ) : null}
+      </section>
+      <section className="home-sheet" aria-label="Fitur dan halte terdekat">
+        <div className="home-sheet__handle" aria-hidden="true"><span className="home-sheet__grip" /></div>
+        <div className="home-sheet__scroll" onScroll={handleSheetScroll}>
+          <SearchEntry />
+          <ul className="feature-list">
+            <li>
+              <button type="button" className="feature-tile" onClick={() => onNavigate('antar-aku')}>
+                <span className="feature-tile__icon"><AntarAkuIcon /></span>
+                <span className="feature-tile__label">Antar Aku</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" className="feature-tile" onClick={() => onNavigate('transcribe')}>
+                <span className="feature-tile__icon"><TranscribeIcon /></span>
+                <span className="feature-tile__label">Transcribe</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" className="feature-tile" onClick={() => onNavigate('delays')}>
+                <span className="feature-tile__icon"><DelaysIcon /></span>
+                <span className="feature-tile__label">Keterlambatan</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" className="feature-tile" onClick={() => onNavigate('schedule')}>
+                <span className="feature-tile__icon"><ScheduleIcon /></span>
+                <span className="feature-tile__label">Jadwal Transportasi Umum</span>
+              </button>
+            </li>
+            {profile === 'netra' || profile === 'daksa' ? (
+              <li>
+                <button type="button" className="feature-tile" onClick={() => onNavigate('side-by-side')}>
+                  <span className="feature-tile__icon"><AccessibilityIcon /></span>
+                  <span className="feature-tile__label">Side by Side</span>
+                  <span>Fasilitas halte</span>
+                </button>
+              </li>
+            ) : null}
+          </ul>
+          <section className="home-stops" aria-labelledby="home-stops-heading">
+            <p className="eyebrow">HALTE TERDEKAT</p>
+            <h2 id="home-stops-heading">Halte terdekat</h2>
+            {homeStops.length > 0 ? (
+              <ul className="home-stops__list">
+                {homeStops.map((stop) => (
+                  <li key={stop.id}>
+                    <button type="button" className="home-stop" onClick={() => { void handleStopClick(stop.id) }}>
+                      <span className="home-stop__icon" aria-hidden="true"><ScheduleIcon /></span>
+                      <span className="home-stop__name">{stop.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="home-stops__empty" role="status">Halte belum dimuat. Pilih rute untuk menampilkan daftar halte terdekat.</p>
+            )}
+          </section>
+          {profile === 'netra' ? (
+            <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} />
+          ) : null}
+        </div>
+      </section>
       <BottomSheet>
         <ArrivalsSheet />
       </BottomSheet>

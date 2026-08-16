@@ -755,18 +755,14 @@ input[aria-invalid='true'] {
 /* ---- Home (Beranda) ---- */
 
 .home-page {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--brand-space-base);
   flex: 1 1 auto;
-  min-height: 100%;
-  /* Scrolls so the B2 feature grid is reachable without maximizing the hero map.
-     Top safe-area comes from viewport-fit=cover; bottom padding clears the fixed nav. */
-  padding:
-    calc(var(--brand-space-lg) + env(safe-area-inset-top))
-    var(--brand-screen-padding)
-    calc(var(--brand-bottom-nav-height) + env(safe-area-inset-bottom) + var(--brand-space-lg));
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  /* Full-bleed map between the topbar and the bottom nav; the content sheet
+     overlays the map from below instead of the page scrolling. */
 }
 
 /* ---- Home Rework (3-zone) ---- */
@@ -783,11 +779,6 @@ input[aria-invalid='true'] {
   background: var(--brand-color-accent);
   border-radius: var(--brand-radius-xl);
   box-shadow: var(--brand-shadow-card);
-  transition: padding var(--brand-motion-base) ease, gap var(--brand-motion-base) ease;
-}
-
-.home-topbar--minimized {
-  padding: var(--brand-space-xs) var(--brand-space-base);
 }
 
 .home-topbar .eyebrow {
@@ -799,14 +790,6 @@ input[aria-invalid='true'] {
   margin: 0;
   color: var(--brand-color-text-on-accent);
   font-size: var(--brand-font-size-xl);
-}
-
-.home-topbar--minimized .eyebrow {
-  display: none;
-}
-
-.home-topbar--minimized h2 {
-  font-size: var(--brand-font-size-base);
 }
 
 .notification-btn {
@@ -855,27 +838,15 @@ input[aria-invalid='true'] {
   display: none;
 }
 
-/* Zone B1: collapsible live map hero */
-
+/* Zone B: full-bleed live map layer. Fills every pixel between the topbar and
+   the bottom nav; the home content sheet overlays it from below. */
 .home-hero {
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
   overflow: hidden;
   background: var(--brand-color-surface);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-xl);
-  transition: height var(--brand-motion-base) ease;
-}
-
-.home-hero--minimized {
-  height: 220px;
-  min-height: 220px;
-}
-
-.home-hero--maximized {
-  height: 80vh;
-  height: 80svh;
-  min-height: 320px;
 }
 
 .home-hero__map {
@@ -893,39 +864,9 @@ input[aria-invalid='true'] {
   border-radius: 0;
 }
 
-/* Keep the route filter usable inside a short (200px) hero: cap the panel to the hero. */
+/* Keep the route filter usable inside the full-height map layer. */
 .home-hero .map-filter-panel {
   max-height: calc(100% - 56px);
-}
-
-.map-toggle-btn {
-  position: absolute;
-  z-index: 7;
-  right: var(--brand-space-base);
-  bottom: var(--brand-space-base);
-  display: flex;
-  width: var(--brand-control-height-lg);
-  height: var(--brand-control-height-lg);
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  color: var(--brand-color-text);
-  background: var(--brand-color-bg-elevated);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-pill);
-  box-shadow: var(--brand-shadow-card);
-  cursor: pointer;
-}
-
-.map-toggle-btn svg {
-  width: 24px;
-  height: 24px;
-}
-
-.map-toggle-btn:hover,
-.map-toggle-btn:focus-visible {
-  color: var(--brand-color-accent);
-  border-color: var(--brand-color-accent);
 }
 
 .map-filter-btn {
@@ -952,7 +893,7 @@ input[aria-invalid='true'] {
 
 .map-filter-panel {
   position: absolute;
-  z-index: 6;
+  z-index: 30;
   top: 56px;
   right: var(--brand-space-xs);
   left: var(--brand-space-xs);
@@ -1108,11 +1049,152 @@ input[aria-invalid='true'] {
   font-weight: var(--brand-font-weight-strong);
 }
 
+/* ---- Home content sheet (full-bleed map + overlay sheet) ---- */
+
+/* The sheet sits on top of the full-bleed map and reveals the feature tiles,
+   the deterministic "halte terdekat" list, and (for Netra) the camera scan.
+   It starts at 55% of the main area; scrolling its content toward the bottom
+   grows it (via --home-sheet-height set on scroll) until it nearly covers the
+   whole map, Google-Maps style. */
+.home-sheet {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  height: var(--home-sheet-height, 55%);
+  max-height: 100%;
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-bottom: 0;
+  border-radius: var(--brand-radius-xl) var(--brand-radius-xl) 0 0;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.home-sheet__handle {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: var(--brand-space-xs) 0 0;
+}
+
+.home-sheet__grip {
+  display: block;
+  width: 48px;
+  height: 4px;
+  border-radius: var(--brand-radius-pill);
+  background: var(--brand-color-fill);
+}
+
+.home-sheet__scroll {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: var(--brand-space-lg);
+  overflow-y: auto;
+  padding: var(--brand-space-sm) var(--brand-screen-padding) calc(var(--brand-space-xl) + env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+}
+
+/* "Halte terdekat": deterministic seeded/loaded stop list, never GPS-derived. */
+.home-stops {
+  display: grid;
+  gap: var(--brand-space-sm);
+}
+
+.home-stops h2 {
+  margin: 0;
+  font-size: var(--brand-font-size-lg);
+}
+
+.home-stops__list {
+  display: grid;
+  gap: var(--brand-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-stop {
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-sm);
+  width: 100%;
+  padding: var(--brand-space-sm) var(--brand-space-base);
+  text-align: left;
+  color: var(--brand-color-text);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-lg);
+  cursor: pointer;
+  transition: border-color var(--brand-motion-fast) ease, background-color var(--brand-motion-fast) ease;
+}
+
+.home-stop:hover,
+.home-stop:focus-visible {
+  border-color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+}
+
+.home-stop__icon {
+  display: grid;
+  width: var(--brand-control-height-base);
+  height: var(--brand-control-height-base);
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+  border-radius: var(--brand-radius-base);
+}
+
+.home-stop__name {
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.home-stops__empty {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+}
+
+/* Notification panel overlays the top of the map when the bell is opened. */
+.home-hero .notification-panel {
+  position: absolute;
+  z-index: 12;
+  top: var(--brand-space-xs);
+  right: var(--brand-space-xs);
+  left: var(--brand-space-xs);
+  display: grid;
+  gap: var(--brand-space-sm);
+  max-height: 55%;
+  overflow-y: auto;
+  padding: var(--brand-space-base);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-xl);
+  box-shadow: var(--brand-shadow-elevated);
+}
+
+.notification-panel__empty {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+}
+
+.notification-panel__list {
+  display: grid;
+  gap: var(--brand-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* ---- Bottom Sheet ---- */
 
 .bottom-sheet {
   position: fixed;
-  z-index: 9;
+  z-index: 20;
   right: 0;
   bottom: calc(var(--brand-bottom-nav-height) + env(safe-area-inset-bottom));
   left: 0;
