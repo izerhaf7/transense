@@ -749,16 +749,10 @@ input[aria-invalid='true'] {
 }
 
 /* "Lokasi saya" pin: a real Mapbox marker (`.map-user-marker`) created by
-   MapboxMap at the user's geographic coordinates — it moves with the map, it
-   is not an overlay on the hero. Mapbox appends markers inside `.map-canvas`
-   (`.mapboxgl-map`). `.home-hero` and `.home-hero__map` are z-auto and never
-   create a stacking context, so the marker's z-index competes at the
-   `.home-page` level: 18 keeps it above the content sheet (z-index 10) and the
-   notification panel (z-index 12) while staying below the edge flash
-   (z-index 20). */
-.home-hero__map .mapboxgl-marker {
-  z-index: 18;
-}
+   MapboxMap at the user's geographic coordinates — it moves with the map.
+   The marker intentionally gets NO elevated z-index: it lives inside the map,
+   so the content sheet (z-index 10) naturally covers it when maximized. It
+   must not float above the sheet. */
 
 /* Keep the route filter usable inside the full-height map layer. */
 .home-hero .map-filter-panel {

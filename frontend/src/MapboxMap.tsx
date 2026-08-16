@@ -598,7 +598,10 @@ function MapboxMap({
       const el = document.createElement('div')
       el.className = 'map-user-marker'
       el.setAttribute('aria-label', 'Lokasi saya')
-      el.style.cssText = 'width:18px;height:18px;position:relative;z-index:18;border-radius:50%;background:var(--brand-color-accent);border:3px solid #fff;box-shadow:0 0 0 4px color-mix(in srgb, var(--brand-color-accent) 25%, transparent),0 2px 6px rgba(0,0,0,0.3)'
+      // No elevated z-index: the marker lives INSIDE the map, so the content
+      // sheet (z-index 10) naturally covers it when maximized — it must not
+      // float above the sheet.
+      el.style.cssText = 'width:18px;height:18px;position:relative;border-radius:50%;background:var(--brand-color-accent);border:3px solid #fff;box-shadow:0 0 0 4px color-mix(in srgb, var(--brand-color-accent) 25%, transparent),0 2px 6px rgba(0,0,0,0.3)'
       userMarkerRef.current = new mapboxgl.Marker({ element: el })
         .setLngLat([lng, lat])
         .addTo(map)
