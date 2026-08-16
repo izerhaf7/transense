@@ -8,9 +8,9 @@
  * the COCO "bus" detector, and posts normalized boxes back.
  *
  * Worker protocol:
- *   in   { type: 'init', modelUrl?, wasmUrl?, ocrEndpoint? }
+ *   in   { type: 'init', modelUrl?, wasmUrl? }
  *   in   { type: 'detect', timestamp, imageData?, simulatedDetections? }
- *   out  { type: 'ready', ocrEndpoint? }
+ *   out  { type: 'ready' }
  *   out  { type: 'detection', detections: Detection[] }
  *   out  { type: 'error', message: string }
  *
@@ -41,8 +41,6 @@ export interface CameraWorkerInitMessage {
   type: 'init'
   modelUrl?: string
   wasmUrl?: string
-  /** Backend origin base for the future `POST /api/vision/ocr` proxy call. */
-  ocrEndpoint?: string
 }
 
 export interface CameraWorkerDetectMessage {
@@ -58,7 +56,6 @@ export type CameraWorkerRequest = CameraWorkerInitMessage | CameraWorkerDetectMe
 
 export interface CameraWorkerReadyMessage {
   type: 'ready'
-  ocrEndpoint?: string
 }
 
 export interface CameraWorkerDetectionMessage {
@@ -82,7 +79,6 @@ const SCORE_THRESHOLD = 0.5
 const MAX_RESULTS = 5
 
 let detector: ObjectDetector | null = null
-let ocrEndpoint: string | undefined
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -131,7 +127,6 @@ function normalizeResult(result: ObjectDetectorResult): Detection[] {
 }
 
 async function handleInit(message: CameraWorkerInitMessage): Promise<void> {
-  ocrEndpoint = message.ocrEndpoint
   try {
     const vision = await FilesetResolver.forVisionTasks(message.wasmUrl ?? DEFAULT_WASM_URL)
     detector = await ObjectDetector.createFromOptions(vision, {
@@ -141,7 +136,7 @@ async function handleInit(message: CameraWorkerInitMessage): Promise<void> {
       maxResults: MAX_RESULTS,
       categoryAllowlist: ['bus'],
     })
-    self.postMessage({ type: 'ready', ocrEndpoint } satisfies CameraWorkerReadyMessage)
+    self.postMessage({ type: 'ready' } satisfies CameraWorkerReadyMessage)
   } catch (error: unknown) {
     self.postMessage({ type: 'error', message: describeError(error) } satisfies CameraWorkerErrorMessage)
   }

@@ -56,6 +56,7 @@ export default function OccupancyCard({ apiBaseUrl, sendRampRequest, lastRampAck
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const data = await response.json() as { stops?: unknown }
+        if (controller.signal.aborted) return
         const loaded = Array.isArray(data.stops)
           ? data.stops.filter((stop): stop is FacilityStopInfo => {
               return typeof stop === 'object' && stop !== null
@@ -72,6 +73,7 @@ export default function OccupancyCard({ apiBaseUrl, sendRampRequest, lastRampAck
         }
       })
       .catch((error: unknown) => {
+        if (controller.signal.aborted) return
         setStops([])
         setSelectedStopId(DEFAULT_STOP_ID)
         setDetail('Daftar halte fasilitas belum tersedia; menampilkan halte bawaan.')

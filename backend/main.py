@@ -235,6 +235,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         text = payload.get("text")
         if not isinstance(text, str) or not text.strip():
             raise HTTPException(status_code=422, detail="text must be a non-empty string")
+        if len(text) > 5000:
+            raise HTTPException(status_code=422, detail="text must be at most 5000 characters")
         if not resolved.elevenlabs_api_key or not resolved.elevenlabs_tts_voice_id:
             raise HTTPException(status_code=503, detail="ElevenLabs TTS not configured")
         model_id = payload.get("model_id") or "eleven_multilingual_v2"

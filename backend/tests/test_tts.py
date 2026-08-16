@@ -41,6 +41,14 @@ def test_tts_returns_422_when_text_missing(tmp_path):
     assert blank.status_code == 422
 
 
+def test_tts_returns_422_when_text_too_long(tmp_path):
+    app = app_for(tmp_path)
+    with TestClient(app) as client:
+        response = client.post("/api/tts", json={"text": "a" * 5001})
+    assert response.status_code == 422
+    assert "5000" in response.json()["detail"]
+
+
 def test_tts_returns_audio_mpeg_with_mocked_elevenlabs(tmp_path, monkeypatch):
     recorded: dict[str, object] = {}
 

@@ -77,6 +77,9 @@ function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
     if (detections.length === 0) {
       hasDetectionRef.current = false
       setApproaching(false)
+      if (status === 'Bus mendekat!') {
+        setStatus('Mencari bus…')
+      }
       return
     }
     let tracked = trackedDetectionRef.current ?? detections[0]
@@ -99,7 +102,7 @@ function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
       setApproaching(true)
       setStatus('Bus mendekat!')
     }
-  }, [demoMode, tts])
+  }, [demoMode, status, tts])
 
   // Periodic OCR: while a bus is detected, read the latest camera frame every
   // ~2.5 s. Failures keep the last reading (or null) — OCR never blocks detection.

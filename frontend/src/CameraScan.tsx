@@ -182,9 +182,6 @@ function CameraScan({ apiBaseUrl, onDetection, onFrame, simulated }: CameraScanP
 
     const initMessage: CameraWorkerRequest = {
       type: 'init',
-      // Wired now so task 4.3 can ask this worker to run periodic OCR via the
-      // backend proxy without changing the component/worker protocol.
-      ocrEndpoint: `${apiBaseUrl}/api/vision/ocr`,
     }
     worker.postMessage(initMessage)
 
