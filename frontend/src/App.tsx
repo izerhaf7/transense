@@ -1063,25 +1063,6 @@ function NotificationRenderer({ notification, onDismiss, profile = 'tuli', tts }
   )
 }
 
-function ConnectionStatusBadge({ connection }: { connection: ConnectionState }) {
-  const labelByStatus: Record<ConnectionStatus, string> = {
-    connecting: 'MENGHUBUNGKAN',
-    connected: 'TERHUBUNG',
-    reconnecting: 'MENCOBA LAGI',
-    offline: 'BACKEND OFFLINE',
-  }
-
-  return (
-    <div className={`connection-status connection-status--${connection.status}`} aria-live="polite">
-      <span className="connection-status__dot" aria-hidden="true" />
-      <span>
-        <strong>{labelByStatus[connection.status]}</strong>
-        <small>{connection.detail}</small>
-      </span>
-    </div>
-  )
-}
-
 const PROFILE_OPTIONS: { type: ProfileType; label: string; description: string; icon: ReactNode }[] = [
   {
     type: 'tuli',
@@ -2372,13 +2353,13 @@ function AntarAkuPage() {
   return <PlannerPage apiBaseUrl={apiBaseUrl} />
 }
 
-function ProfilePage({ profile, onReset, connection, simulationDetail, lastRampAck, sendRampRequest }: { profile: DemoProfile; onReset: () => void; connection: ConnectionState; simulationDetail: string; lastRampAck: string | null; sendRampRequest: (stopId: string) => void }) {
+function ProfilePage({ profile, onReset, lastRampAck, sendRampRequest }: { profile: DemoProfile; onReset: () => void; lastRampAck: string | null; sendRampRequest: (stopId: string) => void }) {
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
-        <p className="eyebrow">PROFIL DEMO / PERANGKAT INI</p>
+        <p className="eyebrow">PROFIL / PERANGKAT INI</p>
         <h2>Profil</h2>
-        <p>Identitas demo tersimpan lokal agar alur pembukaan berikutnya tetap singkat.</p>
+        <p>Identitas tersimpan lokal agar alur pembukaan berikutnya tetap singkat.</p>
       </section>
       <section className="profile-card" aria-labelledby="profile-card-heading">
         <span className="profile-avatar" aria-hidden="true">{profile.displayName.slice(0, 1).toUpperCase()}</span>
@@ -2391,22 +2372,7 @@ function ProfilePage({ profile, onReset, connection, simulationDetail, lastRampA
       {profile.profile === 'daksa' ? (
         <OccupancyCard apiBaseUrl={apiBaseUrl} sendRampRequest={sendRampRequest} lastRampAck={lastRampAck} />
       ) : null}
-      <section className="connection-panel" aria-labelledby="connection-panel-heading">
-        <div className="section-heading">
-          <p className="eyebrow">STATUS KONEKSI</p>
-          <h2 id="connection-panel-heading">Koneksi backend</h2>
-        </div>
-        <div className="connection-panel__badge">
-          <ConnectionStatusBadge connection={connection} />
-        </div>
-        <div className="connection-panel__details">
-          <div className="connection-panel__detail"><span>Alamat backend</span><strong>{apiBaseUrl}</strong></div>
-          <div className="connection-panel__detail"><span>Percobaan koneksi</span><strong>{connection.attempts}</strong></div>
-          <div className="connection-panel__detail"><span>Detail simulasi</span><strong>{simulationDetail}</strong></div>
-        </div>
-      </section>
-      <div className="notice-box"><strong>Catatan privasi demo</strong><span>Tidak ada login produksi atau data cloud di shell ini.</span></div>
-      <button className="secondary-button" type="button" onClick={onReset}>Hapus profil demo</button>
+      <button className="secondary-button" type="button" onClick={onReset}>Hapus profil</button>
     </main>
   )
 }
@@ -2471,7 +2437,7 @@ function MainShell({ profile, onResetProfile }: { profile: DemoProfile; onResetP
       {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
       {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
       {screen === 'antar-aku' ? <AntarAkuPage /> : null}
-      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} connection={backend.connection} simulationDetail={backend.simulationDetail} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
+      {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
       {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
