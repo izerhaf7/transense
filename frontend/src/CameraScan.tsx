@@ -96,7 +96,7 @@ function CameraScan({ apiBaseUrl, onDetection, onFrame, simulated }: CameraScanP
     disposedRef.current = false
     lastDetectAtRef.current = 0
 
-    const worker = new Worker(new URL('./mediapipe.worker.ts', import.meta.url), { type: 'module' })
+    const worker = new Worker(new URL('./mediapipe.worker.ts', import.meta.url))
     workerRef.current = worker
 
     const maybeDetect = (video: HTMLVideoElement) => {
