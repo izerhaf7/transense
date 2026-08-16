@@ -40,6 +40,14 @@ def test_vision_ocr_returns_422_when_image_missing(tmp_path):
     assert blank.status_code == 422
 
 
+def test_vision_ocr_returns_422_when_image_too_large(tmp_path):
+    app = vision_app_for(tmp_path)
+    with TestClient(app) as client:
+        response = client.post("/api/vision/ocr", json={"image_base64": "a" * 5_000_001})
+    assert response.status_code == 422
+    assert "5,000,000" in response.json()["detail"]
+
+
 def test_vision_ocr_returns_text_with_mocked_vision_api(tmp_path, monkeypatch):
     recorded: dict[str, object] = {}
 

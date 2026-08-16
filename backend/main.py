@@ -266,6 +266,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         image_base64 = payload.get("image_base64")
         if not isinstance(image_base64, str) or not image_base64.strip():
             raise HTTPException(status_code=422, detail="image_base64 must be a non-empty string")
+        if len(image_base64) > 5_000_000:
+            raise HTTPException(status_code=422, detail="image_base64 must be at most 5,000,000 characters")
         if not resolved.google_vision_api_key:
             raise HTTPException(status_code=503, detail="Google Cloud Vision not configured")
         try:
