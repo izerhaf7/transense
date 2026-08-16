@@ -93,6 +93,10 @@ function MapboxMap({
   railStationPopup,
   onRailStationClick,
   onRailStationPopupClose,
+  userLocation,
+  onLocateRequest,
+  locating,
+  locateError,
 }: {
   stops: MapStop[]
   routeShapes?: RouteShape[]
@@ -108,6 +112,10 @@ function MapboxMap({
   railStationPopup?: RailStationPopupData | null
   onRailStationClick?: (stationId: string) => void
   onRailStationPopupClose?: () => void
+  userLocation?: { lat: number; lng: number } | null
+  onLocateRequest?: () => void
+  locating?: boolean
+  locateError?: string | null
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -116,6 +124,7 @@ function MapboxMap({
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const railStationPopupRef = useRef<mapboxgl.Popup | null>(null)
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const firstFitDoneRef = useRef(false)
 
   const selectedRef = useRef(selectedRouteNames)
@@ -214,6 +223,10 @@ function MapboxMap({
       busMarkersRef.current = []
       railStationMarkersRef.current.forEach((m) => m.remove())
       railStationMarkersRef.current = []
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove()
+        userMarkerRef.current = null
+      }
       map.remove()
       mapRef.current = null
       firstFitDoneRef.current = false
@@ -544,6 +557,35 @@ function MapboxMap({
     railStationPopupRef.current = popup
   }, [railStationPopup])
 
+  // User location: fly to the reported position and keep a blue "Lokasi saya"
+  // marker synced on top of the transit markers. No auto-locate on mount —
+  // this only reacts to a value reported by the parent (user-triggered).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!userLocation || typeof userLocation.lat !== 'number' || typeof userLocation.lng !== 'number') {
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove()
+        userMarkerRef.current = null
+      }
+      return
+    }
+    map.flyTo({ center: [userLocation.lng, userLocation.lat], zoom: 14, essential: true })
+    if (!userMarkerRef.current) {
+      const el = document.createElement('div')
+      el.className = 'map-user-marker'
+      el.setAttribute('aria-label', 'Lokasi saya')
+      el.style.cssText =
+        'width:18px;height:18px;position:relative;z-index:1000;border-radius:50%;background:#1677ff;' +
+        'border:3px solid #fff;box-shadow:0 0 0 4px rgba(22,119,255,0.25),0 2px 6px rgba(0,0,0,0.3)'
+      userMarkerRef.current = new mapboxgl.Marker({ element: el })
+        .setLngLat([userLocation.lng, userLocation.lat])
+        .addTo(map)
+    } else {
+      userMarkerRef.current.setLngLat([userLocation.lng, userLocation.lat])
+    }
+  }, [userLocation])
+
   if (!MAPBOX_TOKEN) {
     return (
       <div className="map-placeholder" role="status">
@@ -554,7 +596,30 @@ function MapboxMap({
     )
   }
 
-  return <div className="map-canvas" ref={containerRef} aria-label="Peta TransJakarta — halte dan posisi armada" />
+  return (
+    <div className="map-shell">
+      <div className="map-canvas" ref={containerRef} aria-label="Peta TransJakarta — halte dan posisi armada" />
+      <button
+        type="button"
+        className="map-locate-btn"
+        onClick={onLocateRequest}
+        disabled={locating}
+        aria-label="Tunjukkan lokasi saya"
+        aria-disabled={locating || undefined}
+      >
+        {locating ? (
+          '…'
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9.5 3A9.5 9.5 0 0 0 13 2.5v-1a1 1 0 0 0-2 0v1A9.5 9.5 0 0 0 2.5 11h-1a1 1 0 0 0 0 2h1A9.5 9.5 0 0 0 11 21.5v1a1 1 0 0 0 2 0v-1a9.5 9.5 0 0 0 8.5-8.5h1a1 1 0 0 0 0-2h-1z" />
+          </svg>
+        )}
+      </button>
+      {locateError ? (
+        <p className="map-locate-error" role="status">{locateError}</p>
+      ) : null}
+    </div>
+  )
 }
 
 export default MapboxMap

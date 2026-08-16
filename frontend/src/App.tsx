@@ -1400,6 +1400,9 @@ function HomePage({
   const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
   const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
   const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [locating, setLocating] = useState(false)
+  const [locateError, setLocateError] = useState<string | null>(null)
 
   // Home content sheet: minimized by default (search only, map dominant). The
   // handle strip toggles it between minimized and a maximized overlay;
@@ -1428,6 +1431,42 @@ function HomePage({
     recomputeSheetMaxHeight()
     window.addEventListener('resize', recomputeSheetMaxHeight)
     return () => window.removeEventListener('resize', recomputeSheetMaxHeight)
+  }, [])
+
+  // The locate button floats bottom-right inside the map shell. The minimized
+  // content sheet (z-index 10) overlays the map's bottom edge, so measure the
+  // sheet's top and park the button just above it (fallback 40px in CSS);
+  // when the sheet is maximized it covers the button by design.
+  useEffect(() => {
+    const sheet = sheetRef.current
+    if (!sheet) return
+    const container = sheet.parentElement
+    if (!container) return
+    const hero = container.querySelector<HTMLElement>('.home-hero')
+    if (!hero) return
+
+    const recomputeLocateOffset = () => {
+      const heroBottom = hero.getBoundingClientRect().bottom
+      const sheetTop = sheet.getBoundingClientRect().top
+      hero.style.setProperty('--home-locate-offset', `${Math.max(56, heroBottom - sheetTop + 12)}px`)
+    }
+
+    recomputeLocateOffset()
+    let frame = 0
+    let resizeObserver: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        window.cancelAnimationFrame(frame)
+        frame = window.requestAnimationFrame(recomputeLocateOffset)
+      })
+      resizeObserver.observe(sheet)
+    }
+    window.addEventListener('resize', recomputeLocateOffset)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (resizeObserver) resizeObserver.disconnect()
+      window.removeEventListener('resize', recomputeLocateOffset)
+    }
   }, [])
 
   useEffect(() => {
@@ -1650,6 +1689,26 @@ function HomePage({
     }
   }
 
+  const handleLocate = () => {
+    if (!('geolocation' in navigator)) {
+      setLocateError('Lokasi tidak didukung browser ini.')
+      return
+    }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setLocateError(null)
+        setLocating(false)
+      },
+      (err) => {
+        setLocating(false)
+        setLocateError(err.code === 1 ? 'Izin lokasi ditolak.' : 'Tidak bisa mendapatkan lokasi.')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    )
+  }
+
   return (
     <main className="home-page">
       <header className="home-topbar">
@@ -1744,6 +1803,10 @@ function HomePage({
             railStationPopup={railStationPopup}
             onRailStationClick={(id) => { void handleRailStationClick(id) }}
             onRailStationPopupClose={() => setRailStationPopup(null)}
+            userLocation={userLocation}
+            onLocateRequest={handleLocate}
+            locating={locating}
+            locateError={locateError}
           />
         </div>
         {notificationsOpen ? (

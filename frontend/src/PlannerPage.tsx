@@ -345,6 +345,9 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
   const [originQuery, setOriginQuery] = useState('')
   const [origin, setOrigin] = useState<PlanPoint | null>(null)
   const [originSuggestions, setOriginSuggestions] = useState<PlanPoint[]>([])
+  const [locating, setLocating] = useState(false)
+  const [locateError, setLocateError] = useState('')
+  const [originFromLocation, setOriginFromLocation] = useState(false)
   const [destinationQuery, setDestinationQuery] = useState('')
   const [destination, setDestination] = useState<PlanPoint | null>(null)
   const [destinationSuggestions, setDestinationSuggestions] = useState<PlanPoint[]>([])
@@ -395,11 +398,51 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       setOrigin(point)
       setOriginQuery(point.name)
       setOriginSuggestions([])
+      setOriginFromLocation(false)
     } else {
       setDestination(point)
       setDestinationQuery(point.name)
       setDestinationSuggestions([])
     }
+  }
+
+  const locateOrigin = () => {
+    setLocating(true)
+    setLocateError('')
+    if (!('geolocation' in navigator)) {
+      setLocateError('Perangkat tidak mendukung lokasi.')
+      setLocating(false)
+      return
+    }
+    const pickNearestStop = async (position: GeolocationPosition) => {
+      try {
+        const url = `${apiBaseUrl}/api/gtfs/stops/nearby?lat=${position.coords.latitude}&lng=${position.coords.longitude}&limit=1`
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await response.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
+        const nearest = (data.stops ?? [])[0]
+        if (!nearest) {
+          setLocateError('Tidak ada halte dekat lokasimu.')
+          return
+        }
+        choosePoint('origin', { stop_id: nearest.id, name: nearest.name, lat: nearest.lat, lng: nearest.lng })
+        setOriginFromLocation(true)
+        setLocateError('')
+      } catch (error: unknown) {
+        setLocateError('Tidak bisa mendapatkan lokasi.')
+        console.warn('Nearby stops lookup failed.', error)
+      } finally {
+        setLocating(false)
+      }
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => { void pickNearestStop(position) },
+      (error) => {
+        setLocateError(error.code === 1 ? 'Izin lokasi ditolak.' : 'Tidak bisa mendapatkan lokasi.')
+        setLocating(false)
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    )
   }
 
   const resetPlanResults = () => {
@@ -624,6 +667,16 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             autoComplete="off"
           />
         </label>
+        <button type="button" className="planner-locate-btn" onClick={() => locateOrigin()} disabled={locating}>
+          <span aria-hidden="true">◎</span>
+          {locating ? 'Mencari…' : 'Pakai lokasi saya'}
+        </button>
+        {originFromLocation && origin ? (
+          <p className="planner-locate-note">Asal: {origin.name} (dari lokasimu)</p>
+        ) : null}
+        {locateError ? (
+          <p className="planner-locate-error" role="status">{locateError}</p>
+        ) : null}
         {originSuggestions.length ? (
           <div className="planner-suggestions" role="listbox" aria-label="Saran halte asal">
             {originSuggestions.map((point) => (

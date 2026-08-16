@@ -921,6 +921,63 @@ input[aria-invalid='true'] {
   border-color: var(--brand-color-accent);
 }
 
+/* Locate ("Lokasi saya") control: keeps the map full-bleed while the button
+   floats bottom-right, above the map canvas but below the content sheet
+   (z-index 10) and the filter panel (z-index 30). */
+.map-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.map-locate-btn {
+  position: absolute;
+  z-index: 8;
+  right: 10px;
+  bottom: var(--home-locate-offset, 40px);
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--brand-color-accent);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: 50%;
+  box-shadow: var(--brand-shadow-card);
+  cursor: pointer;
+  transition: background-color var(--brand-motion-fast) ease, border-color var(--brand-motion-fast) ease, color var(--brand-motion-fast) ease;
+}
+
+.map-locate-btn:hover,
+.map-locate-btn:focus-visible {
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border-color: var(--brand-color-accent);
+}
+
+.map-locate-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.map-locate-error {
+  position: absolute;
+  z-index: 8;
+  right: 60px;
+  bottom: 52px;
+  max-width: 60%;
+  margin: 0;
+  padding: var(--brand-space-xs) var(--brand-space-sm);
+  color: var(--brand-color-text-on-error);
+  background: var(--brand-color-error);
+  border-radius: var(--brand-radius-sm);
+  font-size: 13px;
+  font-weight: var(--brand-font-weight-strong);
+  box-shadow: var(--brand-shadow-card);
+}
+
 .map-filter-panel {
   position: absolute;
   z-index: 30;
@@ -3120,6 +3177,49 @@ input[aria-invalid='true'] {
 .planner-suggestions button:focus-visible {
   border-color: var(--brand-color-accent);
   color: var(--brand-color-accent);
+}
+
+.planner-locate-btn {
+  min-height: var(--brand-control-height-lg);
+  padding: 0 var(--brand-space-base);
+  color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+  border: var(--brand-border-width) solid var(--brand-color-accent-border);
+  border-radius: var(--brand-radius-base);
+  font-weight: var(--brand-font-weight-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--brand-space-xs);
+  transition: all var(--brand-motion-fast) var(--brand-motion-ease-out);
+}
+
+.planner-locate-btn:hover,
+.planner-locate-btn:focus-visible {
+  background: var(--brand-color-accent-bg-hover);
+  border-color: var(--brand-color-accent-border-hover);
+}
+
+.planner-locate-btn:active {
+  background: var(--brand-color-accent-border);
+}
+
+.planner-locate-btn:disabled {
+  cursor: not-allowed;
+  opacity: var(--brand-opacity-muted);
+}
+
+.planner-locate-note {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.planner-locate-error {
+  margin: 0;
+  color: var(--brand-color-error);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
 }
 
 .planner-status {
