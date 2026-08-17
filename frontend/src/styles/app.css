@@ -3294,6 +3294,95 @@ input[aria-invalid='true'] {
   font-weight: var(--brand-font-weight-strong);
 }
 
+.planner-simulation__screen {
+  display: grid;
+  justify-items: center;
+  gap: var(--brand-space-sm);
+  padding: var(--brand-space-xl) var(--brand-space-lg);
+  text-align: center;
+  border: var(--brand-border-width-strong) solid currentColor;
+  border-radius: var(--brand-radius-xl);
+  box-shadow: var(--brand-shadow-card);
+}
+
+.planner-simulation__screen h3 {
+  margin: 0;
+  font-size: var(--brand-font-size-xl);
+}
+
+.planner-simulation__screen p:not(.eyebrow) {
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+}
+
+.planner-simulation__icon {
+  color: var(--brand-color-accent);
+}
+
+.planner-simulation__screen--search {
+  color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+  border-color: var(--brand-color-accent-border);
+}
+
+.planner-simulation__screen--search h3,
+.planner-simulation__screen--search .planner-simulation__eta {
+  color: var(--brand-color-accent-text);
+}
+
+.planner-simulation__screen--warning {
+  color: var(--brand-color-warning-foreground);
+  background: var(--brand-color-warning-bg);
+  border-color: var(--brand-color-warning);
+}
+
+.planner-simulation__screen--warning .planner-simulation__icon {
+  color: var(--brand-color-warning);
+}
+
+.planner-simulation__screen--board {
+  color: var(--brand-color-success-foreground);
+  background: var(--brand-color-success-bg);
+  border-color: var(--brand-color-success);
+}
+
+.planner-simulation__screen--board .planner-simulation__icon {
+  color: var(--brand-color-success);
+}
+
+.planner-simulation__screen--stop {
+  color: var(--brand-color-success-foreground);
+  background: var(--brand-color-success-bg);
+  border-color: var(--brand-color-success);
+}
+
+.planner-simulation__screen--stop .planner-simulation__icon {
+  color: var(--brand-color-success);
+}
+
+.planner-simulation__eta {
+  font-size: var(--brand-font-size-lg);
+}
+
+.planner-simulation__eta strong {
+  color: inherit;
+}
+
+.planner-simulation__icon--pulse {
+  animation: sim-icon-pulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes sim-icon-pulse {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.18);
+    opacity: 0.85;
+  }
+}
+
 /* ---- Planner departure / arrive-by time controls ---- */
 
 .planner-time-controls {

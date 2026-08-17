@@ -166,3 +166,31 @@ export function CameraIcon({ size = 24, className }: IconProps) {
     </svg>
   )
 }
+
+export function WarningIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" className={className}>
+      <path d="M12 3 2.6 19.5A1 1 0 0 0 3.5 21h17a1 1 0 0 0 .9-1.5L12 3z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M12 9v4.5M12 17h.01" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function StopIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" className={className}>
+      <path d="M6 3.5h12L20.5 6v12L17.5 20.5H6L3.5 18V6L6 3.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function BusIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" className={className}>
+      <path d="M5 5.5h14a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1h-1.2v1.5h-2V17H8.2v1.5h-2V17H5a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M4 10.5h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M7.2 14h.01M16.8 14h.01" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  )
+}
