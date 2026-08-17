@@ -2569,8 +2569,7 @@ function SplashScreen({ leaving }: { leaving: boolean }) {
       <div className="splash-screen__stage">
         <img className="splash-screen__logo" src="/logos/Logo-Transense.png" alt="Logo Transense" />
       </div>
-      <p className="splash-screen__brand">TRANSENSE</p>
-      <p className="splash-screen__tagline">Informasi perjalanan yang terlihat jelas.</p>
+      <p className="splash-screen__tagline">Mobilitas Sepatutnya Mudah untuk Semua</p>
     </main>
   )
 }

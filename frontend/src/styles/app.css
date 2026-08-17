@@ -135,18 +135,13 @@ p {
   object-fit: contain;
 }
 
-.splash-screen__brand {
-  margin: 0;
-  font-size: var(--brand-font-size-lg);
-  font-weight: var(--brand-font-weight-strong);
-  letter-spacing: 0.2em;
-  color: var(--brand-color-text);
-}
-
 .splash-screen__tagline {
   margin: 0;
-  color: var(--brand-color-text-secondary);
-  font-size: var(--brand-font-size-sm);
+  max-width: 28ch;
+  color: var(--brand-color-text);
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+  text-align: center;
 }
 
 @keyframes splash-enter {
