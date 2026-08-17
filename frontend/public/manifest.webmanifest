@@ -1,7 +1,7 @@
 {
   "name": "Transense",
   "short_name": "Transense",
-  "description": "Informasi perjalanan TransJakarta yang terlihat jelas.",
+  "description": "Mobilitas sepatutnya mudah untuk semua.",
   "lang": "id",
   "start_url": "/",
   "display": "standalone",

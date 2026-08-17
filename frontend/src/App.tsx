@@ -1157,7 +1157,7 @@ function Onboarding({ onComplete }: { onComplete: (displayName: string, profile:
               <span aria-hidden="true"><ArrowBackIcon size={20} /></span> Pilih ulang profil
             </button>
             <p className="eyebrow">ISI NAMA</p>
-            <h1>Informasi perjalanan yang terlihat jelas.</h1>
+            <h1>Mobilitas sepatutnya mudah untuk semua.</h1>
             <p className="onboarding-copy">
               Mulai dengan nama panggilan. Profil demo ini disimpan hanya di perangkatmu, tanpa login produksi.
             </p>
