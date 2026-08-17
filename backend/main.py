@@ -14,7 +14,6 @@ import httpx
 from starlette.websockets import WebSocketDisconnect
 
 from .config import Settings
-from .commute import CommuteClient, CommuteFeed, CommuteError, mode_label, amenity_label
 from .facilities import get_facility_stop, list_facility_stops, stop_occupancy
 from .conversation import (ConversationError, create_conversation, delete_conversation,
                            list_conversations, update_conversation)
@@ -42,10 +41,6 @@ async def lifespan(app: FastAPI):
     app.state.gtfs_error: str | None = None
     app.state.realtime_error: str | None = None
     app.state.realtime_client: TjRealtimeClient | None = None
-    app.state.commute_feed: CommuteFeed | None = None
-    app.state.commute_error: str | None = None
-    app.state.commute_line_geometry: dict[str, list[dict[str, Any]]] = {}
-    app.state.rail_geometry: dict[str, list[list[list[float]]]] = {}
 
     settings: Settings = app.state.settings
     try:
@@ -56,28 +51,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         app.state.gtfs_error = str(exc)
         logger.warning("GTFS load failed, using seed data: %s", exc)
-
-    if settings.commute_enabled:
-        try:
-            client = CommuteClient(base_url=settings.commute_api_base)
-            app.state.commute_feed = client.load_feed()
-            logger.info("Commute feed loaded: %d lines, %d stations", len(app.state.commute_feed.lines), len(app.state.commute_feed.stations))
-        except Exception as exc:
-            app.state.commute_error = str(exc)
-            logger.warning("Commute feed not available: %s", exc)
-
-    try:
-        geometry_path = Path(settings.rail_geometry_path)
-        if geometry_path.is_file():
-            raw = json.loads(geometry_path.read_text(encoding="utf-8"))
-            for line in raw.get("lines", []):
-                key = f"{line.get('operator')}:{line.get('code')}"
-                segments = line.get("segments") or []
-                if key and segments:
-                    app.state.rail_geometry[key] = segments
-            logger.info("Rail geometry loaded: %d lines", len(app.state.rail_geometry))
-    except Exception as exc:
-        logger.warning("Rail geometry not available: %s", exc)
 
     if settings.realtime_enabled:
         try:
@@ -556,152 +529,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "live": live,
             "source": "gtfs",
         }
-
-    @application.get("/api/transit/lines", response_model=None)
-    async def transit_lines() -> dict[str, Any]:
-        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-        if feed is None:
-            return {"lines": [], "source": "unavailable"}
-        lines = [
-            {
-                "operator": line.operator,
-                "operator_name": line.operator_name,
-                "code": line.code,
-                "name": line.name,
-                "color": f"#{line.color}" if line.color and not line.color.startswith("#") else (line.color or "#1677ff"),
-                "mode": line.mode,
-                "mode_label": mode_label(line.mode),
-            }
-            for line in feed.lines
-        ]
-        return {"lines": lines, "source": "commute"}
-
-    @application.get("/api/transit/stations", response_model=None)
-    async def transit_stations() -> dict[str, Any]:
-        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-        if feed is None:
-            return {"stations": [], "source": "unavailable"}
-        stations = [
-            {
-                "id": s.id,
-                "operator": s.operator,
-                "code": s.code,
-                "name": s.name,
-                "lat": s.lat,
-                "lng": s.lng,
-                "lines": list(s.lines),
-            }
-            for s in feed.stations.values()
-            if s.lat is not None and s.lng is not None
-        ]
-        return {"stations": stations, "source": "commute"}
-
-    @application.get("/api/transit/line/{operator}/{code}/stations", response_model=None)
-    async def transit_line_stations(operator: str, code: str) -> dict[str, Any]:
-        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-        if feed is None:
-            raise HTTPException(status_code=503, detail="Commute feed not loaded")
-        key = f"{operator}:{code}"
-        matching = [line for line in feed.lines if f"{line.operator}:{line.code}" == key]
-        if not matching:
-            raise HTTPException(status_code=404, detail="line not found")
-        line = matching[0]
-        ordered = _commute_line_stations(application, line)
-        return {"line": line.code, "name": line.name, "color": line.color, "stations": ordered, "source": "commute"}
-
-    @application.get("/api/transit/stop/{operator}/{code}/info", response_model=None)
-    async def transit_stop_info(operator: str, code: str) -> dict[str, Any]:
-        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-        if feed is None:
-            raise HTTPException(status_code=503, detail="Commute feed not loaded")
-        station = feed.stations.get(f"{operator}-{code}")
-        if station is None:
-            raise HTTPException(status_code=404, detail="station not found")
-        amenities = [
-            {"type": a["type"], "label": amenity_label(a["type"]), "text": a.get("text", "")}
-            for a in station.amenities
-        ]
-        return {
-            "stop": {
-                "id": station.id,
-                "name": station.name,
-                "operator": station.operator,
-                "official_name": station.official_name,
-                "lines": list(station.lines),
-                "amenities": amenities,
-            },
-            "source": "commute",
-        }
-
-    @application.get("/api/transit/stop/{operator}/{code}/schedule", response_model=None)
-    async def transit_stop_schedule(operator: str, code: str) -> dict[str, Any]:
-        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-        if feed is None:
-            raise HTTPException(status_code=503, detail="Commute feed not loaded")
-        station = feed.stations.get(f"{operator}-{code}")
-        if station is None:
-            raise HTTPException(status_code=404, detail="station not found")
-
-        client = CommuteClient(base_url=resolved.commute_api_base)
-        try:
-            grouped = client.timetable_grouped(operator, code)
-        except CommuteError:
-            grouped = []
-
-        timetable = _commute_grouped_to_timetable(grouped, feed)
-        amenities = [
-            {"type": a["type"], "label": amenity_label(a["type"]), "text": a.get("text", "")}
-            for a in station.amenities
-        ]
-        return {
-            "stop": {
-                "id": station.id,
-                "name": station.name,
-                "operator": station.operator,
-                "official_name": station.official_name,
-                "lines": list(station.lines),
-                "amenities": amenities,
-            },
-            "timetable": timetable,
-            "source": "commute",
-        }
-
-    @application.get("/api/transit/lines/geometry", response_model=None)
-    async def transit_lines_geometry() -> dict[str, Any]:
-        feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-        if feed is None:
-            return {"lines": [], "source": "unavailable"}
-        rail_geometry: dict[str, list[list[list[float]]]] = getattr(application.state, "rail_geometry", {})
-        cache: dict[str, list[dict[str, Any]]] = getattr(application.state, "commute_line_geometry", None)
-        if cache is None:
-            cache = {}
-            application.state.commute_line_geometry = cache
-        result = []
-        for line in feed.lines:
-            key = f"{line.operator}:{line.code}"
-            color = f"#{line.color}" if line.color and not line.color.startswith("#") else (line.color or "#1677ff")
-            segments: list[list[list[float]]] = []
-            source = "commute"
-            if key in rail_geometry:
-                segments = rail_geometry[key]
-                source = "ritj-2021"
-            else:
-                if key not in cache:
-                    cache[key] = _commute_line_stations(application, line)
-                stations = cache[key]
-                coords = [[s["lng"], s["lat"]] for s in stations if s.get("lng") is not None and s.get("lat") is not None]
-                if len(coords) >= 2:
-                    segments = [coords]
-            result.append({
-                "operator": line.operator,
-                "code": line.code,
-                "name": line.name,
-                "color": color,
-                "mode_label": mode_label(line.mode),
-                "segments": segments,
-                "source": source,
-            })
-        return {"lines": result, "source": "commute"}
 
     @application.get("/api/buses", response_model=None)
     async def realtime_buses() -> dict[str, Any]:
@@ -1395,93 +1222,8 @@ def _bus_eta_to_stop(bus: "RealtimeBus", stop_id: str) -> int | None:
     return None
 
 
-def _commute_line_stations(application: FastAPI, line: Any) -> list[dict[str, Any]]:
-    """Ordered station list for a rail line (uses the live line-detail endpoint).
-
-    Falls back to an empty list on any network error — the frontend degrades.
-    """
-    feed: CommuteFeed | None = getattr(application.state, "commute_feed", None)
-    if feed is None:
-        return []
-    try:
-        client = CommuteClient(base_url=getattr(application.state, "settings").commute_api_base)
-        detail = client.line_detail(line.operator, line.code)
-    except CommuteError:
-        return []
-    ordered: list[dict[str, Any]] = []
-    for segment in detail.get("segments", []) if isinstance(detail.get("segments"), list) else []:
-        if not isinstance(segment, dict):
-            continue
-        for station in segment.get("stations", []) if isinstance(segment.get("stations"), list) else []:
-            if not isinstance(station, dict):
-                continue
-            sid = str(station.get("id") or "")
-            name = str(station.get("name") or "")
-            if not sid:
-                continue
-            ref = feed.stations.get(sid)
-            ordered.append({
-                "id": sid,
-                "code": str(station.get("code") or ""),
-                "name": name,
-                "lat": ref.lat if ref else _to_float(station.get("latitude")),
-                "lng": ref.lng if ref else _to_float(station.get("longitude")),
-            })
-    return ordered
-
-
-def _commute_grouped_to_timetable(grouped: list[dict[str, Any]], feed: "CommuteFeed") -> list[dict[str, Any]]:
-    """Map the grouped (compact) departure board onto the GTFS-like timetable shape.
-
-    Each line/direction/destination becomes one group with sorted ``times``.
-    """
-    result: list[dict[str, Any]] = []
-    for line_group in grouped:
-        if not isinstance(line_group, dict):
-            continue
-        line_key = str(line_group.get("line") or "")
-        op_code, _, code = line_key.partition(":")
-        color = "#1677ff"
-        for candidate in feed.lines:
-            if candidate.operator == op_code and candidate.code == code:
-                color = f"#{candidate.color}" if candidate.color and not candidate.color.startswith("#") else (candidate.color or "#1677ff")
-                break
-        for entry in line_group.get("timetable", []) if isinstance(line_group.get("timetable"), list) else []:
-            if not isinstance(entry, dict):
-                continue
-            for destination in entry.get("destinations", []) if isinstance(entry.get("destinations"), list) else []:
-                if not isinstance(destination, dict):
-                    continue
-                times: list[str] = []
-                for schedule in destination.get("schedules", []) if isinstance(destination.get("schedules"), list) else []:
-                    if isinstance(schedule, list) and len(schedule) >= 2:
-                        minutes = int(schedule[1])
-                        times.append(f"{minutes // 60:02d}:{minutes % 60:02d}")
-                    elif isinstance(schedule, dict):
-                        dep = str(schedule.get("estimatedDeparture") or "")[:5]
-                        if dep:
-                            times.append(dep)
-                result.append({
-                    "route_code": code,
-                    "color": color,
-                    "headsign": str(destination.get("boundFor") or ""),
-                    "direction": str(entry.get("key") or ""),
-                    "platform": entry.get("platformCode"),
-                    "times": sorted(times),
-                })
-    result.sort(key=lambda r: (r["route_code"], r["headsign"]))
-    return result
-
-
 def _normalize_short(value: str) -> str:
     return " ".join(value.casefold().split()).strip()
-
-
-def _to_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 app = create_app()

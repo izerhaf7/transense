@@ -867,46 +867,6 @@ input[aria-invalid='true'] {
   font-size: 12px;
 }
 
-.map-filter-modes {
-  display: flex;
-  gap: var(--brand-space-xs);
-  margin-bottom: var(--brand-space-sm);
-  padding-bottom: var(--brand-space-sm);
-  border-bottom: var(--brand-border-width) solid var(--brand-color-border);
-}
-
-.map-filter-mode {
-  flex: 1;
-  cursor: pointer;
-}
-
-.map-filter-mode input {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-}
-
-.map-filter-mode__tag {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--brand-control-height-base);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-pill);
-  font-size: var(--brand-font-size-sm);
-  font-weight: var(--brand-font-weight-strong);
-  color: var(--brand-color-text-secondary);
-  background: var(--brand-color-bg-subtle);
-  transition: background-color var(--brand-motion-fast) ease, border-color var(--brand-motion-fast) ease, color var(--brand-motion-fast) ease;
-}
-
-.map-filter-mode input:checked + .map-filter-mode__tag {
-  color: #fff;
-  border-color: transparent;
-  background: var(--brand-color-accent);
-}
-
 .map-filter-panel__section {
   margin: 0 0 var(--brand-space-xs);
   font-size: 11px;
@@ -949,23 +909,6 @@ input[aria-invalid='true'] {
   flex: 0 0 auto;
 }
 
-.map-filter-rail-list {
-  display: grid;
-  gap: var(--brand-space-xxs);
-  margin-bottom: var(--brand-space-sm);
-}
-
-.map-filter-panel__line-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--brand-space-xs);
-}
-
-.map-filter-panel__line-head .map-filter-panel__section {
-  margin-bottom: 0;
-}
-
 .map-filter-panel__select-all {
   padding: 0;
   color: var(--brand-color-accent);
@@ -974,22 +917,6 @@ input[aria-invalid='true'] {
   font-size: 12px;
   font-weight: var(--brand-font-weight-strong);
   cursor: pointer;
-}
-
-.map-filter-checkbox__rail-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.map-filter-checkbox__mode {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  color: var(--brand-color-text-secondary);
-  background: var(--brand-color-bg-subtle);
-  border-radius: var(--brand-radius-pill);
-  font-size: 11px;
-  font-weight: var(--brand-font-weight-strong);
 }
 
 /* ---- Home content sheet (full-bleed map + overlay sheet) ---- */
@@ -1347,33 +1274,6 @@ input[aria-invalid='true'] {
 
 /* ---- Schedule halte (GTFS + live) ---- */
 
-.schedule-mode-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--brand-space-xxs);
-  margin-bottom: var(--brand-space-base);
-  padding: var(--brand-space-xxs);
-  background: var(--brand-color-bg-subtle);
-  border-radius: var(--brand-radius-pill);
-}
-
-.schedule-mode-btn {
-  min-height: var(--brand-control-height-base);
-  padding: 0 var(--brand-space-base);
-  color: var(--brand-color-text-secondary);
-  background: transparent;
-  border: 0;
-  border-radius: var(--brand-radius-pill);
-  font-weight: var(--brand-font-weight-strong);
-  cursor: pointer;
-  transition: background-color var(--brand-motion-fast) ease, color var(--brand-motion-fast) ease;
-}
-
-.schedule-mode-btn--active {
-  color: var(--brand-color-text-on-accent);
-  background: var(--brand-color-accent);
-}
-
 .schedule-search {
   position: relative;
   display: flex;
@@ -1521,12 +1421,6 @@ input[aria-invalid='true'] {
   color: var(--brand-color-text);
   background: var(--brand-color-bg-subtle);
   border: var(--brand-border-width) solid var(--brand-color-border);
-}
-
-.schedule-result-tag--rail {
-  color: #fff;
-  background: #64748b;
-  border: var(--brand-border-width) solid #64748b;
 }
 
 .schedule-detail__platform {
@@ -3831,29 +3725,6 @@ input[aria-invalid='true'] {
 .stop-popup__more {
   align-self: center;
   color: var(--brand-color-text-secondary);
-  font-size: 12px;
-}
-
-.stop-popup__official {
-  margin: 0;
-  color: var(--brand-color-text-secondary);
-  font-size: 12px;
-}
-
-.stop-popup__amenities {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.stop-popup__amenity {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  background: var(--brand-color-bg-subtle);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-pill);
   font-size: 12px;
 }
 

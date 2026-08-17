@@ -2,23 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
-import NetraScan from './NetraScan'
-import SideBySidePage from './SideBySidePage'
 import {
   cloneTransitState,
   SEEDED_TRANSIT_STATE,
 } from './journey'
 import type { Eta, Incident, Route, Stop, TransitState, Trip, Vehicle } from './journey'
-import MapboxMap, { type StopPopupData, type RailStationPopupData } from './MapboxMap'
-import { AccessibilityIcon, AntarAkuIcon, ArrowBackIcon, ArrowRightIcon, BellIcon, CameraIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, DelaysIcon, HomeIcon, ScheduleIcon, SearchIcon, TranscribeIcon, UserIcon } from './icons'
-import { notificationModifierClass, resolveNotificationOutput, shouldSpeakNotification } from './notify'
+import MapboxMap, { type StopPopupData } from './MapboxMap'
+import { AntarAkuIcon, ArrowBackIcon, ArrowRightIcon, BellIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, DelaysIcon, HomeIcon, ScheduleIcon, SearchIcon, TranscribeIcon, UserIcon } from './icons'
+import { resolveNotificationOutput } from './notify'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, OutputChannel, ProfileType } from './profile'
-import OccupancyCard from './OccupancyCard'
-import { createTtsProvider } from './tts'
-import type { TtsProvider } from './tts'
 
-type Screen = 'onboarding' | 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'side-by-side' | 'netra-scan' | 'placeholder'
+type Screen = 'home' | 'delays' | 'profile' | 'schedule' | 'antar-aku' | 'transcribe' | 'placeholder'
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
 type NotificationKind = 'vehicle_approaching' | 'destination_approaching' | 'incident' | 'off_route'
 type MicrophonePermission = 'unknown' | 'granted' | 'denied' | 'unsupported'
@@ -1015,14 +1010,11 @@ function useBackendConnection(): BackendConnection {
   }
 }
 
-function NotificationRenderer({ notification, onDismiss, profile = 'tuli', tts }: {
+function NotificationRenderer({ notification, onDismiss }: {
   notification: NotificationRecord | null
   onDismiss: () => void
-  profile?: ProfileType
-  tts?: TtsProvider
 }) {
   const [flashVisible, setFlashVisible] = useState(false)
-  const lastSpokenIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!notification) {
@@ -1031,26 +1023,21 @@ function NotificationRenderer({ notification, onDismiss, profile = 'tuli', tts }
     }
 
     setFlashVisible(true)
-    const output = resolveNotificationOutput(profile, notification)
+    const output = resolveNotificationOutput('tuli', notification)
     if (output.vibratePattern && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
       navigator.vibrate(output.vibratePattern)
-    }
-    if (output.speakText && shouldSpeakNotification(profile, notification, lastSpokenIdRef.current)) {
-      lastSpokenIdRef.current = notification.id
-      tts?.speak(output.speakText)
     }
 
     const expiry = window.setTimeout(onDismiss, 8000)
     return () => window.clearTimeout(expiry)
-  }, [notification, profile, tts])
+  }, [notification, onDismiss])
 
   if (!notification) return null
-  const output = resolveNotificationOutput(profile, notification)
   const isDanger = notification.kind === 'incident' || notification.kind === 'off_route'
   return (
     <>
       {flashVisible ? <div className={`edge-flash edge-flash--${isDanger ? 'danger' : 'safe'}`} aria-hidden="true" /> : null}
-      <section className={`notification-banner notification-banner--${isDanger ? 'danger' : 'safe'}${notificationModifierClass(output.renderMode)}`} role="alert" aria-live="assertive">
+      <section className={`notification-banner notification-banner--${isDanger ? 'danger' : 'safe'}`} role="alert" aria-live="assertive">
         <div>
           <p className="eyebrow">NOTIFIKASI VISUAL / AUDIO-BLIND</p>
           <h2>{notification.title}</h2>
@@ -1062,27 +1049,6 @@ function NotificationRenderer({ notification, onDismiss, profile = 'tuli', tts }
     </>
   )
 }
-
-const PROFILE_OPTIONS: { type: ProfileType; label: string; description: string; icon: ReactNode }[] = [
-  {
-    type: 'tuli',
-    label: 'Tuli',
-    description: 'Audio-blind: teks besar, kontras tinggi, getar',
-    icon: <TranscribeIcon />,
-  },
-  {
-    type: 'netra',
-    label: 'Netra',
-    description: 'Audio-first: suara membacakan informasi',
-    icon: <BellIcon />,
-  },
-  {
-    type: 'daksa',
-    label: 'Daksa',
-    description: 'Visual + info fasilitas kursi roda',
-    icon: <AccessibilityIcon />,
-  },
-]
 
 const OUTPUT_CHANNEL_OPTIONS: { value: OutputChannel; label: string }[] = [
   { value: 'visual', label: 'Visual' },
@@ -1096,97 +1062,6 @@ const OUTPUT_CHANNEL_LABELS: Record<OutputChannel, string> = {
   haptic: 'Getar',
   audio: 'Audio',
   auto: 'Otomatis (sesuai profil)',
-}
-
-function Onboarding({ onComplete }: { onComplete: (displayName: string, profile: ProfileType) => void }) {
-  const [step, setStep] = useState<'profile' | 'name'>('profile')
-  const [selectedProfile, setSelectedProfile] = useState<ProfileType | null>(null)
-  const [displayName, setDisplayName] = useState('')
-  const [errorMessage, setErrorMessage] = useState('')
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const trimmedName = displayName.trim()
-    if (!trimmedName) {
-      setErrorMessage('Nama belum diisi. Masukkan nama untuk melanjutkan.')
-      return
-    }
-
-    setErrorMessage('')
-    onComplete(trimmedName, selectedProfile ?? 'tuli')
-  }
-
-  return (
-    <main className="onboarding-frame">
-      <div className="onboarding-panel">
-        <div className="brand-lockup" aria-label="Transense">
-          <span className="brand-lockup__mark" aria-hidden="true"><img className="brand-logo-img" src="/logos/Logo-Transense.png" alt="" /></span>
-          <span className="brand-lockup__text">TRANSENSE</span>
-        </div>
-        {step === 'profile' ? (
-          <>
-            <p className="eyebrow">PILIH PROFIL</p>
-            <h1>Bagaimana cara kamu paling nyaman menerima informasi?</h1>
-            <p className="onboarding-copy">
-              Pilih profil yang paling sesuai. Profil demo ini disimpan hanya di perangkatmu, tanpa login produksi.
-            </p>
-            <div className="profile-picker" role="group" aria-label="Pilih profil">
-              {PROFILE_OPTIONS.map((option) => (
-                <button
-                  key={option.type}
-                  type="button"
-                  aria-pressed={selectedProfile === option.type}
-                  className={`profile-card${selectedProfile === option.type ? ' profile-card--selected' : ''}`}
-                  onClick={() => setSelectedProfile(option.type)}
-                >
-                  <span className="profile-card__icon" aria-hidden="true">{option.icon}</span>
-                  <span className="profile-card__text">
-                    <span className="profile-card__title">{option.label}</span>
-                    <span className="profile-card__desc">{option.description}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <button className="primary-button" type="button" disabled={!selectedProfile} onClick={() => setStep('name')}>
-              Lanjut <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
-            </button>
-          </>
-        ) : (
-          <>
-            <button className="secondary-button onboarding-back" type="button" onClick={() => setStep('profile')}>
-              <span aria-hidden="true"><ArrowBackIcon size={20} /></span> Pilih ulang profil
-            </button>
-            <p className="eyebrow">ISI NAMA</p>
-            <h1>Mobilitas sepatutnya mudah untuk semua.</h1>
-            <p className="onboarding-copy">
-              Mulai dengan nama panggilan. Profil demo ini disimpan hanya di perangkatmu, tanpa login produksi.
-            </p>
-            <form className="onboarding-form" onSubmit={handleSubmit} noValidate>
-              <label htmlFor="display-name">Nama panggilan</label>
-              <input
-                id="display-name"
-                name="displayName"
-                value={displayName}
-                onChange={(event) => {
-                  setDisplayName(event.target.value)
-                  if (errorMessage) {
-                    setErrorMessage('')
-                  }
-                }}
-                placeholder="Contoh: Dita"
-                autoComplete="nickname"
-                aria-invalid={Boolean(errorMessage)}
-                aria-describedby={errorMessage ? 'display-name-error' : undefined}
-              />
-              {errorMessage ? <p id="display-name-error" className="form-error" role="alert">{errorMessage}</p> : null}
-              <button className="primary-button" type="submit">Masuk ke Transense <span aria-hidden="true"><ArrowRightIcon size={20} /></span></button>
-            </form>
-            <p className="onboarding-note">Tampilan dirancang audio-blind: status selalu terlihat di layar.</p>
-          </>
-        )}
-      </div>
-    </main>
-  )
 }
 
 function AppHeader({ title, onBack }: { title: string; onBack: () => void }) {
@@ -1408,12 +1283,7 @@ function HomePage({
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [mapMode, setMapMode] = useState<'bus' | 'rail'>('bus')
-  const [selectedRailKeys, setSelectedRailKeys] = useState<Set<string>>(new Set())
   const [stopInfo, setStopInfo] = useState<StopPopupData | null>(null)
-  const [railLines, setRailLines] = useState<{ operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[]>([])
-  const [railStations, setRailStations] = useState<{ id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[]>([])
-  const [railStationPopup, setRailStationPopup] = useState<RailStationPopupData | null>(null)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locating, setLocating] = useState(false)
   const [locateError, setLocateError] = useState<string | null>(null)
@@ -1481,30 +1351,6 @@ function HomePage({
       if (resizeObserver) resizeObserver.disconnect()
       window.removeEventListener('resize', recomputeLocateOffset)
     }
-  }, [])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetch(`${apiBaseUrl}/api/transit/lines/geometry`, { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) return
-        const data = await res.json() as { lines: { operator: string; code: string; name: string; color: string; mode_label: string; segments: [number, number][][] }[] }
-        setRailLines(data.lines)
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetch(`${apiBaseUrl}/api/transit/stations`, { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) return
-        const data = await res.json() as { stations: { id: string; operator: string; code: string; name: string; lat: number; lng: number; lines: string[] }[] }
-        setRailStations(data.stations)
-      })
-      .catch(() => {})
-    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -1640,37 +1486,6 @@ function HomePage({
     return new Map(allRoutes.map((r) => [r.name, r.color]))
   }, [allRoutes])
 
-  const toggleRailLine = (key: string) => {
-    setSelectedRailKeys((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  const railAllSelected = railLines.length > 0 && selectedRailKeys.size === railLines.length
-
-  const toggleAllRail = () => {
-    if (railAllSelected) {
-      setSelectedRailKeys(new Set())
-    } else {
-      setSelectedRailKeys(new Set(railLines.map((l) => `${l.operator}:${l.code}`)))
-    }
-  }
-
-  const filteredRailLines = useMemo(() => {
-    if (mapMode !== 'rail') return []
-    if (selectedRailKeys.size === 0) return railLines
-    return railLines.filter((l) => selectedRailKeys.has(`${l.operator}:${l.code}`))
-  }, [mapMode, railLines, selectedRailKeys])
-
-  const filteredRailStations = useMemo(() => {
-    if (mapMode !== 'rail') return []
-    if (selectedRailKeys.size === 0) return railStations
-    return railStations.filter((s) => s.lines.some((lk) => selectedRailKeys.has(lk)))
-  }, [mapMode, railStations, selectedRailKeys])
-
   const handleStopClick = async (stopId: string) => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/gtfs/stop/${encodeURIComponent(stopId)}/info`)
@@ -1680,30 +1495,6 @@ function HomePage({
     } catch (error) {
       console.warn('Stop info fetch failed.', error)
       setStopInfo(null)
-    }
-  }
-
-  const handleRailStationClick = async (stationId: string) => {
-    const station = railStations.find((s) => s.id === stationId)
-    if (!station) return
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(station.operator)}/${encodeURIComponent(station.code)}/info`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as { stop: { id: string; name: string; operator: string; official_name?: string; amenities?: { type: string; label: string; text: string }[] } }
-      setRailStationPopup({
-        stop: {
-          id: data.stop.id,
-          name: data.stop.name,
-          operator: data.stop.operator,
-          official_name: data.stop.official_name,
-          amenities: data.stop.amenities,
-          lng: station.lng,
-          lat: station.lat,
-        },
-      })
-    } catch (error) {
-      console.warn('Rail station info fetch failed.', error)
-      setRailStationPopup(null)
     }
   }
 
@@ -1755,72 +1546,31 @@ function HomePage({
             <div className="map-filter-panel">
               <div className="map-filter-panel__header">
                 <strong>Filter peta</strong>
-                <button className="secondary-button" type="button" onClick={mapMode === 'bus' ? toggleAll : toggleAllRail}>
-                  {mapMode === 'bus'
-                    ? (selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua')
-                    : (railAllSelected ? 'Hapus semua' : 'Pilih semua')}
+                <button className="secondary-button" type="button" onClick={toggleAll}>
+                  {selectedRoutes.size === allRoutes.length ? 'Hapus semua' : 'Pilih semua'}
                 </button>
               </div>
-              <div className="map-filter-modes" role="group" aria-label="Filter moda">
-                <label className="map-filter-mode">
-                  <input type="radio" name="map-mode" checked={mapMode === 'bus'} onChange={() => setMapMode('bus')} />
-                  <span className="map-filter-mode__tag">Bus</span>
-                </label>
-                <label className="map-filter-mode">
-                  <input type="radio" name="map-mode" checked={mapMode === 'rail'} onChange={() => setMapMode('rail')} />
-                  <span className="map-filter-mode__tag">Kereta</span>
-                </label>
+              <p className="map-filter-panel__section">RUTE BUS</p>
+              <div className="map-filter-panel__list">
+                {allRoutes.map((route) => (
+                  <label className="map-filter-checkbox" key={route.id}>
+                    <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
+                    <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
+                    <span>{route.name}</span>
+                  </label>
+                ))}
               </div>
-              {mapMode === 'rail' ? (
-                <>
-                  <div className="map-filter-panel__line-head">
-                    <p className="map-filter-panel__section">LIN KERETA</p>
-                  </div>
-                  <div className="map-filter-rail-list">
-                    {railLines.map((line) => {
-                      const key = `${line.operator}:${line.code}`
-                      const checked = selectedRailKeys.has(key)
-                      return (
-                        <label className="map-filter-checkbox" key={key}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleRailLine(key)} />
-                          <span className="map-filter-checkbox__swatch" style={{ background: line.color }} aria-hidden="true" />
-                          <span className="map-filter-checkbox__rail-name">{line.name}</span>
-                          <span className="map-filter-checkbox__mode">{line.mode_label}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="map-filter-panel__section">RUTE BUS</p>
-                  <div className="map-filter-panel__list">
-                    {allRoutes.map((route) => (
-                      <label className="map-filter-checkbox" key={route.id}>
-                        <input type="checkbox" checked={selectedRoutes.has(route.name)} onChange={() => toggleRoute(route.name)} />
-                        <span className="map-filter-checkbox__swatch" style={{ background: route.color }} aria-hidden="true" />
-                        <span>{route.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
             </div>
           ) : null}
           <MapboxMap
-            stops={mapMode === 'bus' ? displayStops : []}
-            routeShapes={mapMode === 'bus' ? filteredShapes : []}
-            buses={mapMode === 'bus' ? filteredBuses : []}
+            stops={displayStops}
+            routeShapes={filteredShapes}
+            buses={filteredBuses}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
-            stopPopup={mapMode === 'bus' ? stopInfo : null}
+            stopPopup={stopInfo}
             onStopClick={(id) => { void handleStopClick(id) }}
             onStopPopupClose={() => setStopInfo(null)}
-            railLines={filteredRailLines}
-            railStations={filteredRailStations}
-            railStationPopup={railStationPopup}
-            onRailStationClick={(id) => { void handleRailStationClick(id) }}
-            onRailStationPopupClose={() => setRailStationPopup(null)}
             userLocation={userLocation}
             onLocateRequest={handleLocate}
             locating={locating}
@@ -1885,22 +1635,6 @@ function HomePage({
                 <span className="feature-tile__label">Keterlambatan</span>
               </button>
             </li>
-            {profile === 'netra' || profile === 'daksa' ? (
-              <li>
-                <button type="button" className="feature-tile" onClick={() => onNavigate('side-by-side')}>
-                  <span className="feature-tile__icon"><AccessibilityIcon /></span>
-                  <span className="feature-tile__label">Fasilitas halte</span>
-                </button>
-              </li>
-            ) : null}
-            {profile === 'netra' ? (
-              <li>
-                <button type="button" className="feature-tile" onClick={() => onNavigate('netra-scan')}>
-                  <span className="feature-tile__icon"><CameraIcon /></span>
-                  <span className="feature-tile__label">Pemindai Netra</span>
-                </button>
-              </li>
-            ) : null}
           </ul>
           <ArrivalsSheet />
           </div>
@@ -1944,26 +1678,8 @@ interface ScheduleDetailData {
   live: ScheduleLiveEntry[]
 }
 
-interface RailLineInfo {
-  operator: string
-  operator_name: string
-  code: string
-  name: string
-  color: string
-  mode: string
-  mode_label: string
-}
-
-interface RailStopInfo {
-  id: string
-  code: string
-  name: string
-}
-
 function SchedulePage() {
-  const [mode, setMode] = useState<'bus' | 'rail'>('bus')
   const [routes, setRoutes] = useState<GtfsRouteInfo[]>([])
-  const [railLines, setRailLines] = useState<RailLineInfo[]>([])
   const [query, setQuery] = useState('')
   const [expandedRoute, setExpandedRoute] = useState<string | null>(null)
   const [routeStops, setRouteStops] = useState<Record<string, GtfsRouteStop[]>>({})
@@ -1986,24 +1702,11 @@ function SchedulePage() {
   }, [])
 
   useEffect(() => {
-    const controller = new AbortController()
-    fetch(`${apiBaseUrl}/api/transit/lines`, { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) return
-        const data = await res.json() as { lines: RailLineInfo[] }
-        setRailLines(data.lines)
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [])
-
-  useEffect(() => {
     const trimmed = query.trim()
     if (!trimmed) {
       setSearchStops([])
       return
     }
-    if (mode !== 'bus') return
     const controller = new AbortController()
     fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal })
       .then(async (res) => {
@@ -2013,7 +1716,7 @@ function SchedulePage() {
       })
       .catch(() => {})
     return () => controller.abort()
-  }, [query, mode])
+  }, [query])
 
   const toggleRoute = async (routeId: string) => {
     if (expandedRoute === routeId) {
@@ -2028,26 +1731,6 @@ function SchedulePage() {
       if (!res.ok) return
       const data = await res.json() as { stops: GtfsRouteStop[] }
       setRouteStops((prev) => ({ ...prev, [routeId]: data.stops }))
-    } catch { /* skip */ } finally {
-      setLoadingStops(false)
-    }
-  }
-
-  const toggleRailLine = async (key: string) => {
-    if (expandedRoute === key) {
-      setExpandedRoute(null)
-      return
-    }
-    setExpandedRoute(key)
-    if (routeStops[key]) return
-    setLoadingStops(true)
-    try {
-      const [operator, code] = key.split(':')
-      const res = await fetch(`${apiBaseUrl}/api/transit/line/${encodeURIComponent(operator)}/${encodeURIComponent(code)}/stations`)
-      if (!res.ok) return
-      const data = await res.json() as { stations: RailStopInfo[] }
-      const stops: GtfsRouteStop[] = data.stations.map((s) => ({ id: s.id, name: s.name }))
-      setRouteStops((prev) => ({ ...prev, [key]: stops }))
     } catch { /* skip */ } finally {
       setLoadingStops(false)
     }
@@ -2069,23 +1752,6 @@ function SchedulePage() {
     }
   }
 
-  const openRailStopSchedule = async (stationId: string, stationName: string) => {
-    setSelectedStop({ id: stationId, name: stationName })
-    setSchedule(null)
-    setLoadingSchedule(true)
-    try {
-      const [operator, code] = stationId.split('-')
-      const res = await fetch(`${apiBaseUrl}/api/transit/stop/${encodeURIComponent(operator)}/${encodeURIComponent(code)}/schedule`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as { stop: { id: string; name: string; operator: string }; timetable: ScheduleStopGroup[] }
-      setSchedule({ stop: data.stop, timetable: data.timetable, live: [] })
-    } catch (error) {
-      console.warn('Rail schedule fetch failed.', error)
-    } finally {
-      setLoadingSchedule(false)
-    }
-  }
-
   const filteredRoutes = useMemo(() => {
     const trimmed = query.trim().toLocaleLowerCase('id-ID')
     if (!trimmed) return routes
@@ -2095,16 +1761,6 @@ function SchedulePage() {
       || r.id.toLocaleLowerCase('id-ID').includes(trimmed)
     )
   }, [routes, query])
-
-  const filteredRailLines = useMemo(() => {
-    const trimmed = query.trim().toLocaleLowerCase('id-ID')
-    if (!trimmed) return railLines
-    return railLines.filter((l) =>
-      l.name.toLocaleLowerCase('id-ID').includes(trimmed)
-      || l.code.toLocaleLowerCase('id-ID').includes(trimmed)
-      || l.mode_label.toLocaleLowerCase('id-ID').includes(trimmed)
-    )
-  }, [railLines, query])
 
   const isSearching = query.trim().length > 0
 
@@ -2162,46 +1818,6 @@ function SchedulePage() {
     )
   }
 
-  const railList = (
-    <section className="schedule-routes" aria-label="Daftar lin kereta">
-      {filteredRailLines.map((line) => {
-        const key = `${line.operator}:${line.code}`
-        const expanded = expandedRoute === key
-        const stops = routeStops[key]
-        return (
-          <div className="schedule-route" key={key}>
-            <button
-              type="button"
-              className="schedule-route__head"
-              aria-expanded={expanded}
-              onClick={() => { void toggleRailLine(key) }}
-            >
-              <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
-              <span className="schedule-route__name">{line.name}</span>
-              <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
-              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
-            </button>
-            {expanded ? (
-              <div className="schedule-route__stops">
-                {stops ? stops.map((stop) => (
-                  <button
-                    key={stop.id}
-                    type="button"
-                    className="schedule-stop-row"
-                    onClick={() => { void openRailStopSchedule(stop.id, stop.name) }}
-                  >
-                    <span className="schedule-stop-row__name">{stop.name}</span>
-                    <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
-                  </button>
-                )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
-              </div>
-            ) : null}
-          </div>
-        )
-      })}
-    </section>
-  )
-
   const busList = (
     <section className="schedule-routes" aria-label="Daftar trayek">
       {(isSearching ? filteredRoutes : routes).map((route) => {
@@ -2243,140 +1859,76 @@ function SchedulePage() {
   const searchResults = (
     <section className="schedule-search-results" aria-label="Hasil pencarian">
       <p className="eyebrow">HASIL PENCARIAN</p>
-      {mode === 'bus' ? (
-        <>
-          {filteredRoutes.map((route) => {
-            const expanded = expandedRoute === route.id
-            const stops = routeStops[route.id]
-            return (
-              <div className="schedule-route" key={`route-${route.id}`}>
-                <button
-                  type="button"
-                  className="schedule-route__head"
-                  aria-expanded={expanded}
-                  onClick={() => { void toggleRoute(route.id) }}
-                >
-                  <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
-                  <span className="schedule-route__name">{route.long_name}</span>
-                  <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
-                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
-                </button>
-                {expanded ? (
-                  <div className="schedule-route__stops">
-                    {stops ? stops.map((stop) => (
-                      <button
-                        key={stop.id}
-                        type="button"
-                        className="schedule-stop-row"
-                        onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
-                      >
-                        <span className="schedule-stop-row__name">{stop.name}</span>
-                        <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
-                      </button>
-                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
-          {searchStops.map((stop) => (
+      {filteredRoutes.map((route) => {
+        const expanded = expandedRoute === route.id
+        const stops = routeStops[route.id]
+        return (
+          <div className="schedule-route" key={`route-${route.id}`}>
             <button
-              key={`stop-${stop.id}`}
               type="button"
-              className="schedule-stop-row"
-              onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
+              className="schedule-route__head"
+              aria-expanded={expanded}
+              onClick={() => { void toggleRoute(route.id) }}
             >
-              <span className="schedule-result-tag schedule-result-tag--stop">HALTE</span>
-              <span className="schedule-stop-row__name">{stop.name}</span>
-              <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
+              <span className="schedule-route__badge" style={{ background: route.color }}>{route.name}</span>
+              <span className="schedule-route__name">{route.long_name}</span>
+              <span className="schedule-result-tag schedule-result-tag--route">TRAYEK</span>
+              <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
             </button>
-          ))}
-          {filteredRoutes.length === 0 && searchStops.length === 0 ? <p className="schedule-routes__loading">Tidak ada halte atau trayek yang cocok.</p> : null}
-        </>
-      ) : (
-        <>
-          {filteredRailLines.map((line) => {
-            const key = `${line.operator}:${line.code}`
-            const expanded = expandedRoute === key
-            const stops = routeStops[key]
-            return (
-              <div className="schedule-route" key={`rail-${key}`}>
-                <button
-                  type="button"
-                  className="schedule-route__head"
-                  aria-expanded={expanded}
-                  onClick={() => { void toggleRailLine(key) }}
-                >
-                  <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
-                  <span className="schedule-route__name">{line.name}</span>
-                  <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
-                  <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
-                </button>
-                {expanded ? (
-                  <div className="schedule-route__stops">
-                    {stops ? stops.map((stop) => (
-                      <button
-                        key={stop.id}
-                        type="button"
-                        className="schedule-stop-row"
-                        onClick={() => { void openRailStopSchedule(stop.id, stop.name) }}
-                      >
-                        <span className="schedule-stop-row__name">{stop.name}</span>
-                        <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
-                      </button>
-                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
-                  </div>
-                ) : null}
+            {expanded ? (
+              <div className="schedule-route__stops">
+                {stops ? stops.map((stop) => (
+                  <button
+                    key={stop.id}
+                    type="button"
+                    className="schedule-stop-row"
+                    onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
+                  >
+                    <span className="schedule-stop-row__name">{stop.name}</span>
+                    <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
+                  </button>
+                )) : loadingStops ? <p className="schedule-routes__loading">Memuat halte…</p> : null}
               </div>
-            )
-          })}
-          {filteredRailLines.length === 0 ? <p className="schedule-routes__loading">Tidak ada lin yang cocok.</p> : null}
-        </>
-      )}
+            ) : null}
+          </div>
+        )
+      })}
+      {searchStops.map((stop) => (
+        <button
+          key={`stop-${stop.id}`}
+          type="button"
+          className="schedule-stop-row"
+          onClick={() => { void openBusStopSchedule(stop.id, stop.name) }}
+        >
+          <span className="schedule-result-tag schedule-result-tag--stop">HALTE</span>
+          <span className="schedule-stop-row__name">{stop.name}</span>
+          <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
+        </button>
+      ))}
+      {filteredRoutes.length === 0 && searchStops.length === 0 ? <p className="schedule-routes__loading">Tidak ada halte atau trayek yang cocok.</p> : null}
     </section>
   )
 
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
-        <p className="eyebrow">JADWAL TRANSJAKARTA & KERETA / GTFS + LIVE</p>
-        <h2>Jadwal halte & stasiun</h2>
-        <p>Pilih moda, buka trayek/lin, lalu lihat jadwal kedatangan per rute plus ETA live bila tersedia.</p>
+        <p className="eyebrow">JADWAL TRANSJAKARTA / GTFS + LIVE</p>
+        <h2>Jadwal halte</h2>
+        <p>Buka trayek, lalu lihat jadwal kedatangan per rute plus ETA live bila tersedia.</p>
       </section>
 
-      <div className="schedule-mode-toggle" role="tablist" aria-label="Pilih moda">
-        <button
-          type="button"
-          className={`schedule-mode-btn${mode === 'bus' ? ' schedule-mode-btn--active' : ''}`}
-          onClick={() => { setMode('bus'); setExpandedRoute(null) }}
-          aria-selected={mode === 'bus'}
-          role="tab"
-        >
-          Bus
-        </button>
-        <button
-          type="button"
-          className={`schedule-mode-btn${mode === 'rail' ? ' schedule-mode-btn--active' : ''}`}
-          onClick={() => { setMode('rail'); setExpandedRoute(null) }}
-          aria-selected={mode === 'rail'}
-          role="tab"
-        >
-          Kereta
-        </button>
-      </div>
-
       <section className="schedule-search" role="search">
-        <label className="sr-only" htmlFor="schedule-search">{mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}</label>
+        <label className="sr-only" htmlFor="schedule-search">Cari halte atau trayek</label>
         <span className="schedule-search__icon" aria-hidden="true"><SearchIcon size={20} /></span>
         <input
           id="schedule-search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}
+          placeholder="Cari halte atau trayek"
         />
       </section>
 
-      {isSearching ? searchResults : (mode === 'rail' ? railList : busList)}
+      {isSearching ? searchResults : busList}
     </main>
   )
 }
@@ -2412,16 +1964,13 @@ function AntarAkuPage() {
   return <PlannerPage apiBaseUrl={apiBaseUrl} />
 }
 
-function ProfilePage({ profile, onReset, onUpdateProfile, lastRampAck, sendRampRequest }: {
+function ProfilePage({ profile, onReset, onUpdateProfile }: {
   profile: DemoProfile
   onReset: () => void
   onUpdateProfile?: (patch: Partial<DemoProfile>) => void
-  lastRampAck: string | null
-  sendRampRequest: (stopId: string) => void
 }) {
   const [editOpen, setEditOpen] = useState(false)
-  const profileLabel = PROFILE_OPTIONS.find((option) => option.type === profile.profile)?.label
-    ?? profile.profile.charAt(0).toUpperCase() + profile.profile.slice(1)
+  const profileLabel = 'Tuli'
   const outputChannel = profile.outputChannel ?? 'auto'
 
   return (
@@ -2449,9 +1998,6 @@ function ProfilePage({ profile, onReset, onUpdateProfile, lastRampAck, sendRampR
           <dd>{OUTPUT_CHANNEL_LABELS[outputChannel]}</dd>
         </div>
       </dl>
-      {profile.profile === 'daksa' ? (
-        <OccupancyCard apiBaseUrl={apiBaseUrl} sendRampRequest={sendRampRequest} lastRampAck={lastRampAck} />
-      ) : null}
       <button
         className="secondary-button profile-edit-btn"
         type="button"
@@ -2513,7 +2059,6 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
   const [screen, setScreen] = useState<Screen>('home')
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
   const backend = useBackendConnection()
-  const tts = useMemo(() => createTtsProvider(apiBaseUrl), [])
   const unreadNotifications = backend.notifications.filter((notification) => !dismissedNotificationIds.includes(notification.id))
   const unreadCount = unreadNotifications.length
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
@@ -2525,8 +2070,6 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
     if (screen === 'schedule') return 'Jadwal'
     if (screen === 'antar-aku') return 'Antar Aku'
     if (screen === 'transcribe') return 'Transcribe'
-    if (screen === 'side-by-side') return 'Fasilitas halte'
-    if (screen === 'netra-scan') return 'Pemindai Netra'
     return 'Fitur Transense'
   }, [screen])
 
@@ -2541,7 +2084,7 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
   return (
     <div className={`app-frame${screen === 'home' || screen === 'transcribe' ? ' app-frame--home' : ''}`}>
       {screen === 'home' ? null : <AppHeader title={title} onBack={() => handleNavigate('home')} />}
-      <NotificationRenderer notification={currentNotification} profile={profile.profile} tts={tts} onDismiss={() => {
+      <NotificationRenderer notification={currentNotification} onDismiss={() => {
         if (currentNotification) dismissNotification(currentNotification.id)
       }} />
       <div
@@ -2554,9 +2097,7 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
         {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
         {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
         {screen === 'antar-aku' ? <AntarAkuPage /> : null}
-        {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} onUpdateProfile={onUpdateProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
-        {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
-        {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} /> : null}
+        {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} onUpdateProfile={onUpdateProfile} /> : null}
       </div>
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
@@ -2575,8 +2116,10 @@ function SplashScreen({ leaving }: { leaving: boolean }) {
 }
 
 export default function App() {
-  const [profile, setProfile] = useState<DemoProfile | null>(() => readProfile())
-  const [screen, setScreen] = useState<Screen>(() => (readProfile() ? 'home' : 'onboarding'))
+  const [profile, setProfile] = useState<DemoProfile>(() => {
+    const stored = readProfile()
+    return { displayName: stored?.displayName || 'Penumpang', profile: 'tuli', createdAt: stored?.createdAt || new Date().toISOString(), outputChannel: stored?.outputChannel }
+  })
   const [splashLeaving, setSplashLeaving] = useState(false)
   const [splashDone, setSplashDone] = useState(false)
 
@@ -2589,23 +2132,13 @@ export default function App() {
     }
   }, [])
 
-  const handleCompleteOnboarding = (displayName: string, profile: ProfileType = 'tuli') => {
-    const nextProfile: DemoProfile = { displayName, profile, createdAt: new Date().toISOString() }
-    if (persistProfile(nextProfile)) {
-      setProfile(nextProfile)
-      setScreen('home')
-    }
-  }
-
   const handleResetProfile = () => {
-    if (clearStoredProfile()) {
-      setProfile(null)
-      setScreen('onboarding')
-    }
+    clearStoredProfile()
+    setProfile({ displayName: 'Penumpang', profile: 'tuli', createdAt: new Date().toISOString() })
+    persistProfile({ displayName: 'Penumpang', profile: 'tuli', createdAt: new Date().toISOString() })
   }
 
   const handleUpdateProfile = (patch: Partial<DemoProfile>) => {
-    if (!profile) return
     const nextProfile: DemoProfile = { ...profile, ...patch }
     if (persistProfile(nextProfile)) {
       setProfile(nextProfile)
@@ -2614,10 +2147,6 @@ export default function App() {
 
   if (!splashDone) {
     return <SplashScreen leaving={splashLeaving} />
-  }
-
-  if (!profile || screen === 'onboarding') {
-    return <Onboarding onComplete={handleCompleteOnboarding} />
   }
 
   return <MainShell profile={profile} onResetProfile={handleResetProfile} onUpdateProfile={handleUpdateProfile} />
