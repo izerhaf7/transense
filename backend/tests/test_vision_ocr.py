@@ -64,7 +64,7 @@ def test_vision_ocr_returns_text_with_mocked_vision_api(tmp_path, monkeypatch):
         recorded["json"] = json
         return FakeResponse()
 
-    monkeypatch.setattr("backend.main.httpx.post", fake_post)
+    monkeypatch.setattr("backend.api.routers.ai.httpx.post", fake_post)
 
     app = vision_app_for(tmp_path)
     with TestClient(app) as client:
@@ -90,7 +90,7 @@ def test_vision_ocr_falls_back_to_full_text_annotation(tmp_path, monkeypatch):
             json=lambda: {"responses": [{"fullTextAnnotation": {"text": "Koridor 10"}}]},
         )
 
-    monkeypatch.setattr("backend.main.httpx.post", fake_post)
+    monkeypatch.setattr("backend.api.routers.ai.httpx.post", fake_post)
 
     app = vision_app_for(tmp_path)
     with TestClient(app) as client:
@@ -104,7 +104,7 @@ def test_vision_ocr_returns_empty_text_for_empty_vision_result(tmp_path, monkeyp
     def fake_post(url, *, params, json, timeout):
         return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"responses": [{}]})
 
-    monkeypatch.setattr("backend.main.httpx.post", fake_post)
+    monkeypatch.setattr("backend.api.routers.ai.httpx.post", fake_post)
 
     app = vision_app_for(tmp_path)
     with TestClient(app) as client:
@@ -117,7 +117,7 @@ def test_vision_ocr_returns_502_when_vision_api_fails(tmp_path, monkeypatch):
     def failing_post(url, *, params, json, timeout):
         raise RuntimeError("vision api unreachable")
 
-    monkeypatch.setattr("backend.main.httpx.post", failing_post)
+    monkeypatch.setattr("backend.api.routers.ai.httpx.post", failing_post)
 
     app = vision_app_for(tmp_path)
     with TestClient(app) as client:
