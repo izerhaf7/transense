@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8')
+const connectionSource = readFileSync(new URL('./src/connection.ts', import.meta.url), 'utf8')
+const typesSource = readFileSync(new URL('./src/types.ts', import.meta.url), 'utf8')
+const source = `${connectionSource}\n${typesSource}`
+
 const requiredContracts = [
   'transcription.session.start',
   'transcription.session.stop',
