@@ -1,9 +1,19 @@
 # Transense — Backend API Contract
 
-> Source of truth untuk kontrak HTTP + WebSocket backend Transense. Semua
-> endpoint dideklarasikan sebagai closure di dalam `create_app()`
-> (`backend/main.py`) dengan `response_model=None` dan body `dict` polos.
+> Source of truth untuk kontrak HTTP + WebSocket backend Transense.
 > Base URL default: `http://localhost:8000` (via `VITE_API_BASE_URL`).
+
+## Struktur kode
+
+Backend diorganisir per lapisan (rewrite struktur `rewrite-backend`):
+
+- `backend/main.py` — app factory `create_app()` + `lifespan`; hanya men-setup state, middleware, dan `include_router` (bukan lagi menampung semua route).
+- `backend/api/routers/` — satu `APIRouter` per domain: `health`, `schedule`, `facilities`, `incidents`, `transcripts`, `ai` (scribe-token/tts/vision), `conversations`, `gtfs`, `transit` (kereta), `realtime` (buses/arrivals), `journey` (track/plan), `ws`.
+- `backend/api/deps.py` — dependency accessor (`get_store`, `get_settings`, `get_gtfs_feed`, …) via `request.app.state`.
+- `backend/api/utils.py` — helper murni (haversine, lookup GTFS, timetable, ETA enrich, OCR extract).
+- `backend/` root — lapisan domain/inti yang dipertahankan: `config.py` (Settings), `transit.py`/`notifications.py`/`planner.py` (logika bisnis), `persistence.py`/`conversation.py`/`transcription.py` (data + domain), `gtfs_loader.py`/`tj_api.py`/`commute.py`/`sources.py`/`facilities.py`/`walk_graph.py` (feed & integrasi eksternal).
+
+Semua endpoint tetap `response_model=None` dengan body `dict` polos — kontrak respons di bawah tidak berubah oleh refactor.
 
 Konvensi umum:
 
@@ -14,44 +24,44 @@ Konvensi umum:
 
 ## Ringkasan Endpoint
 
-| Metode | Path | Fungsi |
-|---|---|---|
-| GET | `/api/health` | Status kesehatan + konfigurasi |
-| GET | `/api/schedule` | Jadwal statis (seed / Commute TJ) |
-| GET | `/api/facilities/stops` | Daftar halte ikonik + fasilitas |
-| GET | `/api/facilities/stops/{stop_id}` | Detail fasilitas satu halte |
-| GET | `/api/facilities/stops/{stop_id}/occupancy` | Okupansi halte (daksa) |
-| GET | `/api/incidents` | Riwayat insiden |
-| PATCH | `/api/incidents/{record_id}/pin` | Pin/unpin insiden |
-| GET | `/api/transcripts` | Riwayat transkrip |
-| PATCH | `/api/transcripts/{record_id}/pin` | Pin/unpin transkrip |
-| GET | `/api/scribe-token` | Token ElevenLabs scribe (STT) |
-| POST | `/api/tts` | Sintesis suara (netra) |
-| POST | `/api/vision/ocr` | OCR proxy Google Vision (netra) |
-| GET | `/api/conversations` | Daftar percakapan |
-| POST | `/api/conversations` | Buat percakapan |
-| PATCH | `/api/conversations/{record_id}` | Ubah percakapan |
-| DELETE | `/api/conversations/{record_id}` | Hapus percakapan |
-| GET | `/api/gtfs/status` | Status feed GTFS |
-| GET | `/api/gtfs/stops` | Semua halte GTFS |
-| GET | `/api/gtfs/stops/search` | Cari halte (nama) |
-| GET | `/api/gtfs/stops/nearby` | Halte terdekat koordinat |
-| GET | `/api/gtfs/routes` | Semua rute GTFS |
-| GET | `/api/gtfs/route/{route_id}/stops` | Halte dalam satu rute |
-| GET | `/api/gtfs/route/{route_id}/shape` | Geometri rute |
-| GET | `/api/gtfs/stop/{stop_id}/info` | Info halte + kedatangan |
-| GET | `/api/gtfs/stop/{stop_id}/schedule` | Jadwal + live satu halte |
-| GET | `/api/transit/lines` | Lin kereta (KCI/MRT/LRT) |
-| GET | `/api/transit/stations` | Stasiun kereta |
-| GET | `/api/transit/line/{operator}/{code}/stations` | Stasiun dalam satu lin |
-| GET | `/api/transit/stop/{operator}/{code}/info` | Info stasiun kereta |
-| GET | `/api/transit/stop/{operator}/{code}/schedule` | Jadwal stasiun kereta |
-| GET | `/api/transit/lines/geometry` | Geometri lin kereta |
-| GET | `/api/buses` | Posisi bus realtime |
-| GET | `/api/arrivals` | Kedatangan bus di halte |
-| GET | `/api/journey/track` | Tracking bus aktif |
-| GET | `/api/journey/plan` | Rencana perjalanan (RAPTOR) |
-| WS | `/api/ws` | WebSocket simulasi + transkripsi |
+| Metode | Path | Fungsi | Router |
+|---|---|---|---|
+| GET | `/api/health` | Status kesehatan + konfigurasi | `health` |
+| GET | `/api/schedule` | Jadwal statis (seed / Commute TJ) | `schedule` |
+| GET | `/api/facilities/stops` | Daftar halte ikonik + fasilitas | `facilities` |
+| GET | `/api/facilities/stops/{stop_id}` | Detail fasilitas satu halte | `facilities` |
+| GET | `/api/facilities/stops/{stop_id}/occupancy` | Okupansi halte (daksa) | `facilities` |
+| GET | `/api/incidents` | Riwayat insiden | `incidents` |
+| PATCH | `/api/incidents/{record_id}/pin` | Pin/unpin insiden | `incidents` |
+| GET | `/api/transcripts` | Riwayat transkrip | `transcripts` |
+| PATCH | `/api/transcripts/{record_id}/pin` | Pin/unpin transkrip | `transcripts` |
+| GET | `/api/scribe-token` | Token ElevenLabs scribe (STT) | `ai` |
+| POST | `/api/tts` | Sintesis suara (netra) | `ai` |
+| POST | `/api/vision/ocr` | OCR proxy Google Vision (netra) | `ai` |
+| GET | `/api/conversations` | Daftar percakapan | `conversations` |
+| POST | `/api/conversations` | Buat percakapan | `conversations` |
+| PATCH | `/api/conversations/{record_id}` | Ubah percakapan | `conversations` |
+| DELETE | `/api/conversations/{record_id}` | Hapus percakapan | `conversations` |
+| GET | `/api/gtfs/status` | Status feed GTFS | `gtfs` |
+| GET | `/api/gtfs/stops` | Semua halte GTFS | `gtfs` |
+| GET | `/api/gtfs/stops/search` | Cari halte (nama) | `gtfs` |
+| GET | `/api/gtfs/stops/nearby` | Halte terdekat koordinat | `gtfs` |
+| GET | `/api/gtfs/routes` | Semua rute GTFS | `gtfs` |
+| GET | `/api/gtfs/route/{route_id}/stops` | Halte dalam satu rute | `gtfs` |
+| GET | `/api/gtfs/route/{route_id}/shape` | Geometri rute | `gtfs` |
+| GET | `/api/gtfs/stop/{stop_id}/info` | Info halte + kedatangan | `gtfs` |
+| GET | `/api/gtfs/stop/{stop_id}/schedule` | Jadwal + live satu halte | `gtfs` |
+| GET | `/api/transit/lines` | Lin kereta (KCI/MRT/LRT) | `transit` |
+| GET | `/api/transit/stations` | Stasiun kereta | `transit` |
+| GET | `/api/transit/line/{operator}/{code}/stations` | Stasiun dalam satu lin | `transit` |
+| GET | `/api/transit/stop/{operator}/{code}/info` | Info stasiun kereta | `transit` |
+| GET | `/api/transit/stop/{operator}/{code}/schedule` | Jadwal stasiun kereta | `transit` |
+| GET | `/api/transit/lines/geometry` | Geometri lin kereta | `transit` |
+| GET | `/api/buses` | Posisi bus realtime | `realtime` |
+| GET | `/api/arrivals` | Kedatangan bus di halte | `realtime` |
+| GET | `/api/journey/track` | Tracking bus aktif | `journey` |
+| GET | `/api/journey/plan` | Rencana perjalanan (RAPTOR) | `journey` |
+| WS | `/api/ws` | WebSocket simulasi + transkripsi | `ws` |
 
 ## Health & Konfigurasi
 
