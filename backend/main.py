@@ -16,7 +16,7 @@ from .commute import CommuteClient, CommuteFeed
 from .config import Settings
 from .gtfs_loader import download_gtfs, parse_gtfs
 from .notifications import NotificationEngine
-from .persistence import DemoStore
+from .persistence import create_store, Store
 from .sources import load_static_schedule
 from .tj_api import RealtimeBus, TjRealtimeClient
 from .transit import TransitSimulator
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    store: DemoStore | None = None
+    store: Store | None = None
     app.state.store = None
     app.state.gtfs_feed = None
     app.state.walk_graph: WalkGraph | None = None
@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
             app.state.realtime_error = str(exc)
             logger.warning("TJ realtime API not available: %s", exc)
     try:
-        store = DemoStore(app.state.settings.database_path)
+        store = create_store(app.state.settings.database_url, app.state.settings.database_path)
         app.state.store = store
         store.cleanup(datetime.now(timezone.utc))
         if not store.list_records("incident"):

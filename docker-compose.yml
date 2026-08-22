@@ -1,0 +1,117 @@
+# Transense — multi-service stack (PostGIS + Redis + OTP + Photon).
+#
+# Default `docker compose up` menjalankan core stack yang siap pakai:
+#   db (PostgreSQL+PostGIS), redis, backend, frontend.
+#
+# Layanan routing & geocoding butuh file data GTFS/OSM sebelum bisa jalan,
+# sehingga diaktifkan lewat profil:
+#   docker compose --profile routing up otp
+#   docker compose --profile geocoding up photon
+# (lihat komentar tiap service untuk data yang diperlukan.)
+
+services:
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_USER: transense
+      POSTGRES_PASSWORD: transense
+      POSTGRES_DB: transense
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transense -d transense"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      TRANSENSE_ENVIRONMENT: docker
+      TRANSENSE_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173
+      DATABASE_URL: postgresql://transense:transense@db:5432/transense
+      # Real-time cache + routing/geocoding integration points (future wiring):
+      # REDIS_URL: redis://redis:6379/0
+      # OTP_URL: http://otp:8080/otp/routers/default
+      # PHOTON_URL: http://photon:2322
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+        VITE_MAPBOX_TOKEN: ""
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  # --- Routing engine: OpenTripPlanner (door-to-door, multi-modal) ---------
+  # Butuh data ditaruh di ./data/otp/ :
+  #   - satu atau lebih file GTFS (.zip) untuk semua operator
+  #   - satu file OpenStreetMap (.pbf) wilayah Jakarta/Jabodetabek
+  # Aktifkan dengan: docker compose --profile routing up otp
+  otp:
+    image: opentripplanner/opentripplanner:2.5.0
+    profiles: ["routing"]
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx2G
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/otp:/var/otp
+    command: ["--build", "--serve", "/var/otp"]
+
+  # --- Geocoder: Photon (OSM) + Elasticsearch -----------------------------
+  # Butuh file OSM extract (.pbf) di ./data/osm/ lalu diimpor ke Elasticsearch.
+  # Aktifkan dengan: docker compose --profile geocoding up photon
+  photon-es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    profiles: ["geocoding"]
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  photon:
+    image: komoot/photon:0.5.0
+    profiles: ["geocoding"]
+    ports:
+      - "2322:2322"
+    volumes:
+      - ./data/osm:/data/osm
+    depends_on:
+      - photon-es
+    command: ["-nominatim-import", "-es", "http://photon-es:9200", "-host", "0.0.0.0", "-data-dir", "/data/photon"]
+
+volumes:
+  pgdata:
+  redisdata:
+  esdata:

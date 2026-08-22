@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import Request
 
 from ..config import Settings
-from ..persistence import DemoStore
+from ..persistence import Store
 
 
 def get_settings(request: Request) -> Settings:
@@ -20,7 +20,7 @@ def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
-def get_store(request: Request) -> DemoStore | None:
+def get_store(request: Request) -> Store | None:
     """The demo persistence store, or ``None`` when unavailable."""
     return getattr(request.app.state, "store", None)
 

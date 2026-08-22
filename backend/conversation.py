@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from .persistence import DemoStore, parse_timestamp, TimestampValidationError
+from .persistence import Store, parse_timestamp, TimestampValidationError
 
 
 class ConversationError(ValueError):
@@ -48,7 +48,7 @@ def _validate_conversation(payload: Any) -> dict[str, Any]:
     }
 
 
-def create_conversation(store: DemoStore, payload: dict[str, Any]) -> dict[str, Any]:
+def create_conversation(store: Store, payload: dict[str, Any]) -> dict[str, Any]:
     validated = _validate_conversation(payload)
     record_id = f"conv-{uuid4()}"
     now = datetime.now(timezone.utc)
@@ -61,7 +61,7 @@ def create_conversation(store: DemoStore, payload: dict[str, Any]) -> dict[str, 
     return {"id": record_id, **full}
 
 
-def update_conversation(store: DemoStore, record_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+def update_conversation(store: Store, record_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     existing = _get_conversation(store, record_id)
     if existing is None:
         return None
@@ -76,11 +76,11 @@ def update_conversation(store: DemoStore, record_id: str, payload: dict[str, Any
     return {"id": record_id, **full}
 
 
-def delete_conversation(store: DemoStore, record_id: str) -> bool:
+def delete_conversation(store: Store, record_id: str) -> bool:
     return store.delete_record(record_id)
 
 
-def list_conversations(store: DemoStore) -> list[dict[str, Any]]:
+def list_conversations(store: Store) -> list[dict[str, Any]]:
     rows = store.list_records("conversation")
     result: list[dict[str, Any]] = []
     for row in rows:
@@ -98,7 +98,7 @@ def list_conversations(store: DemoStore) -> list[dict[str, Any]]:
     return result
 
 
-def _get_conversation(store: DemoStore, record_id: str) -> dict[str, Any] | None:
+def _get_conversation(store: Store, record_id: str) -> dict[str, Any] | None:
     for row in store.list_records("conversation"):
         if row["id"] == record_id:
             payload = row["payload"]
