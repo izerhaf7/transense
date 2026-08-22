@@ -24,6 +24,7 @@ class Settings:
     environment: str | None
     allowed_origins: tuple[str, ...]
     database_path: Path
+    database_url: str | None = None
     commute_api_url: str | None = None
     stt_provider: str = "mock"
     elevenlabs_api_key: str | None = None
@@ -53,6 +54,7 @@ class Settings:
             environment=os.getenv("TRANSENSE_ENVIRONMENT"),
             allowed_origins=origins,
             database_path=Path(os.getenv("TRANSENSE_DATABASE_PATH", "backend/transense.sqlite3")),
+            database_url=os.getenv("DATABASE_URL") or None,
             commute_api_url=os.getenv("TRANSENSE_COMMUTE_API_URL") or None,
             stt_provider=os.getenv("TRANSENSE_STT_PROVIDER", "mock"),
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY") or None,

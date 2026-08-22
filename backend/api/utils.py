@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException
 
 from ..commute import CommuteClient, CommuteError, CommuteFeed
 from ..gtfs_loader import GtfsFeed, service_active_on
-from ..persistence import DemoStore
+from ..persistence import Store
 from ..tj_api import RealtimeBus
 from ..walk_graph import WalkGraph, load_walk_graph, walk_graph_from_feed
 
@@ -355,7 +355,7 @@ def enrich_bus_legs_eta(itineraries: list[dict], realtime_available: bool) -> No
             leg["eta_source"] = "realtime" if realtime_available else "simulated"
 
 
-def active_incidents(store: DemoStore, itineraries: list[dict]) -> list[dict]:
+def active_incidents(store: Store, itineraries: list[dict]) -> list[dict]:
     """Active (``delay``/``diverted``) incident payloads for a plan."""
     route_keys: set[str] = set()
     for itinerary in itineraries:
@@ -384,7 +384,7 @@ def active_incidents(store: DemoStore, itineraries: list[dict]) -> list[dict]:
 
 def incidents_for_plan(application: FastAPI, itineraries: list[dict]) -> list[dict]:
     """Active incidents for the plan response (``[]`` when no store)."""
-    store: DemoStore | None = getattr(application.state, "store", None)
+    store: Store | None = getattr(application.state, "store", None)
     if store is None:
         return []
     return active_incidents(store, itineraries)

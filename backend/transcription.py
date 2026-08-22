@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from .persistence import DemoStore, TimestampValidationError, parse_timestamp
+from .persistence import Store, TimestampValidationError, parse_timestamp
 
 
 class TranscriptionError(ValueError):
@@ -94,7 +94,7 @@ def create_provider() -> TranscriptionProvider:
     raise ProviderConfigurationError(f"unsupported transcription provider: {provider_name}")
 
 
-def persist_transcript(store: DemoStore, result: TranscriptionResult, session_id: str, created_at: datetime, record_id: str) -> str:
+def persist_transcript(store: Store, result: TranscriptionResult, session_id: str, created_at: datetime, record_id: str) -> str:
     if not record_id.strip():
         raise TranscriptionError("transcript id must be non-empty")
     if not session_id.strip():
@@ -109,6 +109,6 @@ def persist_transcript(store: DemoStore, result: TranscriptionResult, session_id
     return store.add("transcript", payload, created, record_id=record_id)
 
 
-def transcript_history(store: DemoStore, now: datetime) -> list[dict[str, Any]]:
+def transcript_history(store: Store, now: datetime) -> list[dict[str, Any]]:
     store.cleanup(now.astimezone(timezone.utc))
     return list(reversed(store.list_records("transcript")))

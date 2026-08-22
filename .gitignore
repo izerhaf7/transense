@@ -32,3 +32,6 @@ backend/gtfs_cache.*
 .venv/
 venv/
 
+# Routing / geocoding input data (GTFS + OSM, ukuran besar)
+data/
+

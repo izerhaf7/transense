@@ -29,6 +29,8 @@ def timestamp(value: datetime) -> str:
 
 
 class DemoStore:
+    """SQLite-backed record store (default, no external service required)."""
+
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self.connection = sqlite3.connect(self.path)
@@ -84,3 +86,89 @@ class DemoStore:
         deleted = self.connection.execute("DELETE FROM demo_records WHERE pinned = 0 AND created_at < ?", (timestamp(cutoff),)).rowcount
         self.connection.commit()
         return deleted
+
+
+class PostgresStore:
+    """PostgreSQL-backed record store with the same interface as :class:`DemoStore`.
+
+    Selected via ``DATABASE_URL`` (a ``postgresql://`` DSN). ``psycopg`` is
+    imported lazily so the SQLite-only path (tests + local dev without Docker)
+    never requires it.
+    """
+
+    def __init__(self, database_url: str):
+        import psycopg
+        from psycopg.rows import dict_row
+        self.database_url = database_url
+        self.connection = psycopg.connect(database_url, row_factory=dict_row)
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS demo_records (
+                id          TEXT PRIMARY KEY,
+                record_type TEXT NOT NULL,
+                payload     TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                pinned      BOOLEAN NOT NULL DEFAULT FALSE
+            )
+            """
+        )
+        self.connection.commit()
+
+    def check_available(self) -> bool:
+        self.connection.execute("SELECT 1").fetchone()
+        return True
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def add(self, record_type: str, payload: dict[str, Any], created_at: datetime, pinned: bool = False, record_id: str | None = None) -> str:
+        created = timestamp(created_at)
+        record_id = record_id or f"record-{uuid4()}"
+        self.connection.execute(
+            "INSERT INTO demo_records (id, record_type, payload, created_at, pinned) VALUES (%s, %s, %s, %s, %s)",
+            (record_id, record_type, json.dumps(payload), created, bool(pinned)),
+        )
+        self.connection.commit()
+        return record_id
+
+    def list_records(self, record_type: str | None = None) -> list[dict[str, Any]]:
+        if record_type is None:
+            rows = self.connection.execute("SELECT * FROM demo_records ORDER BY created_at").fetchall()
+        else:
+            rows = self.connection.execute("SELECT * FROM demo_records WHERE record_type = %s ORDER BY created_at", (record_type,)).fetchall()
+        return [{"id": row["id"], "record_type": row["record_type"], "payload": json.loads(row["payload"]), "created_at": row["created_at"], "pinned": bool(row["pinned"])} for row in rows]
+
+    def set_pinned(self, record_id: str, pinned: bool) -> bool:
+        changed = self.connection.execute("UPDATE demo_records SET pinned = %s WHERE id = %s", (bool(pinned), record_id)).rowcount
+        self.connection.commit()
+        return changed == 1
+
+    def update_record(self, record_id: str, payload: dict[str, Any], created_at: datetime) -> bool:
+        created = timestamp(created_at)
+        changed = self.connection.execute(
+            "UPDATE demo_records SET payload = %s, created_at = %s WHERE id = %s",
+            (json.dumps(payload), created, record_id),
+        ).rowcount
+        self.connection.commit()
+        return changed == 1
+
+    def delete_record(self, record_id: str) -> bool:
+        changed = self.connection.execute("DELETE FROM demo_records WHERE id = %s", (record_id,)).rowcount
+        self.connection.commit()
+        return changed == 1
+
+    def cleanup(self, now: datetime) -> int:
+        cutoff = now.astimezone(timezone.utc) - timedelta(days=7)
+        deleted = self.connection.execute("DELETE FROM demo_records WHERE pinned = FALSE AND created_at < %s", (timestamp(cutoff),)).rowcount
+        self.connection.commit()
+        return deleted
+
+
+Store = DemoStore | PostgresStore
+
+
+def create_store(database_url: str | None, database_path: Path | str) -> Store:
+    """Open the configured store: Postgres when ``database_url`` is set, else SQLite."""
+    if database_url:
+        return PostgresStore(database_url)
+    return DemoStore(database_path)

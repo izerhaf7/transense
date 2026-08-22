@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+transense.sqlite3
+gtfs_cache.zip
+walk_graph_cache.json
+.env
+.env.local
+*.sqlite3
