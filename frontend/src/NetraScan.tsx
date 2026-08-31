@@ -22,6 +22,7 @@ import CameraScan from './CameraScan'
 import { buildAnnouncement, chooseNextDetection, isApproaching } from './approach'
 import type { Detection } from './approach'
 import { VIBRATION_PATTERNS } from './journey'
+import type { PlanPoint } from './plannerStorage'
 import type { TtsProvider } from './tts'
 
 const OCR_INTERVAL_MS = 2500
@@ -29,6 +30,13 @@ const OCR_INTERVAL_MS = 2500
 interface NetraScanProps {
   apiBaseUrl: string
   tts?: TtsProvider
+  /**
+   * Destination chosen in the Antar Aku planner. Station-navigation context
+   * for the Gemini peron flow (spec `transense-multi-profil-navigasi.md`);
+   * optional so the scanner still works standalone. Not yet consumed by the
+   * detection pipeline — T6 wires it into the navigation prompt.
+   */
+  destinationStop?: PlanPoint | null
 }
 
 /** `ImageData` frame → base64 JPEG data-URL payload for the OCR proxy. */

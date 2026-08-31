@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
@@ -6,6 +6,10 @@ import { ArrowBackIcon, ArrowRightIcon, BusIcon, ChevronDownIcon, ChevronUpIcon,
 import type { Stop } from './journey'
 import { VIBRATION_PATTERNS } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
+import type { ProfileType } from './profile'
+import { isFacilityStop } from './SideBySidePage'
+import type { FacilityStop } from './SideBySidePage'
+import type { TtsProvider } from './tts'
 import {
   addHistoryEntry,
   isPlanPoint,
@@ -23,6 +27,12 @@ import {
 
 interface PlannerPageProps {
   apiBaseUrl: string
+  profile?: ProfileType
+  tts?: TtsProvider
+  onOpenSideBySide?: (stopId: string) => void
+  onNavigateToPeron?: () => void
+  /** Lifts the chosen destination so App.tsx can hand it to the Netra scan screen. */
+  onDestinationSelected?: (point: PlanPoint | null) => void
 }
 
 interface PlanRouteInfo {
@@ -100,6 +110,20 @@ function vibrate(pattern: readonly number[]) {  if (typeof navigator !== 'undefi
   }
 }
 
+/** MRT suitability thresholds for the destination userflow (single source of truth). */
+const MRT_SUITABILITY = {
+  MAX_TRANSFER: 1,
+  MAX_MINUTES: 45,
+  MAX_WALK_M: 600,
+} as const
+
+/** Facility keys surfaced as daksa accessibility chips per BUS stop. */
+const DAKSA_CHIP_FACILITIES: ReadonlyArray<{ key: keyof FacilityStop['facilities']; label: string }> = [
+  { key: 'ramp', label: 'Ramp' },
+  { key: 'lift', label: 'Lift' },
+  { key: 'guiding_block', label: 'Guiding block' },
+]
+
 /** One simulated minute in real milliseconds (demo pacing: 1 min = 3 s). */
 const SIM_MINUTE_MS = 3000
 /** ETA (minutes) at which the "approaching" warning takes over the screen. */
@@ -112,11 +136,17 @@ function SimulatedTrackingPage({
   planShapes,
   walkLegs,
   onBack,
+  profile = 'tuli',
+  tts,
+  onNavigateToPeron,
 }: {
   itinerary: PlanItinerary
   planShapes: PlannerShape[]
   walkLegs: WalkLine[]
   onBack: () => void
+  profile?: ProfileType
+  tts?: TtsProvider
+  onNavigateToPeron?: () => void
 }) {
   const [phase, setPhase] = useState<SimPhase>('waiting')
   const [etaMinutes, setEtaMinutes] = useState(INITIAL_ETA_MIN)
@@ -264,6 +294,19 @@ function SimulatedTrackingPage({
         <p className="eyebrow">TIBA DI TUJUAN</p>
         <h3>Anda tiba di {current?.name ?? 'tujuan'}</h3>
         <p>Terima kasih telah menggunakan Transense.</p>
+        {profile === 'netra' ? (
+          onNavigateToPeron ? (
+            <button
+              type="button"
+              className="primary-button planner-btn--netra"
+              onClick={() => { tts?.speak('Navigasi ke peron'); onNavigateToPeron() }}
+            >
+              Navigasi ke peron
+            </button>
+          ) : (
+            <p>Gunakan Pemindai Netra untuk navigasi ke peron.</p>
+          )
+        ) : null}
       </section>
     )
   }
@@ -426,7 +469,50 @@ function useSearchHistory() {
   return { history, recordSearch, removeHistoryEntry: removeStoredEntry }
 }
 
-function LegRow({ leg, index, affected }: { leg: PlanLeg; index: number; affected: boolean }) {
+/** Facility stop lookup for the daksa accessibility chips (id → stop). */
+function buildFacilityIndex(stops: FacilityStop[]): Map<string, FacilityStop> {
+  const index = new Map<string, FacilityStop>()
+  for (const stop of stops) {
+    index.set(stop.id, stop)
+  }
+  return index
+}
+
+/** Chips for one plan point: only when the stop matches a facility stop id. */
+function FacilityAccessChips({ stopId, facility, onOpenSideBySide }: { stopId: string; facility: FacilityStop | undefined; onOpenSideBySide?: (stopId: string) => void }) {
+  if (!facility) return null
+  const available = DAKSA_CHIP_FACILITIES.filter(({ key }) => facility.facilities[key])
+  if (available.length === 0) return null
+  return (
+    <p className="leg__facility-chips">
+      {available.map(({ key, label }) => (
+        <button
+          type="button"
+          key={`${stopId}-${key}`}
+          className="facility-access-chip"
+          onClick={() => onOpenSideBySide?.(stopId)}
+          title={`Fasilitas ${label} di ${facility.name} — buka pratinjau side by side`}
+        >
+          {label}
+        </button>
+      ))}
+    </p>
+  )
+}
+
+function LegRow({
+  leg,
+  index,
+  affected,
+  facilityIndex,
+  onOpenSideBySide,
+}: {
+  leg: PlanLeg
+  index: number
+  affected: boolean
+  facilityIndex: Map<string, FacilityStop>
+  onOpenSideBySide?: (stopId: string) => void
+}) {
   if (leg.mode === 'WALK') {
     return (
       <li className="leg leg--walk">
@@ -453,6 +539,12 @@ function LegRow({ leg, index, affected }: { leg: PlanLeg; index: number; affecte
           <span aria-hidden="true"><ArrowRightIcon size={16} /></span>
           <span>{formatClock(leg.end_time)} turun di {leg.to.name}</span>
         </p>
+        {leg.from.stop_id ? (
+          <FacilityAccessChips stopId={leg.from.stop_id} facility={facilityIndex.get(leg.from.stop_id)} onOpenSideBySide={onOpenSideBySide} />
+        ) : null}
+        {leg.to.stop_id ? (
+          <FacilityAccessChips stopId={leg.to.stop_id} facility={facilityIndex.get(leg.to.stop_id)} onOpenSideBySide={onOpenSideBySide} />
+        ) : null}
         <p className="leg__meta">{leg.duration_minutes} menit · {formatDistance(leg.distance_m)}</p>
         {leg.delay_minutes && leg.delay_minutes > 0 ? (
           <p className="leg__delay" role="status">
@@ -470,7 +562,14 @@ function LegRow({ leg, index, affected }: { leg: PlanLeg; index: number; affecte
   )
 }
 
-function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
+function PlannerPage({
+  apiBaseUrl,
+  profile = 'tuli',
+  tts,
+  onOpenSideBySide,
+  onNavigateToPeron,
+  onDestinationSelected,
+}: PlannerPageProps) {
   const [originQuery, setOriginQuery] = useState('')
   const [origin, setOrigin] = useState<PlanPoint | null>(null)
   const [originSuggestions, setOriginSuggestions] = useState<PlanPoint[]>([])
@@ -479,7 +578,9 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
   const [originFromLocation, setOriginFromLocation] = useState(false)
   const [destinationQuery, setDestinationQuery] = useState('')
   const [destination, setDestination] = useState<PlanPoint | null>(null)
+  const [selectedDestination, setSelectedDestination] = useState<PlanPoint | null>(null)
   const [destinationSuggestions, setDestinationSuggestions] = useState<PlanPoint[]>([])
+  const [facilityStops, setFacilityStops] = useState<FacilityStop[]>([])
   const [planState, setPlanState] = useState<'idle' | 'loading' | 'results' | 'error'>('idle')
   const [planResponse, setPlanResponse] = useState<PlanResponse | null>(null)
   const [planError, setPlanError] = useState('')
@@ -531,6 +632,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
       setOriginFromLocation(false)
     } else {
       setDestination(point)
+      setSelectedDestination(point)
       setDestinationQuery(point.name)
       setDestinationSuggestions([])
     }
@@ -583,6 +685,38 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
     setPlanShapes([])
     setWalkLegs([])
   }
+
+  // Daksa accessibility chips: fetch the facility stops once after plan
+  // results load and cache them in state (a successful load never refetches;
+  // an interrupted one may retry on the next results render). A missing or
+  // failed fetch just means no chips — the flow never blocks on it.
+  const facilityStopsLoadedRef = useRef(false)
+  useEffect(() => {
+    if (profile !== 'daksa' || planState !== 'results' || facilityStopsLoadedRef.current) return
+    const controller = new AbortController()
+    fetch(`${apiBaseUrl}/api/facilities/stops`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return
+        const payload = (await response.json()) as { stops?: unknown }
+        const loaded = Array.isArray(payload.stops) ? payload.stops.filter(isFacilityStop) : []
+        if (!controller.signal.aborted) {
+          facilityStopsLoadedRef.current = true
+          setFacilityStops(loaded)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) console.warn('Facility stops lookup failed.', error)
+      })
+    return () => controller.abort()
+  }, [profile, planState, apiBaseUrl])
+
+  const facilityIndex = useMemo(() => buildFacilityIndex(facilityStops), [facilityStops])
+
+  // Keep the parent (App.tsx) informed of the chosen destination so the
+  // netra-scan screen can receive it as station context (wired in T6).
+  useEffect(() => {
+    onDestinationSelected?.(selectedDestination)
+  }, [selectedDestination, onDestinationSelected])
 
   const beginSaveStop = (kind: 'origin' | 'destination') => {
     const point = kind === 'origin' ? origin : destination
@@ -776,6 +910,9 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
         planShapes={planShapes}
         walkLegs={walkLegs}
         onBack={() => setPhase('plan')}
+        profile={profile}
+        tts={tts}
+        onNavigateToPeron={onNavigateToPeron}
       />
     )
   }
@@ -784,6 +921,13 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
   const selected = planResponse?.itineraries[selectedItinerary] ?? null
   const unavailable = planResponse?.source === 'unavailable'
   const noRoute = planResponse?.source === 'gtfs' && itineraries.length === 0
+  // MRT suitability userflow: evaluated on the FIRST (fastest) itinerary from
+  // every result set (manual search, demo, history, saved stops alike).
+  const firstItinerary = itineraries.length > 0 ? itineraries[0] : null
+  const mrtSuitable = planState === 'results' && !!firstItinerary
+    && firstItinerary.transfers <= MRT_SUITABILITY.MAX_TRANSFER
+    && firstItinerary.total_minutes <= MRT_SUITABILITY.MAX_MINUTES
+    && (firstItinerary.walk_distance_m ?? 0) <= MRT_SUITABILITY.MAX_WALK_M
 
   return (
     <main className="page-content inner-page planner-page">
@@ -806,7 +950,7 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             autoComplete="off"
           />
         </label>
-        <button type="button" className="planner-locate-btn" onClick={() => locateOrigin()} disabled={locating}>
+        <button type="button" className={`planner-locate-btn${profile === 'netra' ? ' planner-btn--netra' : ''}`} onClick={() => { if (profile === 'netra') tts?.speak('Pakai lokasi saya'); locateOrigin() }} disabled={locating}>
           <LocateIcon size={20} />
           {locating ? 'Mencari…' : 'Pakai lokasi saya'}
         </button>
@@ -857,7 +1001,12 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             />
           </label>
         </div>
-        <button className="primary-button" type="submit" disabled={planState === 'loading'}>
+        <button
+          className={`primary-button${profile === 'netra' ? ' planner-btn--netra' : ''}`}
+          type="submit"
+          disabled={planState === 'loading'}
+          onClick={() => { if (profile === 'netra') tts?.speak('Cari rute') }}
+        >
           {planState === 'loading' ? 'Mencari rute…' : 'Cari rute'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
         </button>
       </form>
@@ -1038,6 +1187,18 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             ))}
           </section>
 
+          {mrtSuitable ? (
+            <div className="mrt-suitability-banner" role="status">
+              <strong>Rute MRT tersedia dan efektif</strong>
+              <span>Perjalanan {firstItinerary?.total_minutes ?? 0} menit · {firstItinerary?.transfers ?? 0} transfer · jalan kaki {formatDistance(firstItinerary?.walk_distance_m ?? 0)} — aman untuk MRT.</span>
+            </div>
+          ) : (
+            <div className="mrt-suitability-notice" role="status">
+              <strong>Tujuan agak jauh kalau pakai MRT.</strong>
+              <span>Kami sarankan menggunakan transportasi darat lain. Rute di bawah tetap tersedia sebagai informasi.</span>
+            </div>
+          )}
+
           <section className="planner-summary" aria-labelledby="planner-summary-heading">
             <p className="eyebrow">RINGKASAN PERJALANAN</p>
             {arrivalTime && selected.legs[0] ? (
@@ -1063,6 +1224,8 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
                   leg={leg}
                   index={index}
                   affected={leg.mode === 'BUS' && !!leg.route && (affectedRouteIds.has(leg.route.id) || affectedRouteIds.has(leg.route.short_name))}
+                  facilityIndex={facilityIndex}
+                  onOpenSideBySide={onOpenSideBySide}
                 />
               ))}
             </ol>
@@ -1072,7 +1235,11 @@ function PlannerPage({ apiBaseUrl }: PlannerPageProps) {
             <MapboxMap stops={plannerStops} routeShapes={planShapes} walkLegs={walkLegs} />
           </div>
 
-          <button className="primary-button planner-track-button" type="button" onClick={startTrackingForChosenRoute}>
+          <button
+            className={`primary-button planner-track-button${mrtSuitable ? ' planner-track-button--highlight' : ' planner-track-button--deemphasized'}${profile === 'netra' ? ' planner-btn--netra' : ''}`}
+            type="button"
+            onClick={() => { if (profile === 'netra') tts?.speak('Lanjut ke tracking rute ini'); startTrackingForChosenRoute() }}
+          >
             Lanjut ke tracking rute ini <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
           </button>
         </>

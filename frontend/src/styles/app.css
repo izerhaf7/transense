@@ -3144,6 +3144,76 @@ input[aria-invalid='true'] {
   width: 100%;
 }
 
+/* MRT suitability userflow: highlight when effective, de-emphasize otherwise. */
+.planner-track-button--highlight {
+  box-shadow: var(--brand-shadow-accent-strong);
+  border-color: var(--brand-color-success);
+}
+
+.planner-track-button--deemphasized {
+  opacity: var(--brand-opacity-muted);
+}
+
+/* Netra (blind) personalization: large, readable primary action buttons. */
+.planner-btn--netra {
+  min-height: 56px;
+  font-size: var(--brand-font-size-base);
+  padding: var(--brand-space-base) var(--brand-space-lg);
+}
+
+/* Daksa personalization: per-station accessibility chips on BUS legs. */
+.facility-access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--brand-space-xs);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  background: var(--brand-color-accent-bg);
+  color: var(--brand-color-accent);
+  border: var(--brand-border-width) solid var(--brand-color-accent-border);
+  cursor: pointer;
+}
+
+.facility-access-chip:hover,
+.facility-access-chip:focus-visible {
+  background: var(--brand-color-accent-bg-hover);
+  border-color: var(--brand-color-accent-border-hover);
+}
+
+.leg__facility-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--brand-space-xxs);
+  margin: 0;
+}
+
+/* MRT suitability banners (destination userflow). */
+.mrt-suitability-banner {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  padding: var(--brand-space-sm) var(--brand-space-base);
+  border-radius: var(--brand-radius-base);
+  background: var(--brand-color-success-bg);
+  border: var(--brand-border-width) solid var(--brand-color-success-border);
+  color: var(--brand-color-success-foreground);
+}
+
+.mrt-suitability-notice {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  padding: var(--brand-space-sm) var(--brand-space-base);
+  border-radius: var(--brand-radius-base);
+  background: var(--brand-color-warning-bg);
+  border: var(--brand-border-width) solid var(--brand-color-warning-border);
+  color: var(--brand-color-warning-foreground);
+}
+
+.mrt-suitability-banner strong,
+.mrt-suitability-notice strong {
+  font-size: var(--brand-font-size-base);
+}
+
 .planner-simulation-page {
   gap: var(--brand-space-base);
 }

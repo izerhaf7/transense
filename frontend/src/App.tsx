@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import ChatTranscribe from './ChatTranscribe'
 import PlannerPage from './PlannerPage'
@@ -11,6 +11,7 @@ import { NotificationRenderer } from './components/NotificationRenderer'
 import { useBackendConnection } from './connection'
 import { clearStoredProfile, persistProfile, readProfile } from './profile'
 import type { DemoProfile, ProfileType } from './profile'
+import type { PlanPoint } from './plannerStorage'
 import { DelaysPage } from './screens/DelaysPage'
 import { HomePage } from './screens/HomePage'
 import { Onboarding } from './screens/Onboarding'
@@ -20,18 +21,53 @@ import { SplashScreen } from './screens/SplashScreen'
 import { createTtsProvider } from './tts'
 import type { Screen } from './types'
 
-function AntarAkuPage() {
-  return <PlannerPage apiBaseUrl={apiBaseUrl} />
+function AntarAkuPage({
+  profile,
+  tts,
+  onOpenSideBySide,
+  onNavigateToPeron,
+  onDestinationSelected,
+}: {
+  profile?: ProfileType
+  tts?: ReturnType<typeof createTtsProvider>
+  onOpenSideBySide: (stopId: string) => void
+  onNavigateToPeron: () => void
+  onDestinationSelected: (point: PlanPoint | null) => void
+}) {
+  return (
+    <PlannerPage
+      apiBaseUrl={apiBaseUrl}
+      profile={profile}
+      tts={tts}
+      onOpenSideBySide={onOpenSideBySide}
+      onNavigateToPeron={onNavigateToPeron}
+      onDestinationSelected={onDestinationSelected}
+    />
+  )
 }
 
 function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: DemoProfile; onResetProfile: () => void; onUpdateProfile: (patch: Partial<DemoProfile>) => void }) {
   const [screen, setScreen] = useState<Screen>('home')
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([])
+  const [plannerDestination, setPlannerDestination] = useState<PlanPoint | null>(null)
   const backend = useBackendConnection()
   const tts = useMemo(() => createTtsProvider(apiBaseUrl), [])
   const unreadNotifications = backend.notifications.filter((notification) => !dismissedNotificationIds.includes(notification.id))
   const unreadCount = unreadNotifications.length
   const currentNotification = backend.notifications.find((notification) => !dismissedNotificationIds.includes(notification.id)) || null
+
+  // Simple wiring for the Antar Aku personalization hooks: side-by-side for the
+  // daksa facility chips (full stopId context lands with the panorama task)
+  // and netra-scan for the "Navigasi ke peron" arrival handoff.
+  const handleOpenSideBySide = useCallback(() => {
+    setScreen('side-by-side')
+  }, [])
+  const handleNavigateToPeron = useCallback(() => {
+    setScreen('netra-scan')
+  }, [])
+  const handlePlannerDestinationSelected = useCallback((point: PlanPoint | null) => {
+    setPlannerDestination(point)
+  }, [])
 
   const title = useMemo(() => {
     if (screen === 'home') return 'Beranda'
@@ -68,10 +104,18 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
         {screen === 'schedule' ? <SchedulePage /> : null}
         {screen === 'delays' ? <DelaysPage incidentRecords={backend.incidentRecords} onPinIncident={backend.pinIncident} /> : null}
         {screen === 'transcribe' ? <ChatTranscribe apiBaseUrl={apiBaseUrl} /> : null}
-        {screen === 'antar-aku' ? <AntarAkuPage /> : null}
+        {screen === 'antar-aku' ? (
+          <AntarAkuPage
+            profile={profile.profile}
+            tts={tts}
+            onOpenSideBySide={handleOpenSideBySide}
+            onNavigateToPeron={handleNavigateToPeron}
+            onDestinationSelected={handlePlannerDestinationSelected}
+          />
+        ) : null}
         {screen === 'profile' ? <ProfilePage profile={profile} onReset={onResetProfile} onUpdateProfile={onUpdateProfile} lastRampAck={backend.lastRampAck} sendRampRequest={backend.sendRampRequest} /> : null}
         {screen === 'side-by-side' ? <SideBySidePage apiBaseUrl={apiBaseUrl} profile={profile.profile} tts={tts} /> : null}
-        {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} /> : null}
+        {screen === 'netra-scan' ? <NetraScan apiBaseUrl={apiBaseUrl} tts={tts} destinationStop={plannerDestination} /> : null}
       </div>
       <BottomNavigation screen={screen} onNavigate={handleNavigate} />
     </div>
