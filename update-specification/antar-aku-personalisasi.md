@@ -1,7 +1,7 @@
 # Antar Aku Personalisasi per Profil + Userflow Tujuan
 
 ## Status
-Draft
+Implemented
 
 ## Ringkasan
 Jadikan Antar Aku terintegrasi berdasarkan personalisasi masing-masing profil: **Netra** (UI tombol besar + speech per tombol + Transense sebagai "mata" yang membantu sampai tujuan), **Daksa** (Moovit biasa + preview aksesibilitas per stasiun yang bisa dipencet → masuk Side by Side stasiun itu), **Tuli** (flow existing: cari tujuan → pilih rute → notifikasi per ganti halte + peringatan halte mendekat). Ditambah **userflow awal**: sistem menanyakan tujuan, memperkirakan efektivitas MRT berdasarkan metrik; jika cocok → workflow Antar Aku dimulai; jika tidak → sarankan alternatif (tetap spotlight MRT).

@@ -1,7 +1,7 @@
 # Realtime Tracker Interpolasi ala Gapeka
 
 ## Status
-Draft
+Implemented
 
 ## Ringkasan
 Tambahkan **realtime tracker** yang menampilkan posisi armada TransJakarta/MRT bergerak mulus di peta — bukan dari API realtime (yang tidak ada), melainkan **interpolasi posisi dari jadwal GTFS (stop_times) + polyline rute (shapes)** — seperti platform Gapeka. Backend menghitung posisi otoritatif deterministik per trip aktif; frontend poll dan animasikan dengan rAF.

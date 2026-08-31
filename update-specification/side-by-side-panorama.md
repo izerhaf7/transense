@@ -1,7 +1,7 @@
 # Side by Side Panorama 360° Beranotasi (Daksa + Netra)
 
 ## Status
-Draft
+Implemented
 
 ## Ringkasan
 Ganti placeholder "Pratinjau 360°" di `SideBySidePage.tsx` dengan **viewer panorama 360° beranotasi** yang menampilkan foto 360° stasiun (1-2 stasiun major: Bundaran HI + Senayan) dengan overlay label fasilitas aksesibilitas yang muncul sesuai arah pandang. Profil **Daksa** (visual): navigasi via tombol panah kiri/kanan + chips fasilitas; profil **Netra** (verbal): daftar verbal + TTS (sudah ada, tetap).

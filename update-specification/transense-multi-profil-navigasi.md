@@ -1,7 +1,7 @@
 # Transense Multi-Profil Navigasi: Netra (Navigasi Stasiun + Gemini Multimodal) & Daksa (Side by Side)
 
 ## Status
-Draft
+Implemented
 
 ## Ringkasan
 Perluas fitur Transense multi-profil: untuk profil **Netra** (tunanetra), tambahkan **navigasi dalam stasiun** — pengguna memotret ke depan stasiun, Gemini multimodal menganalisis gambar dan memberi instruksi kanan/kiri/depan menuju peron sesuai tujuan; untuk profil **Daksa**, fitur Side by Side tetap sebagai peta aksesibilitas (ditingkatkan menjadi panorama 360° beranotasi — spec terpisah). Scope: **1–2 stasiun major** (Bundaran HI + Senayan).

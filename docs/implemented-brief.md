@@ -195,6 +195,40 @@ Dahulu nice-to-have per brief (Bagian A5), kini **diimplementasikan** sebagai ba
 - **Commute Data Platform** (kereta; `TRANSENSE_COMMUTE_ENABLED` default ON + `TRANSENSE_COMMUTE_API_BASE`; statis `TRANSENSE_COMMUTE_API_URL` untuk jadwal TJ).
 - **ElevenLabs** (STT `ELEVENLABS_API_KEY`; TTS `ELEVENLABS_TTS_VOICE_ID` untuk Netra).
 - **Google Cloud Vision** (OCR `GOOGLE_VISION_API_KEY` untuk Netra koridor — proxy backend, server-side only).
+- **Google Gemini** (navigasi stasiun Netra `GEMINI_API_KEY` — proxy backend `/api/vision/nav`, model `gemini-2.5-flash-lite` via `TRANSENSE_VISION_MODEL`).
+
+### B15. Realtime tracker interpolasi ala Gapeka — ✅ (2026-08-31, update-specification)
+
+- **Mesin interpolasi** `backend/vehicle_positions.py` (murni stdlib): posisi armada = fungsi murni dari (GTFS stop_times + shapes, waktu WIB) — snap stop→shape point monoton, `cum_dist` kumulatif, lerp jarak proporsional antar stop, dwell otomatis (speed=0 di stasiun), trip >24 jam via service-day kemarin (`service_active_on` existing), fallback garis lurus saat shape kosong (`geometry_type:"estimated"`).
+- **Endpoint** `GET /api/vehicle-positions` (`backend/api/routers/vehicles.py`): poll 2 detik; `{source:"scheduled", status:"ok"|"outside_service_hours", server_time, vehicles:[{id,trip_id,route_code,lat,lng,speed_mps,bearing,status}]}`; feed hilang → `source:"unavailable"` (HTTP 200).
+- **Frontend**: `HomePage.tsx` poll 2s (paralel, tidak mengganggu poll `/api/buses` 15s) + `MapboxMap.tsx` marker hijau animasi rAF lerp (easeOutCubic ~900ms) + label "Simulasi jadwal" (jujur, tidak klaim realtime).
+- **12 test** (`test_vehicle_positions.py` + `test_vehicles_endpoint.py`): determinisme, monoton, dwell, trip >24h, not_started/finished, feed None, estimated.
+- Spec: `update-specification/realtime-tracker-interpolasi.md` (Implemented).
+
+### B16. Side by Side panorama 360° beranotasi — ✅ (2026-08-31)
+
+- **Viewer CSS scroll** `frontend/src/PanoramaFacilities.tsx` (tanpa library/WebGL): track `overflow-x: scroll` + gambar wide, chips fasilitas yaw-based (absolut `left:(yaw/360)*100%`), tombol panah ‹› (44px, scrollBy 45° + `navigator.vibrate(10)`), `aria-live` "Menghadap {fasilitas}", chip aktif dalam FOV/2, error gambar → fallback placeholder.
+- **Konfigurasi** `frontend/src/panoramaConfig.ts`: Bundaran HI + Senayan (chips ramp/lift/guiding_block/staffed dengan yaw realistis).
+- **Integrasi** `SideBySidePage.tsx`: renderer daksa pakai `PanoramaFacilities` bila config ada; fallback placeholder existing. Netra verbal tetap (TTS + text twin).
+- Gambar placeholder `public/panorama/*.jpg` (wide generik, diganti foto asli sebelum submission).
+- Spec: `update-specification/side-by-side-panorama.md` (Implemented).
+
+### B17. Antar Aku personalisasi per profil — ✅ (2026-08-31)
+
+- **Netra**: tombol utama besar (`.planner-btn--netra`, min-height 56px) + speech per tombol (`tts.speak(label)`); tombol "Navigasi ke peron" saat tracking arrived → pindah ke netra-scan.
+- **Daksa**: chips aksesibilitas per BUS stop di itinerary (fetch `/api/facilities/stops` sekali) → klik → navigasi ke side-by-side.
+- **Tuli**: flow existing tanpa perubahan.
+- **Userflow tujuan MRT**: setelah itinerary pertama → evaluasi deterministik (`transfers ≤ 1 && total_minutes ≤ 45 && walk_distance_m ≤ 600`) → banner "Rute MRT tersedia dan efektif" (highlight tracking) / notice "Tujuan agak jauh kalau pakai MRT" (de-emphasize tracking, spotlight MRT).
+- Wiring: `App.tsx` pass `profile`/`tts`/`onOpenSideBySide`/`onNavigateToPeron`/`onDestinationSelected` → `plannerDestination` state → NetraScan `destinationStop`.
+- Spec: `update-specification/antar-aku-personalisasi.md` (Implemented).
+
+### B18. Navigasi stasiun Netra via Gemini multimodal — ✅ (2026-08-31)
+
+- **Proxy backend** `POST /api/vision/nav` (`backend/api/routers/ai.py`): body `{image_base64 ≤5M, station_context, destination}` → Gemini `gemini-2.5-flash-lite` (`GEMINI_API_KEY`, `TRANSENSE_VISION_MODEL` override) via `generateContent` + JSON schema (`maxOutputTokens:150`, `temperature:0.1`); key hilang → 503; error apapun → 200 `{source:"unavailable", fallback_text}` (tidak pernah 500).
+- **Prompt engineering** (Bahasa Indonesia TTS-friendly): system instruction ketat — arah dulu, landmark, keselamatan dulu, max 20 kata; `_build_nav_prompt()` murni + deterministik.
+- **Frontend** `NetraScan.tsx`: tombol besar "Navigasi ke peron" → frame terakhir → base64 → `/api/vision/nav` → `instruction.instruksi` → TTS + text twin besar + arah → vibrasi kategori + status visual besar; `destinationStop` dari Antar Aku sebagai konteks.
+- **11 test** (`test_vision_nav.py`): mock 200/timeout/error/safety, 503 no key, 422, prompt deterministik.
+- Spec: `update-specification/transense-multi-profil-navigasi.md` (Implemented).
 
 ---
 
@@ -202,7 +236,7 @@ Dahulu nice-to-have per brief (Bagian A5), kini **diimplementasikan** sebagai ba
 
 | Area | Status |
 |---|---|
-| Backend tests | ✅ 111 test (16 file) dikoleksi — `python -m pytest backend/tests -q` |
+| Backend tests | ✅ 140 test (19 file) — `python -m pytest backend/tests -q` (111 existing + 29 baru: vehicle_positions, vehicles endpoint, vision_nav) |
 | Frontend build | ✅ `npm run check` (typecheck + build) hijau |
 | Contract guards | ✅ `journey` / `transcribe` / `planner` / `planner-storage` / `profile-storage` / `tts` / `notify` / `camera` / `approach` / `sidebyside` exit 0 |
 | OpenSpec | ✅ `openspec validate --all --strict` → 12+ lulus (10 specs aktif incl. multi-profil-netra-daksa + 2 change aktif: trip-planner-moovit, trip-planner-routing) |
