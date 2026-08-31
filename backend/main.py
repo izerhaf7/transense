@@ -10,7 +10,7 @@ from typing import Any, cast
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.routers import ai, conversations, facilities, gtfs, health, incidents, journey, realtime, schedule, transcripts, transit, ws
+from .api.routers import ai, conversations, facilities, gtfs, health, incidents, journey, realtime, schedule, transcripts, transit, vehicles, ws
 from .api.utils import load_or_build_walk_graph
 from .commute import CommuteClient, CommuteFeed
 from .config import Settings
@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
     try:
         zip_path = download_gtfs(url=settings.gtfs_url, cache_path=settings.gtfs_cache_path)
         app.state.gtfs_feed = parse_gtfs(zip_path)
+        app.state.vehicle_geometry_cache = {}
         logger.info("GTFS feed loaded: %d stops, %d routes", len(app.state.gtfs_feed.stops), len(app.state.gtfs_feed.routes))
         app.state.walk_graph = load_or_build_walk_graph(app.state.gtfs_feed)
     except Exception as exc:
@@ -132,6 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(transit.router)
     application.include_router(realtime.router)
     application.include_router(journey.router)
+    application.include_router(vehicles.router)
     application.include_router(ws.router)
 
     return application
