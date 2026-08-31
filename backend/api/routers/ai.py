@@ -1,7 +1,9 @@
-"""AI feature endpoints (profil Netra): STT token, TTS, Vision OCR."""
+"""AI feature endpoints (profil Netra): STT token, TTS, Vision OCR, Gemini nav."""
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
 import httpx
@@ -10,7 +12,59 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from ..deps import get_settings
 from ..utils import extract_ocr_text
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["ai"])
+
+_NAV_SYSTEM_INSTRUCTION = (
+    "Kamu adalah asisten navigasi untuk penyandang tunanetra di stasiun kereta Indonesia.\n"
+    "Tugasmu: analisis gambar dari kamera ponsel pengguna dan berikan SATU instruksi navigasi berikutnya.\n"
+    "ATURAN KETAT:\n"
+    "1. Jawab HANYA dalam Bahasa Indonesia percakapan yang natural saat dibacakan TTS.\n"
+    "2. Maksimal 2 kalimat pendek, total maksimal 20 kata.\n"
+    "3. Selalu mulai dengan arah: \"Ke kiri\", \"Ke kanan\", \"Lurus ke depan\", atau \"Berhenti\".\n"
+    "4. Sebutkan landmark yang bisa didengar/dirasakan bila terlihat: pintu, lift, eskalator, tangga, "
+    "garis kuning peron, loket, palang tiket.\n"
+    "5. KESELAMATAN DULU: jika terlihat garis peron, celah, atau kereta, instruksi pertama harus "
+    "peringatan berhenti/menjauh.\n"
+    "6. Jika gambar gelap, kabur, atau bukan area stasiun: arah = \"tidak_jelas\", minta pengguna "
+    "foto ulang dengan singkat.\n"
+    "7. DILARANG: berpikir keras di jawaban, bertanya balik, markdown, emoji, angka desimal, istilah teknis."
+)
+
+_NAV_FALLBACK_TEXT = (
+    "Fitur navigasi kamera tidak tersedia. Gunakan tombol bantuan atau tanya petugas stasiun."
+)
+
+_NAV_INSTRUCTION_FIELDS = ("arah", "instruksi", "landmark", "percaya_diri")
+
+
+def _build_nav_prompt(station_context: str, destination: str) -> str:
+    """Deterministic Bahasa Indonesia prompt for the Gemini station nav call."""
+    return (
+        f"Konteks: pengguna tunanetra berdiri di {station_context}, menuju {destination}. "
+        "Analisis gambar ini dan berikan satu instruksi navigasi berikutnya."
+    )
+
+
+def _extract_nav_instruction(body: Any) -> dict[str, Any] | None:
+    """Best-effort extraction of the nav instruction JSON from a Gemini response."""
+    try:
+        candidates = body.get("candidates") or []
+        first = candidates[0] if candidates else {}
+        parts = (first.get("content") or {}).get("parts") or []
+        text = parts[0].get("text") if parts else None
+        if not isinstance(text, str) or not text.strip():
+            return None
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            return None
+        instruction = {field: parsed.get(field) for field in _NAV_INSTRUCTION_FIELDS}
+        if not isinstance(instruction["arah"], str) or not isinstance(instruction["instruksi"], str):
+            return None
+        return instruction
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return None
 
 
 @router.get("/scribe-token", response_model=None)
@@ -82,3 +136,56 @@ async def vision_ocr(request: Request, payload: dict[str, Any]) -> dict[str, Any
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"Google Cloud Vision failed: {error}")
     return {"text": extract_ocr_text(response.json()), "source": "google-cloud-vision"}
+
+
+@router.post("/vision/nav", response_model=None)
+async def vision_nav(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    """Gemini multimodal station navigation proxy for the Netra profile."""
+    settings = get_settings(request)
+    image_base64 = payload.get("image_base64")
+    if not isinstance(image_base64, str) or not image_base64.strip():
+        raise HTTPException(status_code=422, detail="image_base64 must be a non-empty string")
+    if len(image_base64) > 5_000_000:
+        raise HTTPException(status_code=422, detail="image_base64 must be at most 5,000,000 characters")
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=503, detail="Gemini vision not configured")
+    station_context = payload.get("station_context")
+    if not isinstance(station_context, str) or not station_context.strip():
+        station_context = "stasiun"
+    destination = payload.get("destination")
+    if not isinstance(destination, str) or not destination.strip():
+        destination = "peron"
+    try:
+        response = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{settings.vision_nav_model}:generateContent",
+            params={"key": settings.gemini_api_key},
+            json={
+                "contents": [
+                    {
+                        "parts": [
+                            {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}},
+                            {"text": _build_nav_prompt(station_context, destination)},
+                        ]
+                    }
+                ],
+                "system_instruction": {"parts": [{"text": _NAV_SYSTEM_INSTRUCTION}]},
+                "generationConfig": {
+                    "maxOutputTokens": 150,
+                    "temperature": 0.1,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=12.0,
+        )
+        response.raise_for_status()
+        instruction = _extract_nav_instruction(response.json())
+    except Exception as error:
+        logger.warning("Gemini vision nav failed: %s", error)
+        instruction = None
+    if instruction is None:
+        return {"source": "unavailable", "fallback_text": _NAV_FALLBACK_TEXT}
+    return {
+        "source": "gemini",
+        "model": settings.vision_nav_model,
+        "instruction": instruction,
+    }
