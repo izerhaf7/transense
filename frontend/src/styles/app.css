@@ -4113,6 +4113,90 @@ input[aria-invalid='true'] {
   box-shadow: var(--brand-shadow-elevated);
 }
 
+/* ---- 360° panorama viewer (PanoramaFacilities, daksa renderer) ---- */
+
+.pano-viewer {
+  position: relative;
+}
+
+.pano-track {
+  position: relative;
+  height: 180px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  background: var(--brand-color-surface);
+  border-radius: var(--brand-radius-lg);
+}
+
+.pano-track img {
+  display: block;
+  height: 100%;
+  width: auto;
+  min-width: 300%;
+  object-fit: cover;
+}
+
+.pano-chip {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  padding: var(--brand-space-xxs) var(--brand-space-xs);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  white-space: nowrap;
+  transition: opacity var(--brand-motion-fast) ease;
+}
+
+.pano-chip:not(.pano-chip--active) {
+  opacity: 0.6;
+}
+
+.pano-chip--active {
+  border-color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+  opacity: 1;
+}
+
+.pano-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--brand-color-text-on-accent);
+  background: var(--brand-color-accent);
+  border: var(--brand-border-width) solid var(--brand-color-accent);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-xl);
+  font-weight: var(--brand-font-weight-strong);
+  line-height: 1;
+  cursor: pointer;
+  z-index: 5;
+}
+
+.pano-nav-btn--left {
+  left: 8px;
+}
+
+.pano-nav-btn--right {
+  right: 8px;
+}
+
+.pano-aria-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .sbs-stop-card__facilities {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

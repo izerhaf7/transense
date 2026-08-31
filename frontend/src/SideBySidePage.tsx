@@ -10,8 +10,9 @@
  * Data contract: `GET /api/facilities/stops` returns `{ stops, source }`
  * where each stop is a `FacilityStop`. The payload carries normal facility
  * information (brief-v2 owner decision: presented as real data, no marker).
- * The 360° photo shown for daksa is an explicit static placeholder labeled
- * "Pratinjau 360°".
+ * For the daksa profile, stops with a bundled panorama configuration render
+ * an annotated CSS-scroll 360° viewer (PanoramaFacilities); other stops keep
+ * the static "Pratinjau 360°" placeholder.
  *
  * The pure helpers (`isFacilityStop`, `buildStopAnnouncement`) are exported so
  * the deterministic wording can be unit-tested in node (see
@@ -21,6 +22,8 @@
 import { useEffect, useState } from 'react'
 import type { ProfileType } from './profile'
 import type { TtsProvider } from './tts'
+import PanoramaFacilities from './PanoramaFacilities'
+import { getPanoramaConfig } from './panoramaConfig'
 
 export interface FacilityStop {
   id: string
@@ -174,25 +177,32 @@ export default function SideBySidePage({ apiBaseUrl, profile, tts }: SideBySideP
           <p className="sbs-page__intro">Lihat fasilitas aksesibilitas yang tersedia di setiap halte.</p>
         </div>
         <div className="sbs-list">
-          {stops.map((stop) => (
-            <article className="sbs-stop-card" key={stop.id}>
-              <h3 className="sbs-stop-card__name">{stop.name}</h3>
-              <div className="sbs-stop-card__visual" role="img" aria-label={`Pratinjau 360° ${stop.name}`}>
-                <span className="sbs-visual-label">Pratinjau 360°</span>
-              </div>
-              <ul className="sbs-stop-card__facilities">
-                {FACILITY_ORDER.map((key) => {
-                  const available = stop.facilities[key]
-                  return (
-                    <li key={key} className={`sbs-chip ${available ? 'sbs-chip--on' : 'sbs-chip--off'}`}>
-                      <span>{FACILITY_CHIP_LABELS[key]}</span>
-                      <span className="sbs-chip__state">{available ? 'Tersedia' : 'Tidak tersedia'}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            </article>
-          ))}
+          {stops.map((stop) => {
+            const panorama = getPanoramaConfig(stop.id)
+            return (
+              <article className="sbs-stop-card" key={stop.id}>
+                <h3 className="sbs-stop-card__name">{stop.name}</h3>
+                {panorama ? (
+                  <PanoramaFacilities src={panorama.imageUrl} chips={panorama.chips} stopName={stop.name} />
+                ) : (
+                  <div className="sbs-stop-card__visual" role="img" aria-label={`Pratinjau 360° ${stop.name}`}>
+                    <span className="sbs-visual-label">Pratinjau 360°</span>
+                  </div>
+                )}
+                <ul className="sbs-stop-card__facilities">
+                  {FACILITY_ORDER.map((key) => {
+                    const available = stop.facilities[key]
+                    return (
+                      <li key={key} className={`sbs-chip ${available ? 'sbs-chip--on' : 'sbs-chip--off'}`}>
+                        <span>{FACILITY_CHIP_LABELS[key]}</span>
+                        <span className="sbs-chip__state">{available ? 'Tersedia' : 'Tidak tersedia'}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </article>
+            )
+          })}
         </div>
       </section>
     )

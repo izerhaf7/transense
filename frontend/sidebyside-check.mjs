@@ -14,6 +14,9 @@ const requiredContracts = [
   { label: 'announcement text twin', value: 'sbs-announcement', source },
   { label: 'announcement builder', value: 'buildStopAnnouncement', source },
   { label: 'type guard', value: 'isFacilityStop', source },
+  { label: 'panorama lookup', value: 'getPanoramaConfig', source },
+  { label: 'panorama renderer', value: 'PanoramaFacilities', source },
+  { label: 'panorama fallback placeholder', value: 'sbs-stop-card__visual', source },
 ]
 
 for (const { label, value, source: target } of requiredContracts) {
@@ -35,18 +38,11 @@ if (source.includes('simulated')) {
 
 // Transpile TSX to CommonJS and run in a VM sandbox with stubbed React so the
 // pure `buildStopAnnouncement` is unit-testable without a browser.
-const transpiled = ts.transpileModule(source, {
-  compilerOptions: {
-    module: ts.ModuleKind.CommonJS,
-    target: ts.ScriptTarget.ES2020,
-    esModuleInterop: true,
-    jsx: ts.JsxEmit.ReactJSX,
-  },
-  fileName: 'SideBySidePage.tsx',
-}).outputText
 
 // Lightweight React stubs: the module only needs them at import time, the pure
-// functions under test never render.
+// functions under test never render. The panorama modules are also imported by
+// SideBySidePage: the pure config is evaluated for real; the React component
+// is stubbed because it only renders in a browser.
 const reactStub = {
   useEffect: () => {},
   useState: () => [],
@@ -54,19 +50,42 @@ const reactStub = {
 }
 const jsxRuntimeStub = { jsx: () => null, jsxs: () => null, Fragment: () => null }
 
-const mod = { exports: {} }
-const sandbox = {
-  module: mod,
-  exports: mod.exports,
-  console,
-  require: (specifier) => {
-    if (specifier === 'react') return reactStub
-    if (specifier === 'react/jsx-runtime') return jsxRuntimeStub
-    throw new Error(`Unexpected require from SideBySidePage.tsx: ${specifier}`)
-  },
+const transpileToCommonJs = (sourceText, fileName) =>
+  ts.transpileModule(sourceText, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+      esModuleInterop: true,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
+    fileName,
+  }).outputText
+
+const evaluateModule = (sourceText, fileName, extraSandbox = {}) => {
+  const moduleRecord = { exports: {} }
+  const sandbox = {
+    module: moduleRecord,
+    exports: moduleRecord.exports,
+    console,
+    require: (specifier) => {
+      if (specifier === 'react') return reactStub
+      if (specifier === 'react/jsx-runtime') return jsxRuntimeStub
+      if (specifier === './PanoramaFacilities') return { default: () => null }
+      if (specifier === './panoramaConfig') return panoramaConfigModule.exports
+      return extraSandbox.require?.(specifier)
+    },
+    ...extraSandbox,
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(transpileToCommonJs(sourceText, fileName), sandbox, { fileName })
+  return moduleRecord
 }
-vm.createContext(sandbox)
-vm.runInContext(transpiled, sandbox, { filename: 'SideBySidePage.tsx' })
+
+// Real panorama config module: pure data + lookup, safe to evaluate in node.
+const panoramaSource = readFileSync(new URL('./src/panoramaConfig.ts', import.meta.url), 'utf8')
+const panoramaConfigModule = evaluateModule(panoramaSource, 'panoramaConfig.ts')
+
+const mod = evaluateModule(source, 'SideBySidePage.tsx')
 
 const { buildStopAnnouncement } = mod.exports
 
@@ -139,4 +158,27 @@ const bareAnnouncement = buildStopAnnouncement(bareStop)
 assert(bareAnnouncement.includes('Halte Tanpa Fasilitas'), 'bare announcement names the stop')
 assert(!bareAnnouncement.includes('Tersedia '), `bare announcement must not say "Tersedia" with an empty list (got "${bareAnnouncement}")`)
 
-console.log('SideBySidePage deterministic checks passed: endpoint contract, dual renderers, Indonesian announcement, no type suppression, no simulated labels.')
+// (e) Panorama config: annotated stops resolve, unannotated stops fall back to
+// the placeholder, and every chip yaw is a valid 0..360 degree heading.
+const { getPanoramaConfig } = panoramaConfigModule.exports
+
+const bundaranHi = getPanoramaConfig('fac-bundaran-hi')
+assert(bundaranHi !== null, 'bundaran-hi stop has a panorama config')
+assert(bundaranHi.imageUrl === '/panorama/bundaran-hi.jpg', 'bundaran-hi panorama image path is correct')
+
+const senayan = getPanoramaConfig('fac-senayan')
+assert(senayan !== null, 'senayan stop has a panorama config')
+assert(senayan.imageUrl === '/panorama/senayan.jpg', 'senayan panorama image path is correct')
+
+assert(getPanoramaConfig('fac-kota-tua') === null, 'unannotated stops return null (placeholder fallback)')
+assert(getPanoramaConfig('unknown-stop') === null, 'unknown stop ids return null')
+
+for (const config of [bundaranHi, senayan]) {
+  assert(config.stopId.length > 0, 'panorama config carries its stop id')
+  for (const chip of config.chips) {
+    assert(typeof chip.facility === 'string' && chip.facility !== '', 'panorama chip facility key is a non-empty string')
+    assert(chip.yaw >= 0 && chip.yaw <= 360, `panorama chip yaw must be 0..360 degrees (got ${chip.yaw})`)
+  }
+}
+
+console.log('SideBySidePage deterministic checks passed: endpoint contract, dual renderers, Indonesian announcement, panorama config, no type suppression, no simulated labels.')
