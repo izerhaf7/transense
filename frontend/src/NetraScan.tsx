@@ -68,10 +68,14 @@ function growBoxAroundCenter(previous: Detection, next: Detection, ratio = 1.3):
   }
 }
 
-function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
+function NetraScan({ apiBaseUrl, tts, destinationStop }: NetraScanProps) {
   const [status, setStatus] = useState('Mencari bus…')
   const [approaching, setApproaching] = useState(false)
   const [demoMode, setDemoMode] = useState(false)
+  const [navActive, setNavActive] = useState(false)
+  const [navInstruction, setNavInstruction] = useState<string>('')
+  const [navDirection, setNavDirection] = useState<string>('')
+  const [navLoading, setNavLoading] = useState(false)
   const trackedDetectionRef = useRef<Detection | null>(null)
   const hasDetectionRef = useRef(false)
   const lastFrameRef = useRef<ImageData | null>(null)
@@ -149,6 +153,79 @@ function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
     return () => window.clearInterval(interval)
   }, [apiBaseUrl, demoMode])
 
+  // Station navigation (Gemini multimodal): capture the latest camera frame,
+  // POST /api/vision/nav, then TTS + haptic + text twin. Never fabricates —
+  // only renders what the API returns; unavailable falls back to its text.
+  const handleNavigation = useCallback(async () => {
+    setNavLoading(true)
+    setNavActive(true)
+    setNavDirection('')
+    try {
+      const frame = lastFrameRef.current
+      if (!frame) {
+        setNavInstruction('Kamera belum siap. Coba lagi.')
+        return
+      }
+      const base64 = imageDataToBase64(frame, 0.7)
+      if (!base64) {
+        setNavInstruction('Kamera belum siap. Coba lagi.')
+        return
+      }
+      const stationContext = destinationStop?.name ?? 'dalam area stasiun kereta'
+      const destinationText = destinationStop?.name ? `${destinationStop.name} peron` : 'peron'
+      const response = await fetch(`${apiBaseUrl}/api/vision/nav`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_base64: base64,
+          station_context: stationContext,
+          destination: destinationText,
+        }),
+      })
+      if (!response.ok) {
+        setNavInstruction('Navigasi gagal. Coba lagi.')
+        return
+      }
+      const data = (await response.json()) as {
+        source?: string
+        instruction?: { arah?: string; instruksi?: string }
+        fallback_text?: string
+      }
+      if (data.source === 'gemini' && data.instruction && typeof data.instruction.instruksi === 'string') {
+        const instruction = data.instruction.instruksi
+        const direction = typeof data.instruction.arah === 'string' ? data.instruction.arah : ''
+        setNavInstruction(instruction)
+        setNavDirection(direction)
+        tts?.speak(instruction)
+        if ('vibrate' in navigator && typeof navigator.vibrate === 'function') {
+          const lowered = direction.toLowerCase()
+          let pattern: number[] = [50]
+          if (lowered === 'kiri') {
+            pattern = [100]
+          } else if (lowered === 'kanan') {
+            pattern = [100, 50, 100]
+          } else if (lowered === 'depan') {
+            pattern = [200]
+          } else if (lowered === 'berhenti') {
+            pattern = [500]
+          }
+          navigator.vibrate(pattern)
+        }
+        return
+      }
+      if (data.source === 'unavailable' && typeof data.fallback_text === 'string') {
+        setNavInstruction(data.fallback_text)
+        tts?.speak(data.fallback_text)
+        return
+      }
+      setNavInstruction('Navigasi gagal. Coba lagi.')
+    } catch {
+      setNavInstruction('Navigasi gagal. Coba lagi.')
+    } finally {
+      setNavLoading(false)
+    }
+  }, [apiBaseUrl, destinationStop, tts])
+
   return (
     <section className="netra-scan" style={{ padding: 'var(--brand-screen-padding)' }}>
       <h2 style={{ fontSize: 'var(--brand-font-size-xl)', marginBottom: 'var(--brand-space-sm)' }}>Pemindai Netra</h2>
@@ -169,6 +246,88 @@ function NetraScan({ apiBaseUrl, tts }: NetraScanProps) {
       >
         {status}
       </p>
+
+      <section
+        className="netra-scan__nav"
+        aria-label="Navigasi stasiun"
+        style={{ margin: '0 0 var(--brand-space-base)' }}
+      >
+        <button
+          type="button"
+          className="primary-button netra-scan__nav-button"
+          onClick={() => {
+            void handleNavigation()
+          }}
+          disabled={navLoading}
+          style={{
+            minHeight: '56px',
+            width: '100%',
+            padding: '0 var(--brand-space-lg)',
+            borderRadius: 'var(--brand-radius-pill)',
+            fontSize: 'var(--brand-font-size-lg)',
+            fontWeight: 'var(--brand-font-weight-strong)',
+          }}
+        >
+          {navLoading ? 'Menganalisis...' : 'Navigasi ke peron'}
+        </button>
+
+        {destinationStop ? (
+          <p
+            className="netra-scan__nav-context"
+            style={{
+              fontSize: 'var(--brand-font-size-base)',
+              color: 'var(--brand-color-text)',
+              margin: 'var(--brand-space-sm) 0 0',
+            }}
+          >
+            Menuju: {destinationStop.name}
+          </p>
+        ) : null}
+
+        {navActive ? (
+          <div
+            className="netra-scan__nav-result"
+            style={{ marginTop: 'var(--brand-space-base)' }}
+          >
+            {navDirection ? (
+              <p
+                className="netra-scan__nav-direction"
+                style={{
+                  fontSize: 'var(--brand-font-size-xl)',
+                  fontWeight: 'var(--brand-font-weight-strong)',
+                  color: 'var(--brand-color-accent-foreground, var(--brand-color-text))',
+                  margin: '0 0 var(--brand-space-sm)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {(() => {
+                  const lowered = navDirection.toLowerCase()
+                  if (lowered === 'kiri') return 'KE KIRI'
+                  if (lowered === 'kanan') return 'KE KAN'
+                  if (lowered === 'depan') return 'KE DEPAN'
+                  if (lowered === 'berhenti') return 'BERHENTI'
+                  return navDirection.toUpperCase()
+                })()}
+              </p>
+            ) : null}
+            <p
+              role="status"
+              aria-live="polite"
+              className="netra-scan__nav-instruction"
+              style={{
+                fontSize: 'var(--brand-font-size-lg)',
+                fontWeight: 'var(--brand-font-weight-strong)',
+                lineHeight: 'var(--brand-line-height)',
+                color: 'var(--brand-color-text)',
+                margin: 0,
+              }}
+            >
+              {navInstruction}
+            </p>
+          </div>
+        ) : null}
+      </section>
 
       {demoMode ? (
         <p
