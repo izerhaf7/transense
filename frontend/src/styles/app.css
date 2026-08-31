@@ -833,6 +833,49 @@ input[aria-invalid='true'] {
   box-shadow: var(--brand-shadow-card);
 }
 
+/* Schedule-simulation vehicle dot (green) — distinct from realtime bus
+   markers (route-colored with route code text). Position-only animation is
+   driven in JS via marker.setLngLat; this rule is pure static styling. */
+.scheduled-vehicle-marker {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand-color-success);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* "Simulasi jadwal" chip — bottom-left of the map shell, subtle, only
+   visible while schedule-simulation markers are on the map. */
+.map-schedule-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 5;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  color: var(--brand-color-text-secondary);
+}
+
+/* "Di luar jam operasional" hint — sits directly above the schedule chip. */
+.map-schedule-hint {
+  position: absolute;
+  bottom: 34px;
+  left: 8px;
+  z-index: 5;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  background: var(--brand-color-bg-container);
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  color: var(--brand-color-text-secondary);
+}
+
 .map-filter-panel {
   position: absolute;
   z-index: 15;

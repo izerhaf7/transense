@@ -244,6 +244,33 @@ export function HomePage({
     }
   }
 
+  // Schedule-based (Gapeka interpolation) vehicles — polled every 2s, animated
+  // on the map via rAF lerp in MapboxMap. Never labeled as realtime; the map
+  // shows a "Simulasi jadwal" chip while these markers are visible.
+  const [scheduledVehicles, setScheduledVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
+  const [trackerStatus, setTrackerStatus] = useState<'ok' | 'outside_service_hours' | 'unavailable'>('unavailable')
+
+  useEffect(() => {
+    const fetchScheduledVehicles = () => {
+      fetch(`${apiBaseUrl}/api/vehicle-positions`)
+        .then(async (res) => {
+          if (!res.ok) return
+          const data = await res.json() as { source: string; status?: string; vehicles?: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[] }
+          if (data.source === 'scheduled') {
+            setScheduledVehicles(data.vehicles ?? [])
+            setTrackerStatus(data.status === 'outside_service_hours' ? 'outside_service_hours' : 'ok')
+          } else if (data.source === 'unavailable') {
+            setScheduledVehicles([])
+            setTrackerStatus('unavailable')
+          }
+        })
+        .catch(() => {})
+    }
+    fetchScheduledVehicles()
+    const interval = window.setInterval(fetchScheduledVehicles, 2_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
   const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
   const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
 
@@ -437,6 +464,7 @@ export function HomePage({
             stops={mapMode === 'bus' ? displayStops : []}
             routeShapes={mapMode === 'bus' ? filteredShapes : []}
             buses={mapMode === 'bus' ? filteredBuses : []}
+            scheduledVehicles={mapMode === 'bus' ? scheduledVehicles : []}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
             stopPopup={mapMode === 'bus' ? stopInfo : null}
@@ -452,6 +480,9 @@ export function HomePage({
             locating={locating}
             locateError={locateError}
           />
+          {trackerStatus === 'outside_service_hours' ? (
+            <p className="map-schedule-hint" role="status">Di luar jam operasional</p>
+          ) : null}
         </div>
         {notificationsOpen ? (
           <section className="notification-panel" id="notification-panel" aria-label="Daftar notifikasi">

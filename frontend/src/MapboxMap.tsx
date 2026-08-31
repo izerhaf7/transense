@@ -38,6 +38,16 @@ interface BusPosition {
   next_stop?: { name: string }
 }
 
+export interface ScheduledVehicle {
+  id: string
+  trip_id: string
+  lat: number
+  lng: number
+  bearing: number
+  status: string
+  route_code?: string
+}
+
 export interface StopPopupData {
   stop: { id: string; name: string; lng: number; lat: number; wheelchair_boarding?: string }
   routes: { route_code: string; color: string }[]
@@ -96,6 +106,7 @@ function MapboxMap({
   stops,
   routeShapes,
   buses,
+  scheduledVehicles,
   walkLegs,
   selectedRouteNames,
   onStopClick,
@@ -115,6 +126,7 @@ function MapboxMap({
   stops: MapStop[]
   routeShapes?: RouteShape[]
   buses?: BusPosition[]
+  scheduledVehicles?: ScheduledVehicle[]
   walkLegs?: WalkLine[]
   selectedRouteNames?: Set<string>
   onStopClick?: (stopId: string) => void
@@ -136,6 +148,8 @@ function MapboxMap({
   const stopMarkersRef = useRef<mapboxgl.Marker[]>([])
   const railStationMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const scheduledMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map())
+  const scheduledAnimsRef = useRef<Map<string, { raf: number; start: number; from: { lng: number; lat: number }; to: { lng: number; lat: number }}>>(new Map())
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const railStationPopupRef = useRef<mapboxgl.Popup | null>(null)
@@ -235,6 +249,10 @@ function MapboxMap({
       stopMarkersRef.current = []
       busMarkersRef.current.forEach((m) => m.remove())
       busMarkersRef.current = []
+      scheduledAnimsRef.current.forEach((a) => window.cancelAnimationFrame(a.raf))
+      scheduledAnimsRef.current.clear()
+      scheduledMarkersRef.current.forEach((m) => m.remove())
+      scheduledMarkersRef.current.clear()
       railStationMarkersRef.current.forEach((m) => m.remove())
       railStationMarkersRef.current = []
       userMarkerRef.current?.remove()
@@ -477,6 +495,75 @@ function MapboxMap({
     }
   }, [buses])
 
+  // Scheduled (Gapeka interpolation) vehicle markers — animated with rAF lerp
+  // for smooth movement between 2s poll snapshots. Distinct green dots so they
+  // never read as realtime bus markers; the "Simulasi jadwal" chip below makes
+  // the simulation explicit. Position-only animation (setLngLat) — no scale,
+  // so no layout shift.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+
+    const vehicles = scheduledVehicles ?? []
+    const seen = new Set<string>()
+    const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
+    const DURATION_MS = 900
+
+    const animateTo = (id: string, marker: mapboxgl.Marker, to: { lng: number; lat: number }) => {
+      const prev = scheduledAnimsRef.current.get(id)
+      if (prev) window.cancelAnimationFrame(prev.raf)
+      const from = marker.getLngLat()
+      // Skip animation when the delta is invisible at map scale.
+      if (Math.abs(from.lng - to.lng) < 1e-7 && Math.abs(from.lat - to.lat) < 1e-7) return
+      const anim = { raf: 0, start: performance.now(), from: { lng: from.lng, lat: from.lat }, to }
+      scheduledAnimsRef.current.set(id, anim)
+      const step = (now: number) => {
+        const current = scheduledAnimsRef.current.get(id)
+        if (current !== anim) return // superseded by a newer target
+        const t = Math.min(1, (now - anim.start) / DURATION_MS)
+        const eased = easeOutCubic(t)
+        marker.setLngLat([
+          anim.from.lng + (anim.to.lng - anim.from.lng) * eased,
+          anim.from.lat + (anim.to.lat - anim.from.lat) * eased,
+        ])
+        if (t < 1) {
+          anim.raf = window.requestAnimationFrame(step)
+        } else {
+          scheduledAnimsRef.current.delete(id)
+        }
+      }
+      anim.raf = window.requestAnimationFrame(step)
+    }
+
+    for (const vehicle of vehicles) {
+      if (typeof vehicle.lng !== 'number' || typeof vehicle.lat !== 'number') continue
+      seen.add(vehicle.id)
+      const existing = scheduledMarkersRef.current.get(vehicle.id)
+      if (existing) {
+        animateTo(vehicle.id, existing, { lng: vehicle.lng, lat: vehicle.lat })
+      } else {
+        const el = document.createElement('div')
+        el.className = 'scheduled-vehicle-marker'
+        el.title = `${vehicle.route_code ?? vehicle.trip_id} · simulasi jadwal`
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([vehicle.lng, vehicle.lat])
+          .addTo(map)
+        scheduledMarkersRef.current.set(vehicle.id, marker)
+      }
+    }
+
+    for (const [id, marker] of scheduledMarkersRef.current) {
+      if (seen.has(id)) continue
+      const anim = scheduledAnimsRef.current.get(id)
+      if (anim) {
+        window.cancelAnimationFrame(anim.raf)
+        scheduledAnimsRef.current.delete(id)
+      }
+      marker.remove()
+      scheduledMarkersRef.current.delete(id)
+    }
+  }, [scheduledVehicles])
+
   // Stop info popup: shown near the clicked stop, styled like the bus popup.
   useEffect(() => {
     const map = mapRef.current
@@ -639,6 +726,9 @@ function MapboxMap({
       </button>
       {locateError ? (
         <p className="map-locate-error" role="status">{locateError}</p>
+      ) : null}
+      {(scheduledVehicles?.length ?? 0) > 0 ? (
+        <p className="map-schedule-label" role="status">Simulasi jadwal</p>
       ) : null}
     </div>
   )
