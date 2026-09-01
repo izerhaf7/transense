@@ -8,6 +8,7 @@ __pycache__/
 *.pyc
 backend/transense.sqlite3
 backend/gtfs_cache.*
+backend/walk_graph_cache.json
 *.sqlite3
 
 # IDE / OS

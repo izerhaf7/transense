@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
-import { ArrowBackIcon, ArrowRightIcon, BusIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, StopIcon, WalkIcon, WarningIcon } from './icons'
+import JourneyTrackingPage from './JourneyTrackingPage'
+import { ArrowRightIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, WalkIcon } from './icons'
 import type { Stop } from './journey'
-import { VIBRATION_PATTERNS } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import type { ProfileType } from './profile'
 import { isFacilityStop } from './SideBySidePage'
@@ -30,7 +30,6 @@ interface PlannerPageProps {
   profile?: ProfileType
   tts?: TtsProvider
   onOpenSideBySide?: (stopId: string) => void
-  onNavigateToPeron?: () => void
   /** Lifts the chosen destination so App.tsx can hand it to the Netra scan screen. */
   onDestinationSelected?: (point: PlanPoint | null) => void
 }
@@ -41,8 +40,8 @@ interface PlanRouteInfo {
   color?: string
 }
 
-interface PlanLeg {
-  mode: 'WALK' | 'BUS'
+export interface PlanLeg {
+  mode: 'WALK' | 'BUS' | 'RAIL'
   from: PlanPoint
   to: PlanPoint
   start_time?: string
@@ -60,7 +59,7 @@ interface PlanLeg {
   eta_source?: 'simulated' | 'realtime'
 }
 
-interface PlanItinerary {
+export interface PlanItinerary {
   legs: PlanLeg[]
   transfers: number
   walk_distance_m: number
@@ -95,20 +94,6 @@ interface PlannerShape {
 
 type PlannerPhase = 'plan' | 'tracking'
 
-type SimPhase = 'waiting' | 'approaching' | 'boarding' | 'enroute' | 'arrived'
-
-interface SimStop {
-  id: string
-  name: string
-  lat: number
-  lng: number
-  isDestination: boolean
-}
-
-function vibrate(pattern: readonly number[]) {  if (typeof navigator !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function') {
-    navigator.vibrate([...pattern])
-  }
-}
 
 /** MRT suitability thresholds for the destination userflow (single source of truth). */
 const MRT_SUITABILITY = {
@@ -125,228 +110,6 @@ const DAKSA_CHIP_FACILITIES: ReadonlyArray<{ key: keyof FacilityStop['facilities
 ]
 
 /** One simulated minute in real milliseconds (demo pacing: 1 min = 3 s). */
-const SIM_MINUTE_MS = 3000
-/** ETA (minutes) at which the "approaching" warning takes over the screen. */
-const APPROACH_THRESHOLD_MIN = 5
-/** Initial ETA when the simulated bus is first matched. */
-const INITIAL_ETA_MIN = 12
-
-function SimulatedTrackingPage({
-  itinerary,
-  planShapes,
-  walkLegs,
-  onBack,
-  profile = 'tuli',
-  tts,
-  onNavigateToPeron,
-}: {
-  itinerary: PlanItinerary
-  planShapes: PlannerShape[]
-  walkLegs: WalkLine[]
-  onBack: () => void
-  profile?: ProfileType
-  tts?: TtsProvider
-  onNavigateToPeron?: () => void
-}) {
-  const [phase, setPhase] = useState<SimPhase>('waiting')
-  const [etaMinutes, setEtaMinutes] = useState(INITIAL_ETA_MIN)
-  const [stopIndex, setStopIndex] = useState(0)
-  const [subStep, setSubStep] = useState<'approaching' | 'stopped'>('approaching')
-  const [busPos, setBusPos] = useState<{ lat: number; lng: number } | null>(null)
-
-  const checkpoints = useMemo(() => {
-    const result: SimStop[] = []
-    for (const leg of itinerary.legs) {
-      const fromId = leg.from.stop_id ?? `${leg.from.name}:${leg.from.lat},${leg.from.lng}`
-      if (!result.some((item) => item.id === fromId)) {
-        result.push({ id: fromId, name: leg.from.name, lat: leg.from.lat, lng: leg.from.lng, isDestination: false })
-      }
-      const toId = leg.to.stop_id ?? `${leg.to.name}:${leg.to.lat},${leg.to.lng}`
-      if (!result.some((item) => item.id === toId)) {
-        result.push({ id: toId, name: leg.to.name, lat: leg.to.lat, lng: leg.to.lng, isDestination: false })
-      }
-    }
-    if (result.length > 0) result[result.length - 1].isDestination = true
-    return result
-  }, [itinerary])
-
-  const busLeg = useMemo(() => itinerary.legs.find((leg) => leg.mode === 'BUS'), [itinerary])
-  const routeCode = busLeg?.route?.short_name ?? ''
-  const routeHeadsign = busLeg?.headsign ?? ''
-
-  // Drive the simulation timeline.
-  useEffect(() => {
-    let timer: number | undefined
-
-    if (phase === 'waiting') {
-      timer = window.setTimeout(() => {
-        if (etaMinutes > APPROACH_THRESHOLD_MIN) {
-          setEtaMinutes((current) => current - 1)
-        } else {
-          vibrate(VIBRATION_PATTERNS.vehicleApproaching)
-          setPhase('approaching')
-        }
-      }, SIM_MINUTE_MS)
-    } else if (phase === 'approaching') {
-      timer = window.setTimeout(() => {
-        if (etaMinutes > 1) {
-          setEtaMinutes((current) => current - 1)
-        } else {
-          setPhase('boarding')
-        }
-      }, SIM_MINUTE_MS)
-    } else if (phase === 'boarding') {
-      timer = window.setTimeout(() => {
-        setSubStep('approaching')
-        setStopIndex(checkpoints.length > 1 ? 1 : 0)
-        setPhase('enroute')
-      }, 2600)
-    } else if (phase === 'enroute') {
-      const isDestination = checkpoints[stopIndex]?.isDestination ?? false
-      timer = window.setTimeout(() => {
-        if (subStep === 'approaching') {
-          setSubStep('stopped')
-        } else {
-          if (isDestination) {
-            vibrate(VIBRATION_PATTERNS.destinationApproaching)
-            setPhase('arrived')
-          } else {
-            setStopIndex((current) => current + 1)
-            setSubStep('approaching')
-          }
-        }
-      }, subStep === 'approaching' ? 2400 : 2000)
-    }
-
-    return () => {
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [phase, etaMinutes, stopIndex, subStep, checkpoints])
-
-  // Move the simulated bus marker toward the relevant stop as the timeline runs.
-  useEffect(() => {
-    const stop = checkpoints[stopIndex]
-    if (!stop || !Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return
-    setBusPos({ lat: stop.lat, lng: stop.lng })
-  }, [stopIndex, checkpoints])
-
-  const current = checkpoints[stopIndex]
-  const next = checkpoints[stopIndex + 1]
-  const progress = checkpoints.length <= 1 ? 100 : Math.round((stopIndex / (checkpoints.length - 1)) * 100)
-
-  const mapStops: Stop[] = checkpoints.map((checkpoint, index) => ({
-    id: checkpoint.id,
-    name: `${index === stopIndex ? 'SEKARANG · ' : ''}${checkpoint.name}`,
-    lat: checkpoint.lat,
-    lng: checkpoint.lng,
-  })).filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng) && stop.lat !== 0)
-
-  const mapBuses = busPos ? [{ id: 'sim-bus', route_code: routeCode || 'BUS', lat: busPos.lat, lng: busPos.lng, observed_at: new Date().toISOString() }] : []
-
-  const isWarning = phase === 'approaching' || phase === 'enroute'
-  const isStop = phase === 'arrived'
-
-  const renderScreen = () => {
-    if (phase === 'waiting') {
-      return (
-        <section className="planner-simulation__screen planner-simulation__screen--search" aria-live="polite">
-          <BusIcon size={64} className="planner-simulation__icon" />
-          <p className="eyebrow">MENCARI BUS MENUJU ARAHMU</p>
-          <h3>Memeriksa armada di koridor yang sama…</h3>
-          <p className="planner-simulation__eta">Bus Koridor {routeCode}{routeHeadsign ? ` · ${routeHeadsign}` : ''} tiba dalam <strong>{etaMinutes} menit</strong></p>
-        </section>
-      )
-    }
-    if (phase === 'approaching') {
-      return (
-        <section className="planner-simulation__screen planner-simulation__screen--warning" aria-live="assertive">
-          <WarningIcon size={72} className="planner-simulation__icon planner-simulation__icon--pulse" />
-          <p className="eyebrow">BUS MENDEKAT</p>
-          <h3>Bus Koridor {routeCode} · rute {routeHeadsign || routeCode} mendekat</h3>
-          <p className="planner-simulation__eta">Sekitar <strong>{etaMinutes} menit</strong> lagi</p>
-        </section>
-      )
-    }
-    if (phase === 'boarding') {
-      return (
-        <section className="planner-simulation__screen planner-simulation__screen--board" aria-live="polite">
-          <BusIcon size={64} className="planner-simulation__icon" />
-          <p className="eyebrow">BUS TIBA</p>
-          <h3>Naik bus Koridor {routeCode}</h3>
-          <p>Silakan naik dan cari tempat duduk. Perjalanan dimulai.</p>
-        </section>
-      )
-    }
-    if (phase === 'enroute') {
-      const isDest = current?.isDestination ?? false
-      return (
-        <section className="planner-simulation__screen planner-simulation__screen--warning" aria-live="assertive">
-          <WarningIcon size={72} className="planner-simulation__icon planner-simulation__icon--pulse" />
-          <p className="eyebrow">{isDest ? 'MENDEKATI TUJUAN' : 'DI DALAM BUS'}</p>
-          <h3>{subStep === 'approaching' ? `Mendekati ${current?.name ?? 'halte berikutnya'}` : `Berhenti di ${current?.name ?? 'halte'}`}</h3>
-          <p className="planner-simulation__eta">{isDest ? 'Bersiap untuk turun.' : `Halte berikutnya: ${next?.name ?? 'tujuan akhir'}`}</p>
-        </section>
-      )
-    }
-    return (
-      <section className="planner-simulation__screen planner-simulation__screen--stop" aria-live="assertive">
-        <StopIcon size={72} className="planner-simulation__icon planner-simulation__icon--pulse" />
-        <p className="eyebrow">TIBA DI TUJUAN</p>
-        <h3>Anda tiba di {current?.name ?? 'tujuan'}</h3>
-        <p>Terima kasih telah menggunakan Transense.</p>
-        {profile === 'netra' ? (
-          onNavigateToPeron ? (
-            <button
-              type="button"
-              className="primary-button planner-btn--netra"
-              onClick={() => { tts?.speak('Navigasi ke peron'); onNavigateToPeron() }}
-            >
-              Navigasi ke peron
-            </button>
-          ) : (
-            <p>Gunakan Pemindai Netra untuk navigasi ke peron.</p>
-          )
-        ) : null}
-      </section>
-    )
-  }
-
-  return (
-    <main className="page-content inner-page planner-page planner-simulation-page">
-      <section className="planner-simulation__header">
-        <button type="button" className="schedule-detail__back" onClick={onBack}><ArrowBackIcon size={18} /> Kembali ke rute</button>
-        <p className="eyebrow">SIMULASI PERJALANAN</p>
-        <h2>Demo rute {routeCode}</h2>
-      </section>
-
-      {isWarning || isStop ? <div className={`edge-flash ${isStop ? 'edge-flash--safe' : 'edge-flash--danger'}`} aria-hidden="true" /> : null}
-
-      {renderScreen()}
-
-      <section className="planner-simulation__status" aria-hidden="true">
-        <div className="planner-simulation__progress"><span style={{ width: `${progress}%` }} /></div>
-        <p className="planner-simulation__progress-label">{progress}% perjalanan</p>
-      </section>
-
-      <section className="planner-map-dropdown" aria-label="Peta perjalanan simulasi">
-        <MapboxMap stops={mapStops} routeShapes={planShapes} walkLegs={walkLegs} buses={mapBuses} />
-      </section>
-
-      <section className="planner-simulation__timeline" aria-label="Urutan halte perjalanan">
-        <p className="eyebrow">URUTAN PERJALANAN</p>
-        <ol>
-          {checkpoints.map((checkpoint, index) => (
-            <li className={index < stopIndex ? 'is-complete' : index === stopIndex ? 'is-current' : ''} key={checkpoint.id}>
-              <span className="planner-simulation__dot" />
-              <span>{checkpoint.name}</span>
-              {index === stopIndex ? <small>SEKARANG</small> : index === stopIndex + 1 ? <small>BERIKUTNYA</small> : null}
-            </li>
-          ))}
-        </ol>
-      </section>
-    </main>
-  )
-}
 
 function isPlanRoute(value: unknown): value is PlanRouteInfo {
   if (!isRecord(value)) return false
@@ -359,7 +122,8 @@ function isPlanLeg(value: unknown): value is PlanLeg {
   if (!isRecord(value)) return false
   const isWalkLeg = value.mode === 'WALK'
   const isBusLeg = value.mode === 'BUS'
-  if (!isWalkLeg && !isBusLeg) return false
+  const isRailLeg = value.mode === 'RAIL'
+  if (!isWalkLeg && !isBusLeg && !isRailLeg) return false
   if (!isPlanPoint(value.from) || !isPlanPoint(value.to)) return false
   if (typeof value.duration_minutes !== 'number' || typeof value.distance_m !== 'number') return false
   if (value.route !== undefined && !isPlanRoute(value.route)) return false
@@ -530,10 +294,10 @@ function LegRow({
       <span className="leg__route-badge" style={{ background: leg.route?.color ?? 'var(--brand-color-accent)' }} aria-hidden="true">{leg.route?.short_name ?? 'BUS'}</span>
       <div className="leg__body">
         <p className="leg__eyebrow">
-          LANGKAH {index + 1} · NAIK BUS
+          LANGKAH {index + 1} · {leg.mode === 'RAIL' ? `NAIK ${leg.route?.short_name ?? 'KERETA'}` : 'NAIK BUS'}
           {affected ? <span className="state-badge state-badge--danger leg__affected-chip">terganggu</span> : null}
         </p>
-        <strong>Koridor {leg.route?.short_name ?? leg.route?.id ?? 'bus'} · {leg.headsign ?? 'menuju tujuan'}</strong>
+        <strong>{leg.mode === 'RAIL' ? `${leg.route?.short_name ?? 'Kereta'} · ${leg.headsign ?? 'menuju tujuan'}` : `Koridor ${leg.route?.short_name ?? leg.route?.id ?? 'bus'} · ${leg.headsign ?? 'menuju tujuan'}`}</strong>
         <p className="leg__stops">
           <span>{formatClock(leg.start_time)} naik di {leg.from.name}</span>
           <span aria-hidden="true"><ArrowRightIcon size={16} /></span>
@@ -567,7 +331,6 @@ function PlannerPage({
   profile = 'tuli',
   tts,
   onOpenSideBySide,
-  onNavigateToPeron,
   onDestinationSelected,
 }: PlannerPageProps) {
   const [originQuery, setOriginQuery] = useState('')
@@ -905,14 +668,10 @@ function PlannerPage({
   const trackingItinerary = planResponse?.itineraries[selectedItinerary] ?? null
   if (phase === 'tracking' && trackingItinerary) {
     return (
-      <SimulatedTrackingPage
+      <JourneyTrackingPage
+        apiBaseUrl={apiBaseUrl}
         itinerary={trackingItinerary}
-        planShapes={planShapes}
-        walkLegs={walkLegs}
         onBack={() => setPhase('plan')}
-        profile={profile}
-        tts={tts}
-        onNavigateToPeron={onNavigateToPeron}
       />
     )
   }

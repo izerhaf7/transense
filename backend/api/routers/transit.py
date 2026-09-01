@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
 from ...commute import CommuteClient, CommuteError, CommuteFeed, amenity_label, mode_label
+from ...rail_positions import mrt_positions
 from ..deps import get_commute_feed, get_settings
 from ..utils import commute_grouped_to_timetable, commute_line_stations
 
@@ -163,3 +165,54 @@ async def transit_lines_geometry(request: Request) -> dict[str, Any]:
             "source": source,
         })
     return {"lines": result, "source": "commute"}
+
+
+def _cached_departures(request: Request, operator: str, stations: list[dict[str, Any]]) -> list[str]:
+    """Departure times from the line terminus station, cached with a 5-minute TTL."""
+    state = request.app.state
+    now = datetime.now(timezone.utc).timestamp()
+    cache_key = f"{operator}:{stations[0]['id']}"
+    cached = getattr(state, "transit_departures_cache", None)
+    if cached and now - cached[0] < 300 and cached[1] == cache_key:
+        return cached[2]
+    try:
+        client = CommuteClient(base_url=get_settings(request).commute_api_base)
+        grouped = client.timetable_grouped(operator, stations[0].get("code") or stations[0]["id"])
+    except CommuteError:
+        grouped = []
+    feed = get_commute_feed(request)
+    times: list[str] = []
+    if grouped and feed is not None:
+        for entry in commute_grouped_to_timetable(grouped, feed):
+            times.extend(entry.get("times", []))
+    times = sorted({str(value).strip() for value in times})
+    state.transit_departures_cache = (now, cache_key, times)
+    return times
+
+
+@router.get("/positions", response_model=None)
+async def transit_positions(
+    request: Request, operator: str = "MRTJ", code: str = "M"
+) -> dict[str, Any]:
+    """Schedule-based train positions (deterministic reference while waiting).
+
+    Interpolates every departed train from the terminus timetable over the
+    rail geometry.  Degrades to ``source: "unavailable"`` (HTTP 200, never a
+    500) when the Commute feed, rail geometry, or terminus timetable is
+    missing.
+    """
+    feed = get_commute_feed(request)
+    geometry = getattr(request.app.state, "rail_geometry", {}).get(f"{operator}:{code}")
+    if feed is None or not geometry:
+        return {"source": "unavailable", "trains": []}
+
+    line = next((candidate for candidate in feed.lines if candidate.operator == operator and candidate.code == code), None)
+    if line is None:
+        return {"source": "unavailable", "trains": []}
+    stations = commute_line_stations(request.app, line)
+    if not stations:
+        return {"source": "unavailable", "trains": []}
+
+    departures = _cached_departures(request, operator, stations)
+    trains = mrt_positions(stations, geometry, departures, datetime.now(timezone.utc))
+    return {"source": "scheduled", "trains": trains}

@@ -42,8 +42,10 @@ services:
     build:
       context: ./backend
     environment:
-      TRANSENSE_ENVIRONMENT: docker
-      TRANSENSE_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173
+      TRANSENSE_ENVIRONMENT: ${TRANSENSE_ENVIRONMENT:-docker}
+      TRANSENSE_ALLOWED_ORIGINS: ${TRANSENSE_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173}
+      TRANSENSE_REALTIME_ENABLED: ${TRANSENSE_REALTIME_ENABLED:-0}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       DATABASE_URL: postgresql://transense:transense@db:5432/transense
       # Real-time cache + routing/geocoding integration points (future wiring):
       # REDIS_URL: redis://redis:6379/0
@@ -51,7 +53,8 @@ services:
       # PHOTON_URL: http://photon:2322
       PORT: 8000
     ports:
-      - "8000:8000"
+      # Host port must equal the port in VITE_API_BASE_URL (see .env / .env.example).
+      - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -62,8 +65,8 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: http://localhost:8000
-        VITE_MAPBOX_TOKEN: ""
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
     ports:
       - "5173:80"
     depends_on:

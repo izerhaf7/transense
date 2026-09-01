@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
 from backend.gtfs_loader import GtfsError, download_gtfs, parse_gtfs  # noqa: E402
 from backend.walk_graph import (  # noqa: E402
     DEFAULT_RADIUS_KM,
+    _osmnx_available,
     build_walk_graph,
     save_walk_graph,
 )
@@ -64,6 +65,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use the existing --gtfs-cache file without attempting a download.",
     )
+    parser.add_argument(
+        "--osm-file",
+        default=None,
+        help="Local OSM XML (.osm) extract to build the street graph from (requires osmnx).",
+    )
+    parser.add_argument(
+        "--method",
+        choices=("osmnx", "haversine"),
+        default=None,
+        help="Walk distance method (default: osmnx when osmnx+networkx are installed, else haversine).",
+    )
     return parser
 
 
@@ -84,7 +96,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     feed = parse_gtfs(cache_path)
-    graph = build_walk_graph(feed, radius_km=args.radius_km)
+
+    method = args.method or ("osmnx" if _osmnx_available() else "haversine")
+    if method == "osmnx":
+        if not _osmnx_available():
+            build_parser().error("--method osmnx requires osmnx + networkx installed")
+        if not args.osm_file:
+            build_parser().error("--method osmnx requires --osm-file (a local .osm extract)")
+
+    graph = build_walk_graph(feed, radius_km=args.radius_km, osm_file=args.osm_file)
     save_walk_graph(graph, args.output)
     print(
         f"Walk graph built: {len(graph.nodes)} nodes, {len(graph.edges)} directed "

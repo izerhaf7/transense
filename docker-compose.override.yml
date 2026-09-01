@@ -1,0 +1,6 @@
+# Machine-local override: host port 6379 is taken by a system redis-server,
+# so publish the stack redis on 6380 instead. Auto-merged by `docker compose`.
+services:
+  redis:
+    ports: !override
+      - "6380:6379"

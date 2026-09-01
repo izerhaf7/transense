@@ -22,12 +22,13 @@ distance) so the planner can traverse either direction with a single
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from backend.gtfs_loader import GtfsFeed, GtfsStop
 
@@ -135,20 +136,39 @@ def _osmnx_available() -> bool:
     )
 
 
+# Grid cell size (degrees, ~6.7 km) for chunked osmnx processing.  A 1 km
+# walk radius keeps every nearby pair inside one cell (plus margin), so each
+# cell graph can be loaded and routed separately with bounded memory.
+OSMNX_CELL_DEG = 0.06
+# Extra cell padding (degrees, ~2.8 km) so pairs near cell borders are covered.
+OSMNX_CELL_MARGIN_DEG = 0.025
+# Stops farther than this from the street graph are not routed (haversine fallback).
+OSMNX_SNAP_MAX_M = 750.0
+
+
+def _cell_key(lat: float, lng: float) -> tuple[int, int]:
+    return (math.floor(lat / OSMNX_CELL_DEG), math.floor(lng / OSMNX_CELL_DEG))
+
+
 def _osmnx_distances(
-    stops: list[GtfsStop], radius_km: float
+    stops: list[GtfsStop], radius_km: float, osm_file: str | None = None
 ) -> dict[tuple[str, str], float]:
     """Real street-network walking distances (metres) between nearby stops.
 
-    Builds ONE walkable street graph covering the stops' bounding box (plus
-    padding) and shortest-paths every nearby pair over it.  Only pairs with a
-    connected path are returned; the caller falls back to the haversine estimate
-    for anything missing.  Never called at runtime by the app — this is offline
-    precompute only (osmnx is not a project dependency).
+    With ``osm_file`` the OSM XML extract is bucketed into grid cells and each
+    cell graph is loaded and routed separately (bounded memory, progress logged
+    to stdout) — a full-city extract stays processable on a small machine.
+    Without it, one graph covering the stops' bounding box is fetched from
+    Overpass.  Only pairs with a connected path are returned; the caller falls
+    back to the haversine estimate for anything missing.  Never called at
+    runtime by the app — this is offline precompute only (osmnx is not a
+    project dependency).
     """
+    if osm_file:
+        return _osmnx_distances_chunked(stops, radius_km, osm_file)
+
     nx = importlib.import_module("networkx")  # optional offline dependency
     ox = importlib.import_module("osmnx")  # optional offline dependency
-
     padding_km = radius_km * 1.5
     lats = [stop.lat for stop in stops]
     lngs = [stop.lng for stop in stops]
@@ -172,6 +192,155 @@ def _osmnx_distances(
                 continue
             result[(stop_a.stop_id, stop_b.stop_id)] = float(length)
     return result
+
+
+def _osmnx_distances_chunked(
+    stops: list[GtfsStop], radius_km: float, osm_file: str
+) -> dict[tuple[str, str], float]:
+    """Chunked street-distance routing over a local OSM XML extract.
+
+    Buckets the XML once into per-grid-cell files (cell bbox padded by
+    ``OSMNX_CELL_MARGIN_DEG``), then loads and routes each cell graph
+    separately so peak memory stays bounded regardless of the extract size.
+    Progress is logged to stdout per cell and periodically inside the routing
+    loop.  Pairs whose stops fall into different cells, or whose stop cannot be
+    snapped within ``OSMNX_SNAP_MAX_M`` of the street graph, are skipped — the
+    caller falls back to haversine per edge.
+    """
+    import shutil
+    import tempfile
+    import time
+    import xml.etree.ElementTree as ET
+
+    nx = importlib.import_module("networkx")  # optional offline dependency
+    ox = importlib.import_module("osmnx")  # optional offline dependency
+
+    cell_stops: dict[tuple[int, int], list[GtfsStop]] = {}
+    for stop in stops:
+        cell_stops.setdefault(_cell_key(stop.lat, stop.lng), []).append(stop)
+    if not cell_stops:
+        return {}
+
+    workdir = Path(tempfile.mkdtemp(prefix="transense-osmnx-"))
+    try:
+        writers: dict[tuple[int, int], tuple[Path, Any]] = {}
+        margin = OSMNX_CELL_MARGIN_DEG
+        for cell in cell_stops:
+            path = workdir / f"cell-{cell[0]}-{cell[1]}.osm"
+            handle = open(path, "w", encoding="utf-8")
+            handle.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6">\n')
+            writers[cell] = (path, handle)
+
+        # Single streaming pass: assign every node/way to the cells it belongs to.
+        node_cells: dict[str, set[tuple[int, int]]] = {}
+        try:
+            for _event, elem in ET.iterparse(osm_file, events=("end",)):
+                if elem.tag == "node":
+                    lat = float(elem.get("lat"))
+                    lon = float(elem.get("lon"))
+                    cells = {
+                        cell for cell in writers
+                        if (cell[0] * OSMNX_CELL_DEG - margin <= lat < (cell[0] + 1) * OSMNX_CELL_DEG + margin
+                            and cell[1] * OSMNX_CELL_DEG - margin <= lon < (cell[1] + 1) * OSMNX_CELL_DEG + margin)
+                    }
+                    if cells:
+                        node_id = str(elem.get("id"))
+                        node_cells[node_id] = cells
+                        for cell in cells:
+                            writers[cell][1].write(
+                                f'  <node id="{node_id}" lat="{lat:.7f}" lon="{lon:.7f}"/>\n'
+                            )
+                elif elem.tag == "way":
+                    tags = {tag.get("k"): tag.get("v") for tag in elem.findall("tag")}
+                    if tags.get("highway"):
+                        per_cell: dict[tuple[int, int], list[str]] = {}
+                        for nd in elem.findall("nd"):
+                            ref = nd.get("ref")
+                            for cell in node_cells.get(ref, ()):
+                                per_cell.setdefault(cell, []).append(ref)
+                        for cell, refs in per_cell.items():
+                            if len(set(refs)) < 2:
+                                continue
+                            handle = writers[cell][1]
+                            handle.write(f'  <way id="{elem.get("id")}">\n')
+                            seen: set[str] = set()
+                            for ref in refs:
+                                if ref in seen:
+                                    continue
+                                seen.add(ref)
+                                handle.write(f'    <nd ref="{ref}"/>\n')
+                            for key, value in tags.items():
+                                handle.write(
+                                    f'    <tag k="{html.escape(key)}" v="{html.escape(value)}"/>\n'
+                                )
+                            handle.write("  </way>\n")
+                # Only clear node/way: iterparse also yields their children
+                # (nd/tag) first, and clearing those would strip the parent's
+                # attributes before its own end event.
+                if elem.tag in ("node", "way"):
+                    elem.clear()
+        finally:
+            for _path, handle in writers.values():
+                handle.write("</osm>\n")
+                handle.close()
+        node_cells.clear()
+
+        result: dict[tuple[str, str], float] = {}
+        for index, (cell, cell_stop_list) in enumerate(cell_stops.items()):
+            path = writers[cell][0]
+            print(
+                f"[osmnx] cell {index + 1}/{len(cell_stops)} {cell}: {len(cell_stop_list)} stops",
+                flush=True,
+            )
+            try:
+                graph = ox.graph_from_xml(str(path), simplify=True)
+            except Exception as exc:
+                print(f"[osmnx]   cell skipped ({exc}); fallback haversine", flush=True)
+                continue
+            print(
+                f"[osmnx]   graph {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges",
+                flush=True,
+            )
+
+            nearest: dict[str, int] = {}
+            snap_ok: dict[str, bool] = {}
+            for stop in cell_stop_list:
+                node = ox.nearest_nodes(graph, X=[stop.lng], Y=[stop.lat])
+                nearest[stop.stop_id] = int(node[0])
+                node_y = float(graph.nodes[nearest[stop.stop_id]]["y"])
+                node_x = float(graph.nodes[nearest[stop.stop_id]]["x"])
+                snap_m = _haversine_km(stop.lat, stop.lng, node_y, node_x) * 1000
+                snap_ok[stop.stop_id] = snap_m <= OSMNX_SNAP_MAX_M
+
+            started = time.time()
+            pairs_done = 0
+            for i, stop_a in enumerate(cell_stop_list):
+                for stop_b in cell_stop_list[i + 1 :]:
+                    if not snap_ok[stop_a.stop_id] or not snap_ok[stop_b.stop_id]:
+                        continue
+                    if (
+                        _haversine_km(stop_a.lat, stop_a.lng, stop_b.lat, stop_b.lng) * 1000
+                        >= radius_km * 1000
+                    ):
+                        continue
+                    try:
+                        length = nx.shortest_path_length(
+                            graph, nearest[stop_a.stop_id], nearest[stop_b.stop_id], weight="length"
+                        )
+                    except (nx.NetworkXNoPath, nx.NetworkXError):
+                        continue
+                    result[(stop_a.stop_id, stop_b.stop_id)] = float(length)
+                    pairs_done += 1
+                if (i + 1) % 300 == 0:
+                    print(
+                        f"[osmnx]   {i + 1}/{len(cell_stop_list)} stops, {pairs_done} pairs "
+                        f"({time.time() - started:.0f}s)",
+                        flush=True,
+                    )
+            print(f"[osmnx]   cell done: {pairs_done} pairs", flush=True)
+        return result
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 @dataclass(frozen=True)
@@ -274,14 +443,17 @@ def _emit_edge(
     return forward, backward
 
 
-def build_walk_graph(feed: GtfsFeed, radius_km: float = DEFAULT_RADIUS_KM) -> WalkGraph:
+def build_walk_graph(
+    feed: GtfsFeed, radius_km: float = DEFAULT_RADIUS_KM, osm_file: str | None = None
+) -> WalkGraph:
     """Deterministically build the walk graph for ``feed``.
 
     Generates every nearby stop pair (haversine < ``radius_km``) as a directed
     edge pair.  When the optional ``osmnx`` package is importable the street
-    network is queried (offline) for real distances; otherwise — or for any pair
-    the street network cannot connect — the distance is ``haversine *
-    WALK_PENALTY_FACTOR`` and the edge is labelled ``"haversine-estimate"``.
+    network is queried (offline, from ``osm_file`` when given) for real
+    distances; otherwise — or for any pair the street network cannot connect —
+    the distance is ``haversine * WALK_PENALTY_FACTOR`` and the edge is
+    labelled ``"haversine-estimate"``.
     """
     stops = sorted(
         (stop for stop in feed.stops.values() if _valid_coords(stop)),
@@ -296,7 +468,7 @@ def build_walk_graph(feed: GtfsFeed, radius_km: float = DEFAULT_RADIUS_KM) -> Wa
     osm_distances: dict[tuple[str, str], float] = {}
     if _osmnx_available():
         try:
-            osm_distances = _osmnx_distances(stops, radius_km)
+            osm_distances = _osmnx_distances(stops, radius_km, osm_file)
             graph_method = METHOD_OSMNX
         except Exception:
             # osmnx is optional and best-effort; never let it break the build.

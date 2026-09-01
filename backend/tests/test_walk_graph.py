@@ -222,3 +222,17 @@ def test_load_with_osmnx_method_label_preserved(tmp_path):
     assert loaded.method == METHOD_OSMNX
     assert loaded.edges[0].method == METHOD_OSMNX
     assert isinstance(loaded, WalkGraph)
+
+
+def test_build_walk_graph_passes_osm_file_to_osmnx(monkeypatch):
+    seen: list[str | None] = []
+
+    def fake_osmnx(_stops, _radius_km, osm_file):
+        seen.append(osm_file)
+        return {}
+
+    monkeypatch.setattr(wg, "_osmnx_available", lambda: True)
+    monkeypatch.setattr(wg, "_osmnx_distances", fake_osmnx)
+    graph = build_walk_graph(synthetic_feed(), radius_km=1.0, osm_file="data/osm/jakarta.osm")
+    assert seen == ["data/osm/jakarta.osm"]
+    assert graph.method == METHOD_OSMNX

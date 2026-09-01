@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ...gtfs_loader import GtfsFeed
 from ...planner import itinerary_to_dict, plan_trip
+from ...rail_planner import plan_intermodal, plan_standalone_rail
 from ...tj_api import TjApiError, TjRealtimeClient
 from ...walk_graph import WalkGraph
 from ..deps import get_gtfs_feed, get_realtime_client, get_settings, get_walk_graph
@@ -138,6 +139,24 @@ async def journey_plan(
         raise HTTPException(status_code=422, detail=str(exc))
 
     itinerary_dicts = [itinerary_to_dict(it) for it in itineraries]
+    # Rail suggestions: standalone WALK->RAIL->WALK plus bus->RAIL->bus chains.
+    # Skipped for arrive_by searches: rail legs are duration estimates without
+    # clock times, so they cannot honor a "latest departure to arrive by X".
+    if arrive_by is None:
+        itinerary_dicts.extend(
+            plan_standalone_rail(origin, destination, request.app, walk_graph)
+        )
+        itinerary_dicts.extend(
+            plan_intermodal(origin, destination, request.app, walk_graph, plan_date, plan_time)
+        )
+    # "Utamakan transportasi umum": rank transit-heavy options ahead of long
+    # walking stretches when total times are comparable (soft walk penalty so
+    # fast rail options are not demoted by their access walk).
+    itinerary_dicts.sort(
+        key=lambda it: (it["total_minutes"] or 0) + (it.get("walk_minutes") or 0) * 0.5
+    )
+    # Keep the alternatives list scannable for the itinerary tabs.
+    itinerary_dicts = itinerary_dicts[:8]
     if include_eta:
         enrich_bus_legs_eta(
             itinerary_dicts,

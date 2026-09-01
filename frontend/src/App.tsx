@@ -25,13 +25,11 @@ function AntarAkuPage({
   profile,
   tts,
   onOpenSideBySide,
-  onNavigateToPeron,
   onDestinationSelected,
 }: {
   profile?: ProfileType
   tts?: ReturnType<typeof createTtsProvider>
   onOpenSideBySide: (stopId: string) => void
-  onNavigateToPeron: () => void
   onDestinationSelected: (point: PlanPoint | null) => void
 }) {
   return (
@@ -40,7 +38,6 @@ function AntarAkuPage({
       profile={profile}
       tts={tts}
       onOpenSideBySide={onOpenSideBySide}
-      onNavigateToPeron={onNavigateToPeron}
       onDestinationSelected={onDestinationSelected}
     />
   )
@@ -61,9 +58,6 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
   // and netra-scan for the "Navigasi ke peron" arrival handoff.
   const handleOpenSideBySide = useCallback(() => {
     setScreen('side-by-side')
-  }, [])
-  const handleNavigateToPeron = useCallback(() => {
-    setScreen('netra-scan')
   }, [])
   const handlePlannerDestinationSelected = useCallback((point: PlanPoint | null) => {
     setPlannerDestination(point)
@@ -109,7 +103,6 @@ function MainShell({ profile, onResetProfile, onUpdateProfile }: { profile: Demo
             profile={profile.profile}
             tts={tts}
             onOpenSideBySide={handleOpenSideBySide}
-            onNavigateToPeron={handleNavigateToPeron}
             onDestinationSelected={handlePlannerDestinationSelected}
           />
         ) : null}
