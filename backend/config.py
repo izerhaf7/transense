@@ -32,6 +32,8 @@ class Settings:
     google_vision_api_key: str = ""
     gemini_api_key: str = ""
     vision_nav_model: str = "gemini-2.5-flash-lite"
+    gcp_tts_voice_name: str = "id-ID-Standard-A"
+    gcp_tts_model: str = "gemini-2.5-flash-tts"
     gtfs_url: str = "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"
     gtfs_cache_path: str = "backend/gtfs_cache.zip"
     commute_api_base: str = "https://api.commute.shiorilabs.id"
@@ -64,6 +66,8 @@ class Settings:
             google_vision_api_key=os.getenv("GOOGLE_VISION_API_KEY") or "",
             gemini_api_key=os.getenv("GEMINI_API_KEY") or "",
             vision_nav_model=os.getenv("TRANSENSE_VISION_MODEL") or "gemini-2.5-flash-lite",
+            gcp_tts_voice_name=os.getenv("GCP_TTS_VOICE_NAME") or "id-ID-Standard-A",
+            gcp_tts_model=os.getenv("GCP_TTS_MODEL") or "gemini-2.5-flash-tts",
             gtfs_url=os.getenv("TRANSENSE_GTFS_URL", "https://ppid.transjakarta.co.id/informasi/berkala/gtfs"),
             gtfs_cache_path=os.getenv("TRANSENSE_GTFS_CACHE_PATH", "backend/gtfs_cache.zip"),
             commute_api_base=os.getenv("TRANSENSE_COMMUTE_API_BASE", "https://api.commute.shiorilabs.id"),

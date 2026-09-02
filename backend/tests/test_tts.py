@@ -1,5 +1,7 @@
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import Settings
@@ -8,27 +10,6 @@ from backend.main import create_app
 
 def app_for(tmp_path: Path, origins: tuple[str, ...] = ("http://localhost:5173",)):
     return create_app(Settings("test", origins, tmp_path / "demo.sqlite3"))
-
-
-def tts_app_for(tmp_path: Path):
-    """Settings with ElevenLabs credentials present so TTS requests reach the provider."""
-    return create_app(
-        Settings(
-            "test",
-            ("http://localhost:5173",),
-            tmp_path / "demo.sqlite3",
-            elevenlabs_api_key="test-key",
-            elevenlabs_tts_voice_id="test-voice",
-        )
-    )
-
-
-def test_tts_returns_503_when_not_configured(tmp_path):
-    app = app_for(tmp_path)
-    with TestClient(app) as client:
-        response = client.post("/api/tts", json={"text": "Halo"})
-    assert response.status_code == 503
-    assert response.json() == {"detail": "ElevenLabs TTS not configured"}
 
 
 def test_tts_returns_422_when_text_missing(tmp_path):
@@ -49,46 +30,97 @@ def test_tts_returns_422_when_text_too_long(tmp_path):
     assert "5000" in response.json()["detail"]
 
 
-def test_tts_returns_audio_mpeg_with_mocked_elevenlabs(tmp_path, monkeypatch):
-    recorded: dict[str, object] = {}
+def test_tts_returns_audio_mpeg_with_mocked_gcp(tmp_path):
+    fake_mp3 = b"\xff\xfb\x90\x44\x00\x00"  # minimal MP3 frame header
+    mock_response = MagicMock()
+    mock_response.audio_content = fake_mp3
 
-    class FakeTtsClient:
-        def convert(self, voice_id, text, model_id, output_format):
-            recorded["voice_id"] = voice_id
-            recorded["text"] = text
-            recorded["model_id"] = model_id
-            return iter([b"ID3\x03\x00", b"\xff\xfb audio bytes"])
+    mock_client = MagicMock()
+    mock_client.synthesize_speech.return_value = mock_response
 
-    class FakeElevenLabs:
-        def __init__(self, api_key):
-            self.text_to_speech = FakeTtsClient()
+    mock_tts_module = MagicMock()
+    mock_tts_module.TextToSpeechClient.return_value = mock_client
+    mock_tts_module.SynthesisInput = MagicMock
+    mock_tts_module.VoiceSelectionParams = MagicMock
+    mock_tts_module.AudioConfig = MagicMock
+    mock_tts_module.AudioEncoding = MagicMock(MP3=1)
 
-    monkeypatch.setattr("elevenlabs.ElevenLabs", FakeElevenLabs)
+    mock_google = MagicMock()
+    mock_google_cloud = MagicMock()
+    mock_google_cloud.texttospeech = mock_tts_module
+    mock_google.cloud = mock_google_cloud
 
-    app = tts_app_for(tmp_path)
-    with TestClient(app) as client:
-        response = client.post("/api/tts", json={"text": "Halo dunia", "model_id": "eleven_multilingual_v2"})
+    with patch.dict("sys.modules", {
+        "google": mock_google,
+        "google.cloud": mock_google_cloud,
+        "google.cloud.texttospeech": mock_tts_module,
+    }):
+        app = app_for(tmp_path)
+        with TestClient(app) as client:
+            response = client.post("/api/tts", json={"text": "Halo dunia"})
+
     assert response.status_code == 200
     assert response.headers["content-type"] == "audio/mpeg"
-    assert response.content == b"ID3\x03\x00\xff\xfb audio bytes"
-    assert recorded["voice_id"] == "test-voice"
-    assert recorded["text"] == "Halo dunia"
-    assert recorded["model_id"] == "eleven_multilingual_v2"
+    assert response.content == fake_mp3
 
 
-def test_tts_returns_502_when_elevenlabs_fails(tmp_path, monkeypatch):
-    class FailingTtsClient:
-        def convert(self, voice_id, text, model_id, output_format):
-            raise RuntimeError("boom")
+def test_tts_returns_502_when_gcp_fails(tmp_path):
+    mock_client = MagicMock()
+    mock_client.synthesize_speech.side_effect = RuntimeError("GCP TTS error")
 
-    class FailingElevenLabs:
-        def __init__(self, api_key):
-            self.text_to_speech = FailingTtsClient()
+    mock_tts_module = MagicMock()
+    mock_tts_module.TextToSpeechClient.return_value = mock_client
+    mock_tts_module.SynthesisInput = MagicMock
+    mock_tts_module.VoiceSelectionParams = MagicMock
+    mock_tts_module.AudioConfig = MagicMock
+    mock_tts_module.AudioEncoding = MagicMock(MP3=1)
 
-    monkeypatch.setattr("elevenlabs.ElevenLabs", FailingElevenLabs)
+    mock_google = MagicMock()
+    mock_google_cloud = MagicMock()
+    mock_google_cloud.texttospeech = mock_tts_module
+    mock_google.cloud = mock_google_cloud
 
-    app = tts_app_for(tmp_path)
-    with TestClient(app) as client:
-        response = client.post("/api/tts", json={"text": "Halo"})
+    with patch.dict("sys.modules", {
+        "google": mock_google,
+        "google.cloud": mock_google_cloud,
+        "google.cloud.texttospeech": mock_tts_module,
+    }):
+        app = app_for(tmp_path)
+        with TestClient(app) as client:
+            response = client.post("/api/tts", json={"text": "Halo"})
+
     assert response.status_code == 502
-    assert "ElevenLabs TTS failed" in response.json()["detail"]
+    assert "GCP TTS failed" in response.json()["detail"]
+
+
+def test_tts_returns_502_when_empty_audio(tmp_path):
+    mock_response = MagicMock()
+    mock_response.audio_content = b""
+
+    mock_client = MagicMock()
+    mock_client.synthesize_speech.return_value = mock_response
+
+    mock_tts_module = MagicMock()
+    mock_tts_module.TextToSpeechClient.return_value = mock_client
+    mock_tts_module.SynthesisInput = MagicMock
+    mock_tts_module.VoiceSelectionParams = MagicMock
+    mock_tts_module.AudioConfig = MagicMock
+    mock_tts_module.AudioEncoding = MagicMock(MP3=1)
+
+    mock_google = MagicMock()
+    mock_google_cloud = MagicMock()
+    mock_google_cloud.texttospeech = mock_tts_module
+    mock_google.cloud = mock_google_cloud
+
+    with patch.dict("sys.modules", {
+        "google": mock_google,
+        "google.cloud": mock_google_cloud,
+        "google.cloud.texttospeech": mock_tts_module,
+    }):
+        app = app_for(tmp_path)
+        with TestClient(app) as client:
+            response = client.post("/api/tts", json={"text": "Halo"})
+
+    assert response.status_code == 502
+    assert "empty audio" in response.json()["detail"]
+

@@ -89,21 +89,31 @@ async def tts(request: Request, payload: dict[str, Any]) -> Response:
         raise HTTPException(status_code=422, detail="text must be a non-empty string")
     if len(text) > 5000:
         raise HTTPException(status_code=422, detail="text must be at most 5000 characters")
-    if not settings.elevenlabs_api_key or not settings.elevenlabs_tts_voice_id:
-        raise HTTPException(status_code=503, detail="ElevenLabs TTS not configured")
-    model_id = payload.get("model_id") or "eleven_multilingual_v2"
     try:
-        from elevenlabs import ElevenLabs
-        client = ElevenLabs(api_key=settings.elevenlabs_api_key)
-        chunks = client.text_to_speech.convert(
-            voice_id=settings.elevenlabs_tts_voice_id,
-            text=text,
-            model_id=str(model_id),
-            output_format="mp3_44100_128",
+        from google.cloud import texttospeech
+    except ImportError:
+        raise HTTPException(status_code=503, detail="google-cloud-texttospeech not installed")
+    try:
+        client = texttospeech.TextToSpeechClient()
+        synthesis_input = texttospeech.SynthesisInput(text=text.strip())
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="id-ID",
+            name=settings.gcp_tts_voice_name,
         )
-        audio = b"".join(chunks)
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+        )
+        response = client.synthesize_speech(
+            input=synthesis_input,
+            voice=voice,
+            audio_config=audio_config,
+        )
+        audio = response.audio_content
     except Exception as error:
-        raise HTTPException(status_code=502, detail=f"ElevenLabs TTS failed: {error}")
+        logger.warning("GCP TTS synthesis failed: %s", error)
+        raise HTTPException(status_code=502, detail=f"GCP TTS failed: {error}")
+    if not audio:
+        raise HTTPException(status_code=502, detail="GCP TTS returned empty audio")
     return Response(content=audio, media_type="audio/mpeg")
 
 
