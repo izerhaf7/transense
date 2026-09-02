@@ -248,6 +248,9 @@ export function HomePage({
   // on the map via rAF lerp in MapboxMap. Never labeled as realtime; the map
   // shows a "Simulasi jadwal" chip while these markers are visible.
   const [scheduledVehicles, setScheduledVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
+  // Rail (KRL/MRT/LRT) schedule-based trains — same Gapeka interpolation format
+  // as scheduledVehicles, fed from /api/transit/positions for the active lines.
+  const [railVehicles, setRailVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
   const [trackerStatus, setTrackerStatus] = useState<'ok' | 'outside_service_hours' | 'unavailable'>('unavailable')
 
   useEffect(() => {
@@ -323,6 +326,51 @@ export function HomePage({
     if (selectedRailKeys.size === 0) return railStations
     return railStations.filter((s) => s.lines.some((lk) => selectedRailKeys.has(lk)))
   }, [mapMode, railStations, selectedRailKeys])
+
+  // Rail (KRL/MRT/LRT) schedule-based train positions — polled every 2s for the
+  // active rail lines, animated with the same Gapeka rAF lerp in MapboxMap.
+  // Converts /api/transit/positions trains into the scheduledVehicles shape.
+  useEffect(() => {
+    if (mapMode !== 'rail' || filteredRailLines.length === 0) {
+      setRailVehicles([])
+      return
+    }
+    let cancelled = false
+    const fetchRailVehicles = async () => {
+      const collected: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[] = []
+      await Promise.all(
+        filteredRailLines.map(async (line) => {
+          try {
+            const res = await fetch(`${apiBaseUrl}/api/transit/positions?operator=${encodeURIComponent(line.operator)}&code=${encodeURIComponent(line.code)}`)
+            if (!res.ok) return
+            const data = await res.json() as { source: string; trains?: { id: string; direction: string; lat: number; lng: number; next_station: string | null; progress_pct: number }[] }
+            if (data.source !== 'scheduled') return
+            const routeCode = line.operator === 'MRTJ' ? 'MRT' : line.operator === 'KCI' ? 'KRL' : line.operator === 'LRTJ' ? 'LRT' : line.code
+            for (const train of data.trains ?? []) {
+              if (typeof train.lat !== 'number' || typeof train.lng !== 'number') continue
+              collected.push({
+                id: train.id,
+                trip_id: train.id,
+                lat: train.lat,
+                lng: train.lng,
+                bearing: 0,
+                status: 'en_route',
+                route_code: routeCode,
+              })
+            }
+          } catch { /* skip this line */ }
+        }),
+      )
+      if (cancelled) return
+      setRailVehicles(collected)
+    }
+    void fetchRailVehicles()
+    const interval = window.setInterval(() => { void fetchRailVehicles() }, 2_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [apiBaseUrl, mapMode, filteredRailLines])
 
   const handleStopClick = async (stopId: string) => {
     try {
@@ -464,7 +512,7 @@ export function HomePage({
             stops={mapMode === 'bus' ? displayStops : []}
             routeShapes={mapMode === 'bus' ? filteredShapes : []}
             buses={mapMode === 'bus' ? filteredBuses : []}
-            scheduledVehicles={mapMode === 'bus' ? scheduledVehicles : []}
+            scheduledVehicles={mapMode === 'bus' ? scheduledVehicles : railVehicles}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
             stopPopup={mapMode === 'bus' ? stopInfo : null}
