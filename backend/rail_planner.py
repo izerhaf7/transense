@@ -135,21 +135,23 @@ def _rail_leg(
     operator: str,
     code: str,
 ) -> dict[str, Any]:
-    """One RAIL leg between two stations on the same line, ordered along it."""
-    if from_idx > to_idx:
-        from_idx, to_idx, from_station, to_station = (
-            to_idx,
-            from_idx,
-            to_station,
-            from_station,
-        )
+    """One RAIL leg between two stations on the same line, ordered along it.
+
+    ``from_station``/``to_station`` keep the caller's travel direction (origin
+    side → destination side); the distance only depends on the span, so it is
+    summed over the station range regardless of direction.
+    """
+    low_idx, high_idx = sorted((from_idx, to_idx))
     ride_m = 0.0
-    for i in range(from_idx, to_idx):
+    for i in range(low_idx, high_idx):
         ride_m += haversine_km(
             stations[i]["lat"], stations[i]["lng"], stations[i + 1]["lat"], stations[i + 1]["lng"]
         ) * 1000
-    intermediate = max(0, (to_idx - from_idx) - 1)
+    intermediate = max(0, (high_idx - low_idx) - 1)
     ride_minutes = ride_m / (RAIL_SPEED_KMH * 1000 / 60) + intermediate * RAIL_DWELL_SEC / 60
+    # Head toward the terminus on the travel side: the line's first station
+    # when riding "backwards" (high index → low index), last station otherwise.
+    headsign_name = stations[0]["name"] if to_idx < from_idx else stations[-1]["name"]
     return {
         "mode": "RAIL",
         "from": _station_point(from_station),
@@ -161,7 +163,7 @@ def _rail_leg(
             "short_name": _rail_short_name(operator),
             "color": _line_color(application, operator, code),
         },
-        "headsign": stations[-1]["name"],
+        "headsign": headsign_name,
     }
 
 

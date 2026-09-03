@@ -1216,7 +1216,13 @@ def _resolve_point(
     if not snapped:
         return None, None
     stop, straight_distance = snapped[0]
-    return stop.stop_id, AccessWalk(stop=stop, lat=lat, lng=lng, straight_distance_m=straight_distance)
+    return stop.stop_id, AccessWalk(
+        stop=stop,
+        lat=lat,
+        lng=lng,
+        straight_distance_m=straight_distance,
+        name=data.get("name"),
+    )
 
 
 @dataclass(frozen=True)
@@ -1227,6 +1233,7 @@ class AccessWalk:
     lat: float
     lng: float
     straight_distance_m: float
+    name: str | None = None
 
     def street_distance_m(self) -> float:
         return self.straight_distance_m * WALK_PENALTY_FACTOR
@@ -1234,12 +1241,16 @@ class AccessWalk:
     def walk_seconds(self) -> int:
         return round(_estimate_walk_seconds(self.street_distance_m()))
 
+    def coordinate_point(self) -> "Point":
+        """Point at the raw coordinate, keeping a caller-supplied name."""
+        return Point.from_coordinate(self.lat, self.lng, name=self.name or _ACCESS_POINT_NAME)
+
     def access_leg(self, start_seconds: int) -> "Leg":
         """WALK leg from the raw coordinate to the snapped stop."""
         seconds = self.walk_seconds()
         return Leg(
             mode="WALK",
-            from_point=Point.from_coordinate(self.lat, self.lng),
+            from_point=self.coordinate_point(),
             to_point=Point.from_stop(self.stop),
             duration_minutes=max(1, round(seconds / 60.0)),
             distance_m=self.street_distance_m(),
@@ -1255,7 +1266,7 @@ def _egress_leg(snap: AccessWalk, arrival_seconds: int) -> "Leg":
     return Leg(
         mode="WALK",
         from_point=Point.from_stop(snap.stop),
-        to_point=Point.from_coordinate(snap.lat, snap.lng),
+        to_point=snap.coordinate_point(),
         duration_minutes=max(1, round(seconds / 60.0)),
         distance_m=snap.street_distance_m(),
         start_time=_format_time(arrival_seconds),
