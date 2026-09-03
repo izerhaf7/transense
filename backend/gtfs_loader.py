@@ -126,7 +126,14 @@ def download_gtfs(
     url: str = DEFAULT_GTFS_URL,
     cache_path: Path | str = "backend/gtfs_cache.zip",
     refresh_hours: float = 24.0,
+    bundle_path: Path | str | None = None,
 ) -> Path:
+    """Return a valid GTFS zip, preferring fresh cache, then download, then bundle.
+
+    ``bundle_path`` points at a repo-bundled GTFS snapshot (e.g.
+    ``backend/gtfs_bundle.zip``) used when the remote feed is unreachable and
+    no cache exists yet — so schedule data still loads offline / in CI.
+    """
     cache_path = Path(cache_path)
     if cache_path.exists():
         age_hours = (time.time() - cache_path.stat().st_mtime) / 3600
@@ -154,6 +161,12 @@ def download_gtfs(
         if cache_path.exists():
             logger.warning("GTFS download failed, using cached copy: %s", exc)
             return cache_path
+        if bundle_path is not None:
+            bundle = Path(bundle_path)
+            if bundle.is_file():
+                _validate_zip(bundle)
+                logger.warning("GTFS download failed, using bundled copy: %s", exc)
+                return bundle
         raise GtfsError(f"Failed to download GTFS: {exc}") from exc
     except Exception:
         tmp_path.unlink(missing_ok=True)
