@@ -3377,7 +3377,6 @@ input[aria-invalid='true'] {
   display: grid;
   gap: var(--brand-space-xs);
   padding: var(--brand-space-lg);
-  scroll-margin-top: var(--brand-space-xs);
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-success-border);
   border-radius: var(--brand-radius-xl);

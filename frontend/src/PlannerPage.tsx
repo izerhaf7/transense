@@ -4,7 +4,7 @@ import ClockField from './ClockField'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
 import JourneyTrackingPage from './JourneyTrackingPage'
-import { ArrowRightIcon, ChevronDownIcon, SearchIcon, WalkIcon } from './icons'
+import { ArrowBackIcon, ArrowRightIcon, ChevronDownIcon, SearchIcon, WalkIcon } from './icons'
 import type { Stop } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import type { ProfileType } from './profile'
@@ -93,7 +93,7 @@ interface PlannerShape {
   coordinates: [number, number][]
 }
 
-type PlannerPhase = 'plan' | 'tracking'
+type PlannerPhase = 'plan' | 'detail' | 'tracking'
 
 
 /** MRT suitability thresholds for the destination userflow (single source of truth). */
@@ -495,7 +495,6 @@ function PlannerPage({
   const [phase, setPhase] = useState<PlannerPhase>('plan')
   // Incident detail expander state (per incident, keyed by id or index).
   const [openIncidentKeys, setOpenIncidentKeys] = useState<Set<string>>(new Set())
-  const summaryRef = useRef<HTMLElement | null>(null)
 
   // Departure is an optional clock input (24-hour "HH:MM") that anchors the
   // forward plan (`time`); empty means "leave as soon as possible".
@@ -571,6 +570,12 @@ function PlannerPage({
   useEffect(() => {
     onDestinationSelected?.(selectedDestination)
   }, [selectedDestination, onDestinationSelected])
+
+  // Detail/tracking are full-page steps; always open them from the top even
+  // when the results list above was long and scrolled.
+  useEffect(() => {
+    if (phase === 'detail' || phase === 'tracking') window.scrollTo({ top: 0 })
+  }, [phase])
 
   const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
     if (!from) {
@@ -708,12 +713,10 @@ function PlannerPage({
   }
 
   const chooseItinerary = (index: number) => {
-    if (index !== selectedItinerary) setSelectedItinerary(index)
-    // Bring the itinerary detail (summary/legs/map) into view after the
-    // selection commits, so a tap deep in a long card list still lands on it.
-    window.setTimeout(() => {
-      summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 60)
+    setSelectedItinerary(index)
+    // A tap on a route card opens its dedicated detail page (summary, steps,
+    // map, and the tracking CTA at the bottom).
+    setPhase('detail')
   }
 
   const startTrackingForChosenRoute = () => {
@@ -728,7 +731,7 @@ function PlannerPage({
       <JourneyTrackingPage
         apiBaseUrl={apiBaseUrl}
         itinerary={trackingItinerary}
-        onBack={() => setPhase('plan')}
+        onBack={() => setPhase('detail')}
       />
     )
   }
@@ -760,6 +763,70 @@ function PlannerPage({
     && firstItinerary.transfers <= MRT_SUITABILITY.MAX_TRANSFER
     && firstItinerary.total_minutes <= MRT_SUITABILITY.MAX_MINUTES
     && (firstItinerary.walk_distance_m ?? 0) <= MRT_SUITABILITY.MAX_WALK_M
+
+  // Route detail step: reached by tapping one of the Pilihan cards. Shows the
+  // chosen itinerary's summary, step list and map, with the live-tracking CTA
+  // pinned at the very bottom.
+  if (phase === 'detail' && planState === 'results' && planResponse && itineraries.length > 0 && selected) {
+    const detailOrigin = selected.legs[0]?.from.name ?? 'Asal'
+    const detailDestination = selected.legs[selected.legs.length - 1]?.to.name ?? 'Tujuan'
+    return (
+      <main className="page-content inner-page planner-page">
+        <div className="page-intro">
+          <button type="button" className="schedule-detail__back" onClick={() => setPhase('plan')}>
+            <ArrowBackIcon size={18} /> Kembali ke pilihan rute
+          </button>
+          <p className="eyebrow">ANTAR AKU · DETAIL RUTE</p>
+          <h2>Rute Pilihan {selectedItinerary + 1}</h2>
+          <p>{detailOrigin} <span aria-hidden="true">→</span> {detailDestination}</p>
+        </div>
+
+        <section className="planner-summary" aria-labelledby="planner-summary-heading">
+          <p className="eyebrow">RINGKASAN PERJALANAN</p>
+          {departureTime && selected.legs[0] ? (
+            <p className="planner-summary__departure" role="status">
+              <span>Berangkat pukul</span>
+              <strong>{formatClock(selected.legs[0].start_time)}</strong>
+              <span>dari {selected.legs[0].from.name}</span>
+            </p>
+          ) : null}
+          <div className="planner-summary__numbers">
+            <div><strong>{selected.total_minutes}</strong><span>menit total</span></div>
+            <div><strong>{selected.transfers}</strong><span>transfer</span></div>
+            <div><strong>{Math.round(selected.walk_distance_m / 10) / 100}</strong><span>km jalan kaki</span></div>
+          </div>
+          <p className="planner-summary__note">Estimasi jadwal statis · {planResponse.source === 'gtfs' ? 'sumber GTFS' : 'sumber tidak tersedia'}</p>
+        </section>
+
+        <section className="planner-legs" aria-label="Daftar langkah perjalanan">
+          <ol className="leg-list">
+            {selected.legs.map((leg, index) => (
+              <LegRow
+                key={`leg-${index}`}
+                leg={leg}
+                index={index}
+                affected={leg.mode === 'BUS' && !!leg.route && (affectedRouteIds.has(leg.route.id) || affectedRouteIds.has(leg.route.short_name))}
+                facilityIndex={facilityIndex}
+                onOpenSideBySide={onOpenSideBySide}
+              />
+            ))}
+          </ol>
+        </section>
+
+        <div className="planner-map">
+          <MapboxMap stops={plannerStops} routeShapes={planShapes} walkLegs={walkLegs} />
+        </div>
+
+        <button
+          className={`primary-button planner-track-button${mrtSuitable ? ' planner-track-button--highlight' : ' planner-track-button--deemphasized'}${profile === 'netra' ? ' planner-btn--netra' : ''}`}
+          type="button"
+          onClick={() => { if (profile === 'netra') tts?.speak('Lanjut ke tracking rute ini'); startTrackingForChosenRoute() }}
+        >
+          Lanjut ke tracking rute ini <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
+        </button>
+      </main>
+    )
+  }
 
   return (
     <main className="page-content inner-page planner-page">
@@ -908,50 +975,6 @@ function PlannerPage({
               <span>Kami sarankan menggunakan transportasi darat lain. Rute di bawah tetap tersedia sebagai informasi.</span>
             </div>
           )}
-
-          <section className="planner-summary" ref={summaryRef} aria-labelledby="planner-summary-heading">
-            <p className="eyebrow">RINGKASAN PERJALANAN</p>
-            {departureTime && selected.legs[0] ? (
-              <p className="planner-summary__departure" role="status">
-                <span>Berangkat pukul</span>
-                <strong>{formatClock(selected.legs[0].start_time)}</strong>
-                <span>dari {selected.legs[0].from.name}</span>
-              </p>
-            ) : null}
-            <div className="planner-summary__numbers">
-              <div><strong>{selected.total_minutes}</strong><span>menit total</span></div>
-              <div><strong>{selected.transfers}</strong><span>transfer</span></div>
-              <div><strong>{Math.round(selected.walk_distance_m / 10) / 100}</strong><span>km jalan kaki</span></div>
-            </div>
-            <p className="planner-summary__note">Estimasi jadwal statis · {planResponse.source === 'gtfs' ? 'sumber GTFS' : 'sumber tidak tersedia'}</p>
-          </section>
-
-          <section className="planner-legs" aria-label="Daftar langkah perjalanan">
-            <ol className="leg-list">
-              {selected.legs.map((leg, index) => (
-                <LegRow
-                  key={`leg-${index}`}
-                  leg={leg}
-                  index={index}
-                  affected={leg.mode === 'BUS' && !!leg.route && (affectedRouteIds.has(leg.route.id) || affectedRouteIds.has(leg.route.short_name))}
-                  facilityIndex={facilityIndex}
-                  onOpenSideBySide={onOpenSideBySide}
-                />
-              ))}
-            </ol>
-          </section>
-
-          <div className="planner-map">
-            <MapboxMap stops={plannerStops} routeShapes={planShapes} walkLegs={walkLegs} />
-          </div>
-
-          <button
-            className={`primary-button planner-track-button${mrtSuitable ? ' planner-track-button--highlight' : ' planner-track-button--deemphasized'}${profile === 'netra' ? ' planner-btn--netra' : ''}`}
-            type="button"
-            onClick={() => { if (profile === 'netra') tts?.speak('Lanjut ke tracking rute ini'); startTrackingForChosenRoute() }}
-          >
-            Lanjut ke tracking rute ini <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
-          </button>
         </>
       ) : null}
     </main>
