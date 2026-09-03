@@ -3191,51 +3191,193 @@ input[aria-invalid='true'] {
   color: var(--brand-color-error);
 }
 
-.itinerary-tabs {
+/* ---- Plan result route options: stacked Pilihan cards ---- */
+
+.itinerary-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--brand-space-xs);
+  gap: var(--brand-space-sm);
 }
 
-.itinerary-tab {
+.itinerary-options__head h3 {
+  margin: var(--brand-space-xxs) 0 0;
+  font-size: var(--brand-font-size-lg);
+}
+
+.itinerary-card-list {
   display: grid;
-  gap: var(--brand-space-xxs);
-  min-height: 72px;
-  align-content: center;
-  padding: var(--brand-space-sm) var(--brand-space-base);
-  text-align: left;
+  gap: var(--brand-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.itinerary-card {
+  display: grid;
+  gap: var(--brand-space-sm);
+  width: 100%;
+  padding: var(--brand-space-base);
   color: var(--brand-color-text);
+  text-align: left;
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-border);
   border-radius: var(--brand-radius-xl);
-  font-weight: var(--brand-font-weight-strong);
+  box-shadow: var(--brand-shadow-card);
   cursor: pointer;
+  transition: border-color var(--brand-motion-fast) ease, background var(--brand-motion-fast) ease, box-shadow var(--brand-motion-fast) ease;
 }
 
-.itinerary-tab strong {
-  font-size: var(--brand-font-size-base);
+.itinerary-card:hover,
+.itinerary-card:focus-visible {
+  border-color: var(--brand-color-accent);
+  box-shadow: var(--brand-shadow-card-hover);
 }
 
-.itinerary-tab span {
-  color: var(--brand-color-text-secondary);
-  font-size: var(--brand-font-size-sm);
-  font-weight: var(--brand-font-weight-normal);
+.itinerary-card:not(.itinerary-card--active):hover,
+.itinerary-card:not(.itinerary-card--active):focus-visible {
+  background: var(--brand-color-accent-bg);
 }
 
-.itinerary-tab--active {
+.itinerary-card--active {
+  border-color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
+}
+
+.itinerary-card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--brand-space-xs);
+}
+
+.itinerary-card__title-row strong {
+  font-size: var(--brand-font-size-lg);
+}
+
+.itinerary-card--active .itinerary-card__title-row strong {
+  color: var(--brand-color-accent);
+}
+
+.itinerary-card__selected-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px var(--brand-space-xs);
   color: var(--brand-color-text-on-accent);
   background: var(--brand-color-accent);
-  border-color: var(--brand-color-accent);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  line-height: 1;
 }
 
-.itinerary-tab--active span {
-  color: var(--brand-color-accent-bg);
+.itinerary-card__body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--brand-space-base);
+}
+
+.itinerary-card__time {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: var(--brand-space-xxs);
+  min-width: 48px;
+  padding-right: var(--brand-space-base);
+  border-right: var(--brand-border-width) solid var(--brand-color-border);
+}
+
+.itinerary-card__time strong {
+  color: var(--brand-color-accent);
+  font-size: var(--brand-font-size-xl);
+  line-height: 1;
+}
+
+.itinerary-card__time span {
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.itinerary-card__info {
+  display: grid;
+  gap: var(--brand-space-xs);
+  min-width: 0;
+}
+
+.itinerary-card__modes {
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-xxs);
+  min-width: 0;
+  overflow-x: auto;
+  padding: var(--brand-space-xxs) 0;
+  scrollbar-width: thin;
+}
+
+.itinerary-card__mode-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--brand-space-xxs);
+  min-width: 0;
+}
+
+.itinerary-card__mode-arrow {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--brand-color-text-tertiary);
+}
+
+.itinerary-card__mode {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  line-height: 1;
+}
+
+.itinerary-card__mode--walk {
+  gap: var(--brand-space-xxs);
+  min-height: var(--brand-control-height-sm);
+  padding: 0 var(--brand-space-xs);
+  color: var(--brand-color-text-secondary);
+  background: var(--brand-color-fill-secondary);
+  border-radius: var(--brand-radius-pill);
+}
+
+.itinerary-card__mode--ride {
+  min-width: 34px;
+  min-height: var(--brand-control-height-sm);
+  padding: 0 var(--brand-space-xs);
+  border-radius: var(--brand-radius-base);
+}
+
+.itinerary-card__departure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--brand-space-xxs) var(--brand-space-xs);
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.itinerary-card__departure strong {
+  color: var(--brand-color-accent);
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.itinerary-card__departure-from {
+  min-width: 0;
 }
 
 .planner-summary {
   display: grid;
   gap: var(--brand-space-xs);
   padding: var(--brand-space-lg);
+  scroll-margin-top: var(--brand-space-xs);
   background: var(--brand-color-bg-container);
   border: var(--brand-border-width) solid var(--brand-color-success-border);
   border-radius: var(--brand-radius-xl);
@@ -3804,6 +3946,83 @@ input[aria-invalid='true'] {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* ---- Planner incident cards: compact summary + "Cek detail" expander ---- */
+
+.incident-card--planner {
+  display: grid;
+  gap: var(--brand-space-xs);
+  padding: var(--brand-space-base);
+}
+
+.incident-card--planner h3 {
+  margin: var(--brand-space-xxs) 0 0;
+  font-size: var(--brand-font-size-lg);
+  text-transform: capitalize;
+}
+
+.incident-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--brand-space-base);
+}
+
+.incident-card__text {
+  display: grid;
+  gap: var(--brand-space-xxs);
+  min-width: 0;
+}
+
+.incident-card__route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--brand-space-xs);
+  margin: 0;
+  color: var(--brand-color-text-secondary);
+  font-size: var(--brand-font-size-sm);
+}
+
+.incident-card__toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--brand-space-xxs);
+  min-height: var(--brand-control-height-base);
+  padding: 0 var(--brand-space-sm);
+  color: var(--brand-color-accent);
+  background: transparent;
+  border: var(--brand-border-width) solid var(--brand-color-accent-border);
+  border-radius: var(--brand-radius-pill);
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  cursor: pointer;
+}
+
+.incident-card__toggle:hover,
+.incident-card__toggle:focus-visible {
+  background: var(--brand-color-accent-bg-hover);
+  border-color: var(--brand-color-accent-border-hover);
+}
+
+.incident-card__chevron {
+  transition: transform var(--brand-motion-fast) ease;
+}
+
+.incident-card__chevron--open {
+  transform: rotate(180deg);
+}
+
+.incident-card--planner .incident-details {
+  margin: var(--brand-space-xs) 0 0;
+}
+
+/* An open <dl> must truly disappear when collapsed (display:grid would
+   otherwise beat the UA [hidden] rule). */
+.incident-details[hidden] {
+  display: none;
 }
 
 /* ---- Planner leg status chips & ETA ---- */

@@ -4,7 +4,7 @@ import ClockField from './ClockField'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
 import JourneyTrackingPage from './JourneyTrackingPage'
-import { ArrowRightIcon, SearchIcon, WalkIcon } from './icons'
+import { ArrowRightIcon, ChevronDownIcon, SearchIcon, WalkIcon } from './icons'
 import type { Stop } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import type { ProfileType } from './profile'
@@ -183,6 +183,96 @@ function formatDistance(meters: number): string {
   return `${Math.round(meters)} m`
 }
 
+/** Parses "HH:MM" (leading zero optional) into minutes since midnight. */
+function parseClockMinutes(clock: string | undefined): number | null {
+  if (!clock) return null
+  const match = /^(\d{1,2}):(\d{2})/.exec(clock)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes > 59) return null
+  return hours * 60 + minutes
+}
+
+function formatMinutes(minutes: number): string {
+  // Normalize into the 00:00–23:59 window so a walk that starts before
+  // midnight still renders as "23:5x" instead of a negative clock.
+  const normalized = ((Math.round(minutes) % 1440) + 1440) % 1440
+  const hours = Math.floor(normalized / 60)
+  const mins = normalized % 60
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+}
+
+/**
+ * Estimated departure clock from the journey's origin: the first leg that
+ * carries a real schedule clock, minus the estimated duration of the walk
+ * legs before it. Returns null when no leg is clocked (pure estimate plan).
+ */
+function itineraryDepartureClock(itinerary: PlanItinerary): string | null {
+  let walkMinutes = 0
+  for (const leg of itinerary.legs) {
+    const clock = parseClockMinutes(leg.start_time)
+    if (clock !== null) return formatMinutes(clock - walkMinutes)
+    if (leg.mode !== 'WALK') return null
+    walkMinutes += Math.max(0, Math.round(leg.duration_minutes || 0))
+  }
+  return null
+}
+
+/** Normalizes a GTFS color ("FFB6DB", "#ca2a51") into "#rrggbb". */
+function normalizeRouteColor(color: string | undefined): string | undefined {
+  if (!color) return undefined
+  const match = /^#?([0-9a-f]{6})$/i.exec(color.trim())
+  return match ? `#${match[1].toLowerCase()}` : undefined
+}
+
+/**
+ * Readable chip colors for a route: white text on saturated route colors,
+ * dark text on light pastels (GTFS feeds carry both).
+ */
+function routeChipColors(color: string | undefined): { background: string; foreground: string } | null {
+  const background = normalizeRouteColor(color)
+  if (!background) return null
+  const value = Number.parseInt(background.slice(1), 16)
+  const r = (value >> 16) & 0xff
+  const g = (value >> 8) & 0xff
+  const b = value & 0xff
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return { background, foreground: luminance > 0.6 ? '#1a1a1a' : '#ffffff' }
+}
+
+interface ModeChip {
+  key: string
+  kind: 'walk' | 'ride'
+  label: string
+  colors: { background: string; foreground: string } | null
+}
+
+/**
+ * Collapses an itinerary into the ordered mode chips shown on its card:
+ * one "Jalan kaki" chip per consecutive walk run, one colored route-logo
+ * chip per transit leg.
+ */
+function itineraryModeChips(itinerary: PlanItinerary): ModeChip[] {
+  const chips: ModeChip[] = []
+  for (const leg of itinerary.legs) {
+    if (leg.mode === 'WALK') {
+      const last = chips[chips.length - 1]
+      if (last && last.kind === 'walk') continue
+      chips.push({ key: `chip-walk-${chips.length}`, kind: 'walk', label: 'Jalan kaki', colors: null })
+      continue
+    }
+    const route = leg.route
+    chips.push({
+      key: `chip-ride-${chips.length}-${route?.id ?? leg.mode}`,
+      kind: 'ride',
+      label: route?.short_name ?? (leg.mode === 'RAIL' ? 'MRT' : 'Bus'),
+      colors: routeChipColors(route?.color),
+    })
+  }
+  return chips
+}
+
 function useSavedStops() {
   const [savedStops, setSavedStops] = useState<SavedStop[]>(() => readSavedStops())
   const addSavedStop = (item: SavedStop) => {
@@ -306,6 +396,83 @@ function LegRow({
   )
 }
 
+/**
+ * One stacked route-option card (Pilihan N): duration on the left, the
+ * scrollable mode sequence (walk → route logos) on the top right, and the
+ * departure clock + origin place on the bottom right. Clicking selects the
+ * itinerary whose detail (summary/legs/map) renders below the list.
+ */
+function ItineraryOptionCard({
+  index,
+  itinerary,
+  selected,
+  onSelect,
+}: {
+  index: number
+  itinerary: PlanItinerary
+  selected: boolean
+  onSelect: (index: number) => void
+}) {
+  const chips = itineraryModeChips(itinerary)
+  const departureClock = itineraryDepartureClock(itinerary)
+  const originName = itinerary.legs[0]?.from.name ?? ''
+  const sequenceLabel = chips.map((chip) => chip.label).join(', ')
+  return (
+    <li>
+      <button
+        type="button"
+        className={`itinerary-card${selected ? ' itinerary-card--active' : ''}`}
+        onClick={() => onSelect(index)}
+        aria-pressed={selected}
+        aria-label={`Pilihan ${index + 1}: ${itinerary.total_minutes} menit, urutan ${sequenceLabel}. ${departureClock ? `Berangkat pukul ${departureClock}` : 'Waktu berangkat tidak diketahui'} dari ${originName}`}
+      >
+        <span className="itinerary-card__title-row">
+          <strong>Pilihan {index + 1}</strong>
+          {selected ? <span className="itinerary-card__selected-badge">Terpilih</span> : null}
+        </span>
+        <span className="itinerary-card__body">
+          <span className="itinerary-card__time">
+            <strong>{itinerary.total_minutes}</strong>
+            <span>menit</span>
+          </span>
+          <span className="itinerary-card__info">
+            <span className="itinerary-card__modes">
+              {chips.map((chip, chipIndex) => (
+                <span className="itinerary-card__mode-item" key={chip.key}>
+                  {chipIndex > 0 ? (
+                    <span className="itinerary-card__mode-arrow" aria-hidden="true"><ArrowRightIcon size={14} /></span>
+                  ) : null}
+                  {chip.kind === 'walk' ? (
+                    <span className="itinerary-card__mode itinerary-card__mode--walk">
+                      <WalkIcon size={16} />
+                      <span>{chip.label}</span>
+                    </span>
+                  ) : (
+                    <span
+                      className="itinerary-card__mode itinerary-card__mode--ride"
+                      style={{
+                        background: chip.colors?.background ?? 'var(--brand-color-accent)',
+                        color: chip.colors?.foreground ?? 'var(--brand-color-text-on-accent)',
+                      }}
+                    >
+                      {chip.label}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </span>
+            <span className="itinerary-card__departure">
+              <span>Berangkat pukul</span>
+              <strong>{departureClock ?? '—'}</strong>
+              <span className="itinerary-card__departure-from">dari {originName}</span>
+            </span>
+          </span>
+        </span>
+      </button>
+    </li>
+  )
+}
+
 function PlannerPage({
   apiBaseUrl,
   profile = 'tuli',
@@ -326,6 +493,9 @@ function PlannerPage({
   const [planShapes, setPlanShapes] = useState<PlannerShape[]>([])
   const [walkLegs, setWalkLegs] = useState<WalkLine[]>([])
   const [phase, setPhase] = useState<PlannerPhase>('plan')
+  // Incident detail expander state (per incident, keyed by id or index).
+  const [openIncidentKeys, setOpenIncidentKeys] = useState<Set<string>>(new Set())
+  const summaryRef = useRef<HTMLElement | null>(null)
 
   // Departure is an optional clock input (24-hour "HH:MM") that anchors the
   // forward plan (`time`); empty means "leave as soon as possible".
@@ -365,6 +535,7 @@ function PlannerPage({
     setPlanResponse(null)
     setPlanError('')
     setSelectedItinerary(0)
+    setOpenIncidentKeys(new Set())
     setPlanShapes([])
     setWalkLegs([])
   }
@@ -416,6 +587,7 @@ function PlannerPage({
     setPlanResponse(null)
     setPlanError('')
     setSelectedItinerary(0)
+    setOpenIncidentKeys(new Set())
     setPlanShapes([])
     setWalkLegs([])
 
@@ -525,6 +697,24 @@ function PlannerPage({
     }
     return ids
   }, [planResponse])
+
+  const toggleIncidentKey = (key: string) => {
+    setOpenIncidentKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const chooseItinerary = (index: number) => {
+    if (index !== selectedItinerary) setSelectedItinerary(index)
+    // Bring the itinerary detail (summary/legs/map) into view after the
+    // selection commits, so a tap deep in a long card list still lands on it.
+    window.setTimeout(() => {
+      summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 60)
+  }
 
   const startTrackingForChosenRoute = () => {
     const itinerary = planResponse?.itineraries[selectedItinerary]
@@ -649,41 +839,62 @@ function PlannerPage({
             <h3 id="planner-incidents-heading">Ada gangguan di perjalananmu</h3>
           </div>
           <ul className="incident-list">
-            {planResponse.incidents.map((incident, index) => (
-              <li key={incident.id ?? `planner-incident-${index}`}>
-                <article className="incident-card">
-                  <div className="incident-card__header">
-                    <span className="state-badge state-badge--danger">GANGGUAN</span>
-                    <span>{incident.route_id ? `Koridor ${incident.route_id}` : 'Rute terpengaruh'}</span>
-                  </div>
-                  <h3>{incidentStatusLabel(incident.status)}</h3>
-                  <dl className="incident-details">
-                    {incident.cause ? <div><dt>Penyebab</dt><dd>{incident.cause}</dd></div> : null}
-                    {incident.action ? <div><dt>Tindakan</dt><dd>{incident.action}</dd></div> : null}
-                    {incident.instruction ? <div><dt>Instruksi</dt><dd>{incident.instruction}</dd></div> : null}
-                  </dl>
-                </article>
-              </li>
-            ))}
+            {planResponse.incidents.map((incident, index) => {
+              const key = incident.id ?? `planner-incident-${index}`
+              const expanded = openIncidentKeys.has(key)
+              return (
+                <li key={key}>
+                  <article className="incident-card incident-card--planner">
+                    <div className="incident-card__row">
+                      <div className="incident-card__text">
+                        <p className="incident-card__route">
+                          <span className="state-badge state-badge--danger">GANGGUAN</span>
+                          <span>{incident.route_id ? `Koridor ${incident.route_id}` : 'Rute terpengaruh'}</span>
+                        </p>
+                        <h3>{incidentStatusLabel(incident.status)}</h3>
+                      </div>
+                      <button
+                        type="button"
+                        className="incident-card__toggle"
+                        aria-expanded={expanded}
+                        aria-controls={`planner-incident-details-${key}`}
+                        onClick={() => toggleIncidentKey(key)}
+                      >
+                        <span>{expanded ? 'Tutup detail' : 'Cek detail'}</span>
+                        <ChevronDownIcon size={18} className={`incident-card__chevron${expanded ? ' incident-card__chevron--open' : ''}`} />
+                      </button>
+                    </div>
+                    <dl className="incident-details" id={`planner-incident-details-${key}`} hidden={!expanded}>
+                      {incident.cause ? <div><dt>Penyebab</dt><dd>{incident.cause}</dd></div> : null}
+                      {incident.action ? <div><dt>Tindakan</dt><dd>{incident.action}</dd></div> : null}
+                      {incident.instruction ? <div><dt>Instruksi</dt><dd>{incident.instruction}</dd></div> : null}
+                    </dl>
+                  </article>
+                </li>
+              )
+            })}
           </ul>
         </section>
       ) : null}
 
       {planState === 'results' && planResponse && itineraries.length > 0 && selected ? (
         <>
-          <section className="itinerary-tabs" aria-label="Pilih alternatif rute">
-            {itineraries.map((itinerary, index) => (
-              <button
-                type="button"
-                key={`itinerary-${index}`}
-                className={`itinerary-tab${index === selectedItinerary ? ' itinerary-tab--active' : ''}`}
-                onClick={() => setSelectedItinerary(index)}
-                aria-pressed={index === selectedItinerary}
-              >
-                <strong>Pilihan {index + 1}</strong>
-                <span>{itinerary.total_minutes} mnt · jalan {formatDistance(itinerary.walk_distance_m)}</span>
-              </button>
-            ))}
+          <section className="itinerary-options" aria-labelledby="itinerary-options-heading">
+            <div className="itinerary-options__head">
+              <p className="eyebrow">ALTERNATIF RUTE</p>
+              <h3 id="itinerary-options-heading">Pilih rute perjalanan</h3>
+            </div>
+            <ul className="itinerary-card-list">
+              {itineraries.map((itinerary, index) => (
+                <ItineraryOptionCard
+                  key={`itinerary-${index}`}
+                  index={index}
+                  itinerary={itinerary}
+                  selected={index === selectedItinerary}
+                  onSelect={chooseItinerary}
+                />
+              ))}
+            </ul>
           </section>
 
           {mrtSuitable ? (
@@ -698,7 +909,7 @@ function PlannerPage({
             </div>
           )}
 
-          <section className="planner-summary" aria-labelledby="planner-summary-heading">
+          <section className="planner-summary" ref={summaryRef} aria-labelledby="planner-summary-heading">
             <p className="eyebrow">RINGKASAN PERJALANAN</p>
             {departureTime && selected.legs[0] ? (
               <p className="planner-summary__departure" role="status">
