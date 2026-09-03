@@ -495,6 +495,10 @@ function PlannerPage({
   const [phase, setPhase] = useState<PlannerPhase>('plan')
   // Incident detail expander state (per incident, keyed by id or index).
   const [openIncidentKeys, setOpenIncidentKeys] = useState<Set<string>>(new Set())
+  // Headings that receive programmatic focus on phase changes so keyboard /
+  // screen-reader users land on the new step instead of a removed control.
+  const optionsHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const detailHeadingRef = useRef<HTMLHeadingElement | null>(null)
 
   // Departure is an optional clock input (24-hour "HH:MM") that anchors the
   // forward plan (`time`); empty means "leave as soon as possible".
@@ -576,6 +580,13 @@ function PlannerPage({
   useEffect(() => {
     if (phase === 'detail' || phase === 'tracking') window.scrollTo({ top: 0 })
   }, [phase])
+
+  // Move focus with the phase transition: the detail heading when a route
+  // card is opened, the option-list heading when returning to the results.
+  useEffect(() => {
+    if (phase === 'detail') detailHeadingRef.current?.focus()
+    else if (phase === 'plan' && planState === 'results') optionsHeadingRef.current?.focus()
+  }, [phase, planState])
 
   const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
     if (!from) {
@@ -704,6 +715,8 @@ function PlannerPage({
   }, [planResponse])
 
   const toggleIncidentKey = (key: string) => {
+    const willOpen = !openIncidentKeys.has(key)
+    if (profile === 'netra') tts?.speak(willOpen ? 'Membuka detail gangguan' : 'Menutup detail gangguan')
     setOpenIncidentKeys((current) => {
       const next = new Set(current)
       if (next.has(key)) next.delete(key)
@@ -716,6 +729,7 @@ function PlannerPage({
     setSelectedItinerary(index)
     // A tap on a route card opens its dedicated detail page (summary, steps,
     // map, and the tracking CTA at the bottom).
+    if (profile === 'netra') tts?.speak(`Detail rute Pilihan ${index + 1}`)
     setPhase('detail')
   }
 
@@ -777,7 +791,7 @@ function PlannerPage({
             <ArrowBackIcon size={18} /> Kembali ke pilihan rute
           </button>
           <p className="eyebrow">ANTAR AKU · DETAIL RUTE</p>
-          <h2>Rute Pilihan {selectedItinerary + 1}</h2>
+          <h2 tabIndex={-1} ref={detailHeadingRef}>Rute Pilihan {selectedItinerary + 1}</h2>
           <p>{detailOrigin} <span aria-hidden="true">→</span> {detailDestination}</p>
         </div>
 
@@ -949,7 +963,7 @@ function PlannerPage({
           <section className="itinerary-options" aria-labelledby="itinerary-options-heading">
             <div className="itinerary-options__head">
               <p className="eyebrow">ALTERNATIF RUTE</p>
-              <h3 id="itinerary-options-heading">Pilih rute perjalanan</h3>
+              <h3 id="itinerary-options-heading" tabIndex={-1} ref={optionsHeadingRef}>Pilih rute perjalanan</h3>
             </div>
             <ul className="itinerary-card-list">
               {itineraries.map((itinerary, index) => (
