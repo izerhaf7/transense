@@ -23,12 +23,9 @@ export interface ClockFieldProps {
   onChange: (value: string) => void
   /** a11y name, e.g. "jam berangkat". */
   label: string
-  /** Bump this counter to force re-sync from ``value`` even when the string
-   *  is unchanged (e.g. the parent clamped the field back to the same time). */
-  resetSignal?: number
 }
 
-export default function ClockField({ value, onChange, label, resetSignal = 0 }: ClockFieldProps) {
+export default function ClockField({ value, onChange, label }: ClockFieldProps) {
   const [hour, setHour] = useState('')
   const [minute, setMinute] = useState('')
 
@@ -50,7 +47,7 @@ export default function ClockField({ value, onChange, label, resetSignal = 0 }: 
     }
   }
 
-  // Sync from the parent (initial value, external reset, clamp by planner).
+  // Sync from the parent (initial value or an external reset).
   useEffect(() => {
     lastValidRef.current = value
     const [h = '', m = ''] = value ? value.split(':') : ['', '']
@@ -58,7 +55,7 @@ export default function ClockField({ value, onChange, label, resetSignal = 0 }: 
     liveMinute.current = m
     setHour(h)
     setMinute(m)
-  }, [value, resetSignal])
+  }, [value])
 
   const emit = (h: string, m: string) => {
     if (!h && !m) {

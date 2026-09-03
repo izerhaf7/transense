@@ -3678,20 +3678,13 @@ input[aria-invalid='true'] {
   }
 }
 
-/* ---- Planner departure / arrive-by time controls ---- */
+/* ---- Planner departure time control ---- */
 
 .planner-time-controls {
   display: grid;
   gap: var(--brand-space-sm);
   padding-top: var(--brand-space-sm);
   border-top: var(--brand-border-width) solid var(--brand-color-border);
-}
-
-.planner-time-notice {
-  margin: var(--brand-space-xxs) 0 0;
-  color: var(--brand-color-error);
-  font-size: var(--brand-font-size-sm);
-  font-weight: var(--brand-font-weight-strong);
 }
 
 /* ---- Clock field (24-hour HH:MM: type, wheel, or step buttons) ---- */
