@@ -155,16 +155,26 @@ export function HomePage({
   }, [])
 
   const [busPositions, setBusPositions] = useState<{ id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[]>([])
+  const [busSource, setBusSource] = useState<'realtime' | 'unavailable'>('unavailable')
 
   useEffect(() => {
     const fetchBuses = () => {
       fetch(`${apiBaseUrl}/api/buses`)
         .then(async (res) => {
           if (!res.ok) return
-          const data = await res.json() as { buses: { id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[] }
-          if (data.buses.length) setBusPositions(data.buses)
+          const data = await res.json() as { source?: string; buses: { id: string; route_code: string; lat: number; lng: number; observed_at: string; next_stop?: { name: string } }[] }
+          if (data.source === 'realtime') {
+            setBusPositions(data.buses)
+            setBusSource('realtime')
+          } else {
+            setBusPositions([])
+            setBusSource('unavailable')
+          }
         })
-        .catch(() => {})
+        .catch(() => {
+          setBusPositions([])
+          setBusSource('unavailable')
+        })
     }
     fetchBuses()
     const interval = window.setInterval(fetchBuses, 15_000)
@@ -249,43 +259,12 @@ export function HomePage({
     }
   }
 
-  // Schedule-based (Gapeka interpolation) vehicles — polled every 2s, animated
-  // on the map via rAF lerp in MapboxMap. Never labeled as realtime; the map
-  // shows a "Simulasi jadwal" chip while these markers are visible.
-  const [scheduledVehicles, setScheduledVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
-  // Rail (MRT) schedule-based trains — same Gapeka interpolation format
-  // as scheduledVehicles, fed from /api/transit/positions for the active lines.
+  // MRT schedule-based trains are intentionally separate from bus realtime.
   const [railVehicles, setRailVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
-  const [trackerStatus, setTrackerStatus] = useState<'ok' | 'outside_service_hours' | 'unavailable'>('unavailable')
-
-  useEffect(() => {
-    const fetchScheduledVehicles = () => {
-      fetch(`${apiBaseUrl}/api/vehicle-positions`)
-        .then(async (res) => {
-          if (!res.ok) return
-          const data = await res.json() as { source: string; status?: string; vehicles?: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[] }
-          if (data.source === 'scheduled') {
-            setScheduledVehicles(data.vehicles ?? [])
-            setTrackerStatus(data.status === 'outside_service_hours' ? 'outside_service_hours' : 'ok')
-          } else if (data.source === 'unavailable') {
-            setScheduledVehicles([])
-            setTrackerStatus('unavailable')
-          }
-        })
-        .catch(() => {})
-    }
-    fetchScheduledVehicles()
-    const interval = window.setInterval(fetchScheduledVehicles, 2_000)
-    return () => window.clearInterval(interval)
-  }, [])
 
   // When mapMode is 'bus', if selectedRoutes is empty, show all buses / shapes / stops by default
   const filteredShapes = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
   const filteredBuses = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
-  const filteredScheduledVehicles = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length
-    ? scheduledVehicles
-    : scheduledVehicles.filter((v) => !v.route_code || selectedRoutes.has(v.route_code))
-
   // Stops follow the selected routes: if empty selection, show all GTFS stops by default
   const displayStops = useMemo(() => {
     if (allRoutes.length === 0) return gtfsStops
@@ -350,7 +329,10 @@ export function HomePage({
             const res = await fetch(`${apiBaseUrl}/api/transit/positions?operator=${encodeURIComponent(line.operator)}&code=${encodeURIComponent(line.code)}`)
             if (!res.ok) return
             const data = await res.json() as { source: string; trains?: { id: string; direction: string; lat: number; lng: number; next_station: string | null; progress_pct: number }[] }
-            if (data.source !== 'scheduled') return
+            if (data.source !== 'scheduled') {
+              setRailVehicles([])
+              return
+            }
             const routeCode = 'MRT'
             for (const train of data.trains ?? []) {
               if (typeof train.lat !== 'number' || typeof train.lng !== 'number') continue
@@ -521,7 +503,8 @@ export function HomePage({
             stops={mapMode === 'bus' ? displayStops : []}
             routeShapes={mapMode === 'bus' ? filteredShapes : []}
             buses={mapMode === 'bus' ? filteredBuses : []}
-            scheduledVehicles={mapMode === 'bus' ? filteredScheduledVehicles : railVehicles}
+            scheduledVehicles={undefined}
+            railVehicles={mapMode === 'rail' ? railVehicles : undefined}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
             stopPopup={mapMode === 'bus' ? stopInfo : null}
@@ -537,9 +520,10 @@ export function HomePage({
             locating={locating}
             locateError={locateError}
           />
-          {trackerStatus === 'outside_service_hours' ? (
-            <p className="map-schedule-hint" role="status">Di luar jam operasional</p>
+          {mapMode === 'bus' && busSource === 'unavailable' ? (
+            <p className="map-schedule-hint" role="status">Data bus realtime tidak tersedia</p>
           ) : null}
+
         </div>
         {notificationsOpen ? (
           <section className="notification-panel" id="notification-panel" aria-label="Daftar notifikasi">

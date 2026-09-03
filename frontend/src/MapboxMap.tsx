@@ -105,11 +105,36 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 60)} jam lalu`
 }
 
+function nearestRailPoint(point: { lng: number; lat: number }, lines: RailLine[]): { lng: number; lat: number } {
+  let nearest = point
+  let distance = Number.POSITIVE_INFINITY
+  for (const line of lines) {
+    for (const segment of line.segments) {
+      for (let index = 1; index < segment.length; index += 1) {
+        const [ax, ay] = segment[index - 1]
+        const [bx, by] = segment[index]
+        const dx = bx - ax
+        const dy = by - ay
+        const lengthSquared = dx * dx + dy * dy
+        const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.lng - ax) * dx + (point.lat - ay) * dy) / lengthSquared))
+        const candidate = { lng: ax + t * dx, lat: ay + t * dy }
+        const candidateDistance = (point.lng - candidate.lng) ** 2 + (point.lat - candidate.lat) ** 2
+        if (candidateDistance < distance) {
+          distance = candidateDistance
+          nearest = candidate
+        }
+      }
+    }
+  }
+  return distance <= 0.02 ** 2 ? nearest : point
+}
+
 function MapboxMap({
   stops,
   routeShapes,
   buses,
   scheduledVehicles,
+  railVehicles,
   walkLegs,
   selectedRouteNames,
   onStopClick,
@@ -129,8 +154,9 @@ function MapboxMap({
   stops: MapStop[]
   routeShapes?: RouteShape[]
   buses?: BusPosition[]
-  scheduledVehicles?: ScheduledVehicle[]
-  walkLegs?: WalkLine[]
+   scheduledVehicles?: ScheduledVehicle[]
+   railVehicles?: ScheduledVehicle[]
+   walkLegs?: WalkLine[]
   selectedRouteNames?: Set<string>
   onStopClick?: (stopId: string) => void
   routeColors?: Map<string, string>
@@ -507,7 +533,11 @@ function MapboxMap({
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
 
-    const vehicles = scheduledVehicles ?? []
+    const vehicles = railVehicles ?? scheduledVehicles ?? []
+    const isRailMode = railVehicles !== undefined
+    const snap = (vehicle: ScheduledVehicle) => isRailMode
+      ? nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])
+      : { lng: vehicle.lng, lat: vehicle.lat }
     const seen = new Set<string>()
     const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
     const DURATION_MS = 900
@@ -542,8 +572,9 @@ function MapboxMap({
       if (typeof vehicle.lng !== 'number' || typeof vehicle.lat !== 'number') continue
       seen.add(vehicle.id)
       const existing = scheduledMarkersRef.current.get(vehicle.id)
-      if (existing) {
-        animateTo(vehicle.id, existing, { lng: vehicle.lng, lat: vehicle.lat })
+        const position = snap(vehicle)
+        if (existing) {
+        animateTo(vehicle.id, existing, position)
       } else {
         const isMRT = vehicle.route_code === 'MRT' || vehicle.id.startsWith('mrt-')
         const el = document.createElement('div')
@@ -609,8 +640,8 @@ function MapboxMap({
             .setHTML(mrtPopupHTML)
 
           marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-            .setLngLat([vehicle.lng, vehicle.lat])
-            .setPopup(popup)
+.setLngLat([position.lng, position.lat])
+             .setPopup(popup)
             .addTo(map)
         } else {
           el.className = 'scheduled-vehicle-marker'
@@ -634,7 +665,7 @@ function MapboxMap({
       marker.remove()
       scheduledMarkersRef.current.delete(id)
     }
-  }, [scheduledVehicles])
+  }, [railLines, railVehicles, scheduledVehicles])
 
   // Stop info popup: shown near the clicked stop, styled like the bus popup.
   useEffect(() => {
@@ -799,9 +830,11 @@ function MapboxMap({
       {locateError ? (
         <p className="map-locate-error" role="status">{locateError}</p>
       ) : null}
-      {(scheduledVehicles?.length ?? 0) > 0 ? (
-        <p className="map-schedule-label" role="status">Simulasi jadwal</p>
-      ) : null}
+      {(scheduledVehicles?.length ?? 0) > 0 || (railVehicles?.length ?? 0) > 0 ? (
+         <p className="map-schedule-label" role="status">{(railVehicles?.length ?? 0) > 0 ? 'MRT · Berbasis jadwal' : 'Bus · Berbasis jadwal'}</p>
+       ) : (buses?.length ?? 0) > 0 ? (
+         <p className="map-schedule-label" role="status">Bus · Realtime</p>
+       ) : null}
     </div>
   )
 }
