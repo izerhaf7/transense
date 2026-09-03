@@ -56,8 +56,8 @@ export interface PlanLeg {
   delay_minutes?: number
   /** Live/estimated arrival (minutes) when the backend sends ETA data. */
   live_eta_minutes?: number
-  /** Origin of `delay_minutes`: deterministic schedule estimate or live feed. */
-  eta_source?: 'simulated' | 'realtime'
+  /** ETA origin: live TJ feed, or GTFS schedule fallback. */
+  eta_source?: 'scheduled' | 'realtime'
 }
 
 export interface PlanItinerary {
@@ -132,7 +132,7 @@ function isPlanLeg(value: unknown): value is PlanLeg {
     && (value.end_time === undefined || typeof value.end_time === 'string')
     && (value.delay_minutes === undefined || typeof value.delay_minutes === 'number')
     && (value.live_eta_minutes === undefined || typeof value.live_eta_minutes === 'number')
-    && (value.eta_source === undefined || value.eta_source === 'simulated' || value.eta_source === 'realtime')
+    && (value.eta_source === undefined || value.eta_source === 'scheduled' || value.eta_source === 'realtime')
 }
 
 function isPlanItinerary(value: unknown): value is PlanItinerary {
@@ -291,15 +291,14 @@ function LegRow({
           <FacilityAccessChips stopId={leg.to.stop_id} facility={facilityIndex.get(leg.to.stop_id)} onOpenSideBySide={onOpenSideBySide} />
         ) : null}
         <p className="leg__meta">{leg.duration_minutes} menit · {formatDistance(leg.distance_m)}</p>
-        {leg.delay_minutes && leg.delay_minutes > 0 ? (
+        {leg.live_eta_minutes !== undefined ? (
           <p className="leg__delay" role="status">
-            <span className="state-badge state-badge--warning">+{leg.delay_minutes} mnt</span>
-            {leg.eta_source === 'simulated' ? <small className="leg__eta-source">simulasi</small> : null}
-            {leg.live_eta_minutes !== undefined ? <span className="leg__live-eta">ETA langsung {leg.live_eta_minutes} mnt</span> : null}
-          </p>
-        ) : leg.live_eta_minutes !== undefined ? (
-          <p className="leg__delay" role="status">
-            <span className="leg__live-eta">ETA langsung {leg.live_eta_minutes} mnt</span>
+            {leg.delay_minutes && leg.delay_minutes > 0 ? (
+              <span className="state-badge state-badge--warning">+{leg.delay_minutes} mnt</span>
+            ) : null}
+            <span className="leg__live-eta">
+              {leg.eta_source === 'realtime' ? 'Bus live tiba' : 'Bus berikutnya tiba'} {leg.live_eta_minutes} mnt
+            </span>
           </p>
         ) : null}
       </div>

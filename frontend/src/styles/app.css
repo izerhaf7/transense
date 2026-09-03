@@ -3830,12 +3830,6 @@ input[aria-invalid='true'] {
   font-size: var(--brand-font-size-base);
 }
 
-.leg__eta-source {
-  color: var(--brand-color-text-secondary);
-  font-size: var(--brand-font-size-sm);
-  font-weight: var(--brand-font-weight-strong);
-}
-
 .leg__live-eta {
   color: var(--brand-color-accent);
   font-size: var(--brand-font-size-sm);

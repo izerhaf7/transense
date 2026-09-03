@@ -161,6 +161,7 @@ async def journey_plan(
         enrich_bus_legs_eta(
             itinerary_dicts,
             realtime_available=get_realtime_client(request) is not None,
+            buses=getattr(request.app.state, "realtime_buses", None) or [],
         )
     return {
         "itineraries": itinerary_dicts,

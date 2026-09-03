@@ -354,39 +354,60 @@ def resolve_plan_point(stop_id: str | None, lat: float | None, lng: float | None
     raise HTTPException(status_code=422, detail=f"{label} requires a stop id or lat/lng coordinates")
 
 
-def time_bucket_for(hhmm: str | None) -> int:
-    """Hour-of-day bucket (``hour // 2``) for stable per-day simulated delays."""
-    try:
-        hour = int(str(hhmm).split(":", 1)[0])
-    except (TypeError, ValueError, IndexError):
-        return 0
-    return hour // 2
+def realtime_eta_to_stop(
+    buses: list[RealtimeBus], route_code: str, stop_id: str
+) -> int | None:
+    """ETA (minutes) of the closest live bus serving ``route_code`` to ``stop_id``.
+
+    Realtime TJ buses report operator ETA per downstream stop when available;
+    otherwise the straight-line distance is used at ~300 m/min.  Returns
+    ``None`` when no live bus for the route is in range (callers fall back to
+    the GTFS schedule).
+    """
+    best: int | None = None
+    for bus in buses:
+        if not bus.route_code or bus.route_code.casefold() != str(route_code).casefold():
+            continue
+        operator_eta = None
+        for entry in bus.stops:
+            if entry.stop_id == stop_id or entry.parent_stop_id == stop_id:
+                operator_eta = int(entry.eta_minutes)
+                break
+        if operator_eta is not None:
+            best = operator_eta if best is None else min(best, operator_eta)
+            continue
+    return best
 
 
-def simulated_delay_minutes(route_id: str, stop_id: str, time_bucket: int) -> int:
-    """Deterministic 1-15 minute simulated delay for a BUS leg."""
-    import zlib
-    key = f"{route_id}|{stop_id}|{time_bucket}".encode("utf-8")
-    return 1 + (zlib.crc32(key) % 15)
+def enrich_bus_legs_eta(
+    itineraries: list[dict],
+    realtime_available: bool,
+    buses: list[RealtimeBus] | None = None,
+) -> None:
+    """Annotate BUS legs with ETA, realtime-first with GTFS-schedule fallback.
 
-
-def enrich_bus_legs_eta(itineraries: list[dict], realtime_available: bool) -> None:
-    """Annotate every BUS leg with deterministic ETA fields, in place."""
+    When live buses for a leg's route are visible near its boarding stop, the
+    leg reports ``live_eta_minutes`` from the realtime feed
+    (``eta_source="realtime"``).  Otherwise the leg keeps its GTFS schedule
+    clocks and is labelled ``eta_source="scheduled"`` — no fabricated delay.
+    """
     for itinerary in itineraries:
         for leg in itinerary.get("legs", []):
             if leg.get("mode") != "BUS":
                 continue
             route = leg.get("route") or {}
-            route_id = route.get("id")
+            route_code = route.get("short_name") or route.get("id")
             stop_id = (leg.get("from") or {}).get("stop_id")
-            if not route_id or not stop_id:
+            if not route_code or not stop_id:
                 continue
-            delay_minutes = simulated_delay_minutes(
-                route_id, stop_id, time_bucket_for(leg.get("start_time"))
-            )
-            leg["delay_minutes"] = delay_minutes
-            leg["live_eta_minutes"] = int(leg.get("duration_minutes", 0)) + delay_minutes
-            leg["eta_source"] = "realtime" if realtime_available else "simulated"
+            if realtime_available and buses:
+                live_eta = realtime_eta_to_stop(buses, str(route_code), str(stop_id))
+                if live_eta is not None:
+                    leg["delay_minutes"] = max(0, int(live_eta))
+                    leg["live_eta_minutes"] = max(0, int(live_eta))
+                    leg["eta_source"] = "realtime"
+                    continue
+            leg["eta_source"] = "scheduled"
 
 
 def active_incidents(store: Store, itineraries: list[dict]) -> list[dict]:

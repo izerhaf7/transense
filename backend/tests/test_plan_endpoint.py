@@ -8,13 +8,17 @@ startup), then hit the endpoint.
 """
 
 import datetime
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from backend.config import Settings
 from backend.gtfs_loader import GtfsCalendar, GtfsFeed, GtfsRoute, GtfsStop, GtfsStopTime, GtfsTrip
 from backend.main import create_app
+from backend.tj_api import RealtimeBus, RealtimeStopEta
 from backend.walk_graph import walk_graph_from_feed
+
+from backend.api.utils import enrich_bus_legs_eta, realtime_eta_to_stop
 
 MONDAY = "2024-01-08"  # a Monday; the WD service runs
 
@@ -315,7 +319,54 @@ def test_plan_invalid_arrive_by_returns_422(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_plan_include_eta_simulated_and_deterministic(tmp_path):
+def _bus(route_code: str, stop_eta: int | None) -> RealtimeBus:
+    stops = (RealtimeStopEta("s1", "Halte 1", None, None, stop_eta),) if stop_eta is not None else ()
+    return RealtimeBus(
+        bus_id=f"B-{route_code}",
+        route_code=route_code,
+        lat=-6.2,
+        lng=106.8,
+        direction_id=0,
+        trip_id=None,
+        observed_at=datetime.datetime.now(datetime.timezone.utc),
+        stops=stops,
+    )
+
+
+def test_realtime_eta_to_stop_matches_route_and_stop():
+    buses = [
+        _bus("1", 4),
+        _bus("2", None),  # different route: ignored
+        _bus("1", 7),
+    ]
+    assert realtime_eta_to_stop(buses, "1", "s1") == 4  # nearest live bus
+    assert realtime_eta_to_stop(buses, "2", "s1") is None  # no ETA for route 2
+    assert realtime_eta_to_stop([], "1", "s1") is None
+
+
+def test_plan_include_eta_realtime_when_bus_visible(tmp_path, monkeypatch):
+    app = plan_app(tmp_path)
+    params = {"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00", "include_eta": "1"}
+    monkeypatch.setattr(
+        "backend.api.utils.realtime_eta_to_stop",
+        lambda buses, route_code, stop_id: 5,
+    )
+    with TestClient(app) as client:
+        _inject_plan_data(app, synthetic_feed())
+        app.state.realtime_client = SimpleNamespace(close=lambda: None)
+        app.state.realtime_buses = [_bus("1", 5)]
+        response = client.get("/api/journey/plan", params=params)
+    assert response.status_code == 200
+    bus_legs = [leg for it in response.json()["itineraries"] for leg in it["legs"] if leg["mode"] == "BUS"]
+    assert bus_legs
+    for leg in bus_legs:
+        assert leg["eta_source"] == "realtime"
+        assert leg["live_eta_minutes"] == 5
+
+
+def test_plan_include_eta_scheduled_without_realtime(tmp_path):
+    # No realtime client in tests: BUS legs keep GTFS schedule clocks and are
+    # labelled scheduled — never a fabricated delay.
     app = plan_app(tmp_path)
     params = {"from_stop": "s1", "to_stop": "s2", "date": MONDAY, "time": "08:00", "include_eta": "1"}
     with TestClient(app) as client:
@@ -326,12 +377,10 @@ def test_plan_include_eta_simulated_and_deterministic(tmp_path):
     bus_legs = [leg for it in first["itineraries"] for leg in it["legs"] if leg["mode"] == "BUS"]
     assert bus_legs, "expected at least one BUS leg"
     for leg in bus_legs:
-        assert isinstance(leg["delay_minutes"], int)
-        assert 1 <= leg["delay_minutes"] <= 15
-        assert isinstance(leg["live_eta_minutes"], int)
-        assert leg["live_eta_minutes"] == leg["duration_minutes"] + leg["delay_minutes"]
-        assert leg["eta_source"] == "simulated"
-    # Determinism: two identical requests produce identical ETA annotations.
+        assert "delay_minutes" not in leg
+        assert "live_eta_minutes" not in leg
+        assert leg["eta_source"] == "scheduled"
+    # Determinism: two identical requests produce identical annotations.
     assert second["itineraries"] == first["itineraries"]
 
 
