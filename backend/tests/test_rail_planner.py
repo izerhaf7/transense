@@ -19,7 +19,6 @@ def make_app(stations=None, geometry=True):
     feed = SimpleNamespace(
         lines=[
             SimpleNamespace(operator="MRTJ", code="M", color="AB0000"),
-            SimpleNamespace(operator="KCI", code="B", color="1677FF"),
         ],
         stations={},
     )
@@ -33,12 +32,6 @@ def make_app(stations=None, geometry=True):
         gtfs_feed=GtfsFeed(),
         rail_ordered_stations={
             "MRTJ:M": (now, stations if stations is not None else RAIL_STATIONS),
-            "KCI:B": (now, []),
-            "KCI:C": (now, []),
-            "KCI:R": (now, []),
-            "KCI:T": (now, []),
-            "KCI:TP": (now, []),
-            "LRTJ:S": (now, []),
         },
     )
     return app
@@ -95,15 +88,12 @@ def test_plan_rail_empty_without_geometry():
     assert rail.plan_rail({"lat": -6.24, "lng": 106.80}, {"lat": -6.19, "lng": 106.82}, app, None, "MRTJ", "M") == []
 
 
-def test_plan_standalone_rail_includes_krl_line():
+def test_plan_standalone_rail_includes_mrt_line():
     app = make_app()
-    now = time.time()
-    app.state.rail_ordered_stations["KCI:B"] = (now, RAIL_STATIONS)
-    app.state.rail_geometry["KCI:B"] = [[[106.79, -6.29], [106.80, -6.24], [106.82, -6.19]]]
     result = rail.plan_standalone_rail({"lat": -6.245, "lng": 106.805}, {"lat": -6.195, "lng": 106.815}, app, None)
-    assert len(result) == 2  # MRTJ:M + KCI:B
+    assert len(result) == 1  # MRTJ:M
     short_names = {it["legs"][1]["route"]["short_name"] for it in result}
-    assert short_names == {"MRT", "KRL"}
+    assert short_names == {"MRT"}
 
 
 def test_plan_intermodal_chains_bus_rail_bus(monkeypatch):

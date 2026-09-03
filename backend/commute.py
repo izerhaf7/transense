@@ -22,18 +22,15 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-# Rail operators we integrate.  TransJakarta is intentionally absent, as are
-# LRT Jabodebek (LRTJBDB) and the airport rail link (KAI Bandara) — both are
-# outside the Jakarta core scope and not covered by the RITJ geometry.
-RAIL_OPERATORS = ("KCI", "MRTJ", "LRTJ")
+# Rail operators we integrate. TransJakarta is intentionally absent, as are
+# KCI, LRT, LRT Jabodebek (LRTJBDB), and the airport rail link (KAI Bandara).
+RAIL_OPERATORS = ("MRTJ",)
 
-# Line keys excluded from the feed (KAI Bandara / Soekarno-Hatta line).
-EXCLUDED_LINE_KEYS = {"KCI:A"}
+# Line keys excluded from the feed.
+EXCLUDED_LINE_KEYS: set[str] = set()
 
 _MODE_LABEL = {
-    "RAIL": "KRL",
     "SUBWAY": "MRT",
-    "TRAM": "LRT",
     "BUS": "Bus",
 }
 

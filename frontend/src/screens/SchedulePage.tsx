@@ -256,7 +256,7 @@ export function SchedulePage() {
   }
 
   const railList = (
-    <section className="schedule-routes" aria-label="Daftar lin kereta">
+    <section className="schedule-routes" aria-label="Daftar lin MRT">
       {filteredRailLines.map((line) => {
         const key = `${line.operator}:${line.code}`
         const expanded = expandedRoute === key
@@ -271,7 +271,7 @@ export function SchedulePage() {
             >
               <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
               <span className="schedule-route__name">{line.name}</span>
-              <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
+              <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label || 'MRT'}</span>
               <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
             </button>
             {expanded ? (
@@ -286,7 +286,7 @@ export function SchedulePage() {
                     <span className="schedule-stop-row__name">{stop.name}</span>
                     <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
                   </button>
-                )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiunâ€¦</p> : null}
+                )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
               </div>
             ) : null}
           </div>
@@ -402,7 +402,7 @@ export function SchedulePage() {
                 >
                   <span className="schedule-route__badge" style={{ background: line.color }}>{line.code}</span>
                   <span className="schedule-route__name">{line.name}</span>
-                  <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label}</span>
+                  <span className="schedule-result-tag schedule-result-tag--rail">{line.mode_label || 'MRT'}</span>
                   <span className="schedule-route__toggle" aria-hidden="true">{expanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
                 </button>
                 {expanded ? (
@@ -417,13 +417,13 @@ export function SchedulePage() {
                         <span className="schedule-stop-row__name">{stop.name}</span>
                         <span className="schedule-stop-row__cta">Jadwal <ArrowRightIcon size={16} /></span>
                       </button>
-                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiunâ€¦</p> : null}
+                    )) : loadingStops ? <p className="schedule-routes__loading">Memuat stasiun…</p> : null}
                   </div>
                 ) : null}
               </div>
             )
           })}
-          {filteredRailLines.length === 0 ? <p className="schedule-routes__loading">Tidak ada lin yang cocok.</p> : null}
+          {filteredRailLines.length === 0 ? <p className="schedule-routes__loading">Tidak ada lin MRT yang cocok.</p> : null}
         </>
       )}
     </section>
@@ -432,9 +432,9 @@ export function SchedulePage() {
   return (
     <main className="page-content inner-page">
       <section className="page-intro">
-        <p className="eyebrow">JADWAL TRANSJAKARTA & KERETA / GTFS + LIVE</p>
+        <p className="eyebrow">JADWAL TRANSJAKARTA & MRT / GTFS + LIVE</p>
         <h2>Jadwal halte & stasiun</h2>
-        <p>Pilih moda, buka trayek/lin, lalu lihat jadwal kedatangan per rute plus ETA live bila tersedia.</p>
+        <p>Pilih moda, buka rute/lin, lalu lihat jadwal kedatangan per rute plus ETA live bila tersedia.</p>
       </section>
 
       <div className="schedule-mode-toggle" role="tablist" aria-label="Pilih moda">
@@ -454,18 +454,18 @@ export function SchedulePage() {
           aria-selected={mode === 'rail'}
           role="tab"
         >
-          Kereta
+          MRT
         </button>
       </div>
 
       <section className="schedule-search" role="search">
-        <label className="sr-only" htmlFor="schedule-search">{mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}</label>
+        <label className="sr-only" htmlFor="schedule-search">{mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin MRT'}</label>
         <span className="schedule-search__icon" aria-hidden="true"><SearchIcon size={20} /></span>
         <input
           id="schedule-search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin kereta'}
+          placeholder={mode === 'bus' ? 'Cari halte atau trayek' : 'Cari lin MRT'}
         />
       </section>
 

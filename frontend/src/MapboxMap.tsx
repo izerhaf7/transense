@@ -46,6 +46,9 @@ export interface ScheduledVehicle {
   bearing: number
   status: string
   route_code?: string
+  direction?: string
+  next_station?: string | null
+  progress_pct?: number
 }
 
 export interface StopPopupData {
@@ -542,12 +545,81 @@ function MapboxMap({
       if (existing) {
         animateTo(vehicle.id, existing, { lng: vehicle.lng, lat: vehicle.lat })
       } else {
+        const isMRT = vehicle.route_code === 'MRT' || vehicle.id.startsWith('mrt-')
         const el = document.createElement('div')
-        el.className = 'scheduled-vehicle-marker'
-        el.title = `${vehicle.route_code ?? vehicle.trip_id} · simulasi jadwal`
-        const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-          .setLngLat([vehicle.lng, vehicle.lat])
-          .addTo(map)
+        
+        let marker: mapboxgl.Marker
+
+        if (isMRT) {
+          el.className = 'mrt-vehicle-marker'
+          el.title = `MRT Jakarta · ${vehicle.trip_id}`
+          el.innerHTML = `
+            <div class="mrt-marker-badge" aria-label="Kereta MRT Jakarta">
+              <span class="mrt-marker-icon">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="#ffffff" aria-hidden="true">
+                  <path d="M12 2c-4 0-8 .5-8 4v9.5A3.5 3.5 0 0 0 7.5 19L6 20.5v.5h2l1-1h6l1 1h2v-.5L16.5 19a3.5 3.5 0 0 0 3.5-3.5V6c0-3.5-4-4-8-4zM7 16a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm10 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm-1-4.5H8V6h8v5.5z"/>
+                </svg>
+              </span>
+              <span class="mrt-marker-tag">MRT</span>
+              <span class="mrt-marker-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="#ffffff">
+                  <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+                </svg>
+              </span>
+            </div>
+            <div class="mrt-marker-pulse"></div>
+          `
+
+          const trainCodeMatch = vehicle.id.match(/\d+/)
+          const trainIdDisplay = trainCodeMatch ? `Rangkaian TS-${trainCodeMatch[0].padStart(2, '0').slice(-2)}` : `Rangkaian ${vehicle.id}`
+          const directionDisplay = vehicle.direction ? `Menuju ${vehicle.direction}` : 'Menuju Bundaran HI'
+          const nextStationDisplay = vehicle.next_station ? `Stasiun Berikutnya: ${vehicle.next_station}` : 'Dalam Perjalanan'
+          const progressDisplay = typeof vehicle.progress_pct === 'number' ? `${vehicle.progress_pct}% perjalanan` : 'Operasional Normal'
+
+          const mrtPopupHTML = `
+            <div class="mrt-train-popup">
+              <div class="mrt-train-popup__header">
+                <div class="mrt-train-popup__brand">
+                  <span class="mrt-train-popup__pill">MRT Jakarta</span>
+                  <span class="mrt-train-popup__status-dot" aria-hidden="true"></span>
+                  <span class="mrt-train-popup__status">Live Track</span>
+                </div>
+                <strong class="mrt-train-popup__title">${trainIdDisplay}</strong>
+              </div>
+              <div class="mrt-train-popup__body">
+                <div class="mrt-train-popup__row">
+                  <span class="mrt-train-popup__label">Arah</span>
+                  <span class="mrt-train-popup__value mrt-train-popup__direction">${directionDisplay}</span>
+                </div>
+                <div class="mrt-train-popup__row">
+                  <span class="mrt-train-popup__label">Posisi</span>
+                  <span class="mrt-train-popup__value">${nextStationDisplay}</span>
+                </div>
+                <div class="mrt-train-popup__progress-wrap">
+                  <div class="mrt-train-popup__progress-bar">
+                    <div class="mrt-train-popup__progress-fill" style="width: ${typeof vehicle.progress_pct === 'number' ? vehicle.progress_pct : 50}%"></div>
+                  </div>
+                  <span class="mrt-train-popup__progress-text">${progressDisplay}</span>
+                </div>
+              </div>
+            </div>
+          `
+
+          const popup = new mapboxgl.Popup({ offset: 16, maxWidth: '260px', closeButton: true, closeOnClick: false })
+            .setHTML(mrtPopupHTML)
+
+          marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+            .setLngLat([vehicle.lng, vehicle.lat])
+            .setPopup(popup)
+            .addTo(map)
+        } else {
+          el.className = 'scheduled-vehicle-marker'
+          el.title = `${vehicle.route_code ?? vehicle.trip_id} · simulasi jadwal`
+          marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+            .setLngLat([vehicle.lng, vehicle.lat])
+            .addTo(map)
+        }
+
         scheduledMarkersRef.current.set(vehicle.id, marker)
       }
     }

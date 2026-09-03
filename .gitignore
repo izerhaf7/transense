@@ -28,6 +28,7 @@ backend/walk_graph_cache.json
 .omo
 .claude
 .sisyphus
+.playwright-mcp
 
 # Python virtualenv
 .venv/

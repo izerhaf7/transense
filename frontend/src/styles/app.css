@@ -845,6 +845,188 @@ input[aria-invalid='true'] {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
+/* MRT Vehicle Marker Badge: MRT Jakarta Blue (#004F9F / #00A3E0) with crisp contrast */
+.mrt-vehicle-marker {
+  position: relative;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.mrt-marker-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px 3px 5px;
+  background: linear-gradient(135deg, #004F9F 0%, #00A3E0 100%);
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  border-radius: var(--brand-radius-pill);
+  box-shadow: 0 3px 8px rgba(0, 79, 159, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform var(--brand-motion-fast) ease, box-shadow var(--brand-motion-fast) ease;
+}
+
+.mrt-vehicle-marker:hover .mrt-marker-badge {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 79, 159, 0.55), 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+.mrt-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mrt-marker-tag {
+  font-size: 11px;
+  font-weight: var(--brand-font-weight-strong);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.mrt-marker-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+}
+
+.mrt-marker-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--brand-radius-pill);
+  background: rgba(0, 163, 224, 0.4);
+  transform: translate(-50%, -50%);
+  animation: mrt-pulse 2s infinite ease-out;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes mrt-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0.8;
+  }
+  70% {
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* MRT Train Rich Popup */
+.mrt-train-popup {
+  display: grid;
+  gap: var(--brand-space-xs);
+  padding: var(--brand-space-xs) 0;
+  color: var(--brand-color-text);
+  font-family: var(--brand-font-family);
+}
+
+.mrt-train-popup__header {
+  display: grid;
+  gap: 2px;
+  padding-bottom: var(--brand-space-xxs);
+  border-bottom: var(--brand-border-width) solid var(--brand-color-border);
+}
+
+.mrt-train-popup__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--brand-space-xxs);
+}
+
+.mrt-train-popup__pill {
+  padding: 1px 6px;
+  background: #004F9F;
+  color: #ffffff;
+  border-radius: var(--brand-radius-xs);
+  font-size: 10px;
+  font-weight: var(--brand-font-weight-strong);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.mrt-train-popup__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-color-success);
+}
+
+.mrt-train-popup__status {
+  font-size: 11px;
+  color: var(--brand-color-text-secondary);
+  font-weight: var(--brand-font-weight-strong);
+}
+
+.mrt-train-popup__title {
+  font-size: var(--brand-font-size-base);
+  font-weight: var(--brand-font-weight-strong);
+  color: #004F9F;
+}
+
+.mrt-train-popup__body {
+  display: grid;
+  gap: var(--brand-space-xs);
+}
+
+.mrt-train-popup__row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mrt-train-popup__label {
+  font-size: 11px;
+  font-weight: var(--brand-font-weight-strong);
+  color: var(--brand-color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mrt-train-popup__value {
+  font-size: var(--brand-font-size-sm);
+  font-weight: var(--brand-font-weight-strong);
+  color: var(--brand-color-text);
+}
+
+.mrt-train-popup__direction {
+  color: #004F9F;
+}
+
+.mrt-train-popup__progress-wrap {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.mrt-train-popup__progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--brand-color-fill-secondary);
+  border-radius: var(--brand-radius-pill);
+  overflow: hidden;
+}
+
+.mrt-train-popup__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #004F9F 0%, #00A3E0 100%);
+  border-radius: var(--brand-radius-pill);
+  transition: width 0.4s ease;
+}
+
+.mrt-train-popup__progress-text {
+  font-size: 11px;
+  color: var(--brand-color-text-secondary);
+  font-weight: var(--brand-font-weight-strong);
+}
+
 /* "Simulasi jadwal" chip — bottom-left of the map shell, subtle, only
    visible while schedule-simulation markers are on the map. */
 .map-schedule-label {

@@ -1,4 +1,4 @@
-"""Rail (MRT / KRL / LRT) itinerary generation for the Transense trip planner.
+"""Rail (MRT) itinerary generation for the Transense trip planner.
 
 Rail operators come from the Commute Data Platform feed plus the RITJ line
 geometry: ordered stations per line, station coordinates, and line color.
@@ -31,15 +31,9 @@ RAIL_DWELL_SEC = 30.0
 # Rail lines the planner considers, in suggestion order.
 RAIL_LINES: tuple[tuple[str, str], ...] = (
     ("MRTJ", "M"),
-    ("KCI", "B"),
-    ("KCI", "C"),
-    ("KCI", "R"),
-    ("KCI", "T"),
-    ("KCI", "TP"),
-    ("LRTJ", "S"),
 )
 # Display short names per rail operator.
-RAIL_SHORT_NAMES = {"MRTJ": "MRT", "KCI": "KRL", "LRTJ": "LRT"}
+RAIL_SHORT_NAMES = {"MRTJ": "MRT"}
 # Maximum intermodal itineraries (each requires two RAPTOR searches).
 INTERMODAL_MAX = 3
 

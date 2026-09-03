@@ -248,7 +248,7 @@ export function HomePage({
   // on the map via rAF lerp in MapboxMap. Never labeled as realtime; the map
   // shows a "Simulasi jadwal" chip while these markers are visible.
   const [scheduledVehicles, setScheduledVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
-  // Rail (KRL/MRT/LRT) schedule-based trains — same Gapeka interpolation format
+  // Rail (MRT) schedule-based trains — same Gapeka interpolation format
   // as scheduledVehicles, fed from /api/transit/positions for the active lines.
   const [railVehicles, setRailVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
   const [trackerStatus, setTrackerStatus] = useState<'ok' | 'outside_service_hours' | 'unavailable'>('unavailable')
@@ -274,14 +274,17 @@ export function HomePage({
     return () => window.clearInterval(interval)
   }, [])
 
-  const filteredShapes = selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
-  const filteredBuses = selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
+  // When mapMode is 'bus', if selectedRoutes is empty, show all buses / shapes / stops by default
+  const filteredShapes = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
+  const filteredBuses = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
+  const filteredScheduledVehicles = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length
+    ? scheduledVehicles
+    : scheduledVehicles.filter((v) => !v.route_code || selectedRoutes.has(v.route_code))
 
-  // Stops follow the selected routes: no selection -> empty map (lazy-loaded).
+  // Stops follow the selected routes: if empty selection, show all GTFS stops by default
   const displayStops = useMemo(() => {
-    if (allRoutes.length === 0) return []
-    if (selectedRoutes.size === 0) return []
-    if (selectedRoutes.size === allRoutes.length) return gtfsStops
+    if (allRoutes.length === 0) return gtfsStops
+    if (selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length) return gtfsStops
     const stopIds = new Set<string>()
     for (const route of allRoutes) {
       if (selectedRoutes.has(route.name)) {
@@ -327,9 +330,7 @@ export function HomePage({
     return railStations.filter((s) => s.lines.some((lk) => selectedRailKeys.has(lk)))
   }, [mapMode, railStations, selectedRailKeys])
 
-  // Rail (KRL/MRT/LRT) schedule-based train positions — polled every 2s for the
-  // active rail lines, animated with the same Gapeka rAF lerp in MapboxMap.
-  // Converts /api/transit/positions trains into the scheduledVehicles shape.
+  // Route code mapping simplified for MRT (no KRL/LRT specific branching)
   useEffect(() => {
     if (mapMode !== 'rail' || filteredRailLines.length === 0) {
       setRailVehicles([])
@@ -337,7 +338,7 @@ export function HomePage({
     }
     let cancelled = false
     const fetchRailVehicles = async () => {
-      const collected: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[] = []
+      const collected: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string; direction?: string; next_station?: string | null; progress_pct?: number }[] = []
       await Promise.all(
         filteredRailLines.map(async (line) => {
           try {
@@ -345,7 +346,7 @@ export function HomePage({
             if (!res.ok) return
             const data = await res.json() as { source: string; trains?: { id: string; direction: string; lat: number; lng: number; next_station: string | null; progress_pct: number }[] }
             if (data.source !== 'scheduled') return
-            const routeCode = line.operator === 'MRTJ' ? 'MRT' : line.operator === 'KCI' ? 'KRL' : line.operator === 'LRTJ' ? 'LRT' : line.code
+            const routeCode = 'MRT'
             for (const train of data.trains ?? []) {
               if (typeof train.lat !== 'number' || typeof train.lng !== 'number') continue
               collected.push({
@@ -356,6 +357,9 @@ export function HomePage({
                 bearing: 0,
                 status: 'en_route',
                 route_code: routeCode,
+                direction: train.direction,
+                next_station: train.next_station,
+                progress_pct: train.progress_pct,
               })
             }
           } catch { /* skip this line */ }
@@ -450,7 +454,7 @@ export function HomePage({
       <section id="home-hero" className="home-hero">
         <div className="home-hero__map">
           <button className={`map-filter-btn${showFilter ? ' map-filter-btn--active' : ''}`} type="button" onClick={() => setShowFilter((v) => !v)}>
-            Filter Rute ({selectedRoutes.size})
+            Filter Rute ({mapMode === 'bus' ? (selectedRoutes.size === 0 ? 'Semua' : selectedRoutes.size) : (selectedRailKeys.size === 0 ? 'Semua' : selectedRailKeys.size)})
           </button>
           {showFilter ? (
             <div className="map-filter-panel">
@@ -469,13 +473,13 @@ export function HomePage({
                 </label>
                 <label className="map-filter-mode">
                   <input type="radio" name="map-mode" checked={mapMode === 'rail'} onChange={() => setMapMode('rail')} />
-                  <span className="map-filter-mode__tag">Kereta</span>
+                  <span className="map-filter-mode__tag">MRT</span>
                 </label>
               </div>
               {mapMode === 'rail' ? (
                 <>
                   <div className="map-filter-panel__line-head">
-                    <p className="map-filter-panel__section">LIN KERETA</p>
+                    <p className="map-filter-panel__section">LIN MRT</p>
                   </div>
                   <div className="map-filter-rail-list">
                     {railLines.map((line) => {
@@ -512,7 +516,7 @@ export function HomePage({
             stops={mapMode === 'bus' ? displayStops : []}
             routeShapes={mapMode === 'bus' ? filteredShapes : []}
             buses={mapMode === 'bus' ? filteredBuses : []}
-            scheduledVehicles={mapMode === 'bus' ? scheduledVehicles : railVehicles}
+            scheduledVehicles={mapMode === 'bus' ? filteredScheduledVehicles : railVehicles}
             selectedRouteNames={selectedRoutes}
             routeColors={routeColorMap}
             stopPopup={mapMode === 'bus' ? stopInfo : null}
