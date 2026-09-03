@@ -4,12 +4,13 @@ import ClockField from './ClockField'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
 import JourneyTrackingPage from './JourneyTrackingPage'
-import { ArrowRightIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, WalkIcon } from './icons'
+import { ArrowRightIcon, SearchIcon, WalkIcon } from './icons'
 import type { Stop } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import type { ProfileType } from './profile'
 import { isFacilityStop } from './SideBySidePage'
 import type { FacilityStop } from './SideBySidePage'
+import StopPickerPage from './StopPickerPage'
 import type { TtsProvider } from './tts'
 import {
   addHistoryEntry,
@@ -17,13 +18,12 @@ import {
   isRecord,
   persistSavedStops,
   persistSearchHistory,
-  pointFromSavedStop,
   readSavedStops,
   readSearchHistory,
-  removeHistoryEntry,
   removeSavedStop,
   saveSavedStop,
   savedStopFromPoint,
+  savedStopId,
 } from './plannerStorage'
 
 interface PlannerPageProps {
@@ -183,17 +183,6 @@ function formatDistance(meters: number): string {
   return `${Math.round(meters)} m`
 }
 
-function formatHistoryTime(at: string): string {
-  const date = new Date(at)
-  if (Number.isNaN(date.getTime())) return at
-  return date.toLocaleString('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function useSavedStops() {
   const [savedStops, setSavedStops] = useState<SavedStop[]>(() => readSavedStops())
   const addSavedStop = (item: SavedStop) => {
@@ -222,14 +211,7 @@ function useSearchHistory() {
       return next
     })
   }
-  const removeStoredEntry = (at: string) => {
-    setHistory((current) => {
-      const next = removeHistoryEntry(current, at)
-      persistSearchHistory(next)
-      return next
-    })
-  }
-  return { history, recordSearch, removeHistoryEntry: removeStoredEntry }
+  return { history, recordSearch }
 }
 
 /** Facility stop lookup for the daksa accessibility chips (id → stop). */
@@ -332,16 +314,11 @@ function PlannerPage({
   onOpenSideBySide,
   onDestinationSelected,
 }: PlannerPageProps) {
-  const [originQuery, setOriginQuery] = useState('')
+  const [pickerFor, setPickerFor] = useState<'origin' | 'destination' | null>(null)
   const [origin, setOrigin] = useState<PlanPoint | null>(null)
-  const [originSuggestions, setOriginSuggestions] = useState<PlanPoint[]>([])
-  const [locating, setLocating] = useState(false)
-  const [locateError, setLocateError] = useState('')
   const [originFromLocation, setOriginFromLocation] = useState(false)
-  const [destinationQuery, setDestinationQuery] = useState('')
   const [destination, setDestination] = useState<PlanPoint | null>(null)
   const [selectedDestination, setSelectedDestination] = useState<PlanPoint | null>(null)
-  const [destinationSuggestions, setDestinationSuggestions] = useState<PlanPoint[]>([])
   const [facilityStops, setFacilityStops] = useState<FacilityStop[]>([])
   const [planState, setPlanState] = useState<'idle' | 'loading' | 'results' | 'error'>('idle')
   const [planResponse, setPlanResponse] = useState<PlanResponse | null>(null)
@@ -356,84 +333,32 @@ function PlannerPage({
   const [departureTime, setDepartureTime] = useState('')
 
   const { savedStops, addSavedStop, removeSavedStop: removeStoredStop } = useSavedStops()
-  const { history, recordSearch, removeHistoryEntry: removeStoredHistoryEntry } = useSearchHistory()
-  const [saveTarget, setSaveTarget] = useState<'origin' | 'destination' | null>(null)
-  const [saveLabel, setSaveLabel] = useState('')
-  const [historyOpen, setHistoryOpen] = useState(true)
+  const { history, recordSearch } = useSearchHistory()
 
-  const searchStops = async (query: string, kind: 'origin' | 'destination') => {
-    if (kind === 'origin') setOriginQuery(query)
-    else setDestinationQuery(query)
-    if (query.trim().length < 2) {
-      if (kind === 'origin') setOriginSuggestions([])
-      else setDestinationSuggestions([])
-      return
-    }
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(query.trim())}`)
-      if (!response.ok) return
-      const data = await response.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
-      const stops: PlanPoint[] = (data.stops ?? []).map((stop) => ({ stop_id: stop.id, name: stop.name, lat: stop.lat, lng: stop.lng }))
-      if (kind === 'origin') setOriginSuggestions(stops)
-      else setDestinationSuggestions(stops)
-    } catch (error: unknown) {
-      if (kind === 'origin') setOriginSuggestions([])
-      else setDestinationSuggestions([])
-      console.warn('Stop search failed.', error)
-    }
+  const openPicker = (kind: 'origin' | 'destination') => {
+    if (profile === 'netra') tts?.speak(kind === 'origin' ? 'Pilih titik asal' : 'Pilih titik tujuan')
+    setPickerFor(kind)
   }
 
-  const choosePoint = (kind: 'origin' | 'destination', point: PlanPoint) => {
+  const pickPoint = (kind: 'origin' | 'destination', point: PlanPoint, viaLocation = false) => {
     if (kind === 'origin') {
       setOrigin(point)
-      setOriginQuery(point.name)
-      setOriginSuggestions([])
-      setOriginFromLocation(false)
+      setOriginFromLocation(viaLocation)
     } else {
       setDestination(point)
       setSelectedDestination(point)
-      setDestinationQuery(point.name)
-      setDestinationSuggestions([])
     }
+    resetPlanResults()
+    setPickerFor(null)
   }
 
-  const locateOrigin = () => {
-    setLocating(true)
-    setLocateError('')
-    if (!('geolocation' in navigator)) {
-      setLocateError('Perangkat tidak mendukung lokasi.')
-      setLocating(false)
+  const toggleFavorite = (point: PlanPoint) => {
+    const id = savedStopId(point)
+    if (savedStops.some((stop) => stop.id === id)) {
+      removeStoredStop(id)
       return
     }
-    const pickNearestStop = async (position: GeolocationPosition) => {
-      try {
-        const url = `${apiBaseUrl}/api/gtfs/stops/nearby?lat=${position.coords.latitude}&lng=${position.coords.longitude}&limit=1`
-        const response = await fetch(url)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const data = await response.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
-        const nearest = (data.stops ?? [])[0]
-        if (!nearest) {
-          setLocateError('Tidak ada halte dekat lokasimu.')
-          return
-        }
-        choosePoint('origin', { stop_id: nearest.id, name: nearest.name, lat: nearest.lat, lng: nearest.lng })
-        setOriginFromLocation(true)
-        setLocateError('')
-      } catch (error: unknown) {
-        setLocateError('Tidak bisa mendapatkan lokasi.')
-        console.warn('Nearby stops lookup failed.', error)
-      } finally {
-        setLocating(false)
-      }
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => { void pickNearestStop(position) },
-      (error) => {
-        setLocateError(error.code === 1 ? 'Izin lokasi ditolak.' : 'Tidak bisa mendapatkan lokasi.')
-        setLocating(false)
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-    )
+    addSavedStop(savedStopFromPoint(point, point.name))
   }
 
   const resetPlanResults = () => {
@@ -476,37 +401,6 @@ function PlannerPage({
   useEffect(() => {
     onDestinationSelected?.(selectedDestination)
   }, [selectedDestination, onDestinationSelected])
-
-  const beginSaveStop = (kind: 'origin' | 'destination') => {
-    const point = kind === 'origin' ? origin : destination
-    if (!point) return
-    setSaveLabel(point.name)
-    setSaveTarget(kind)
-  }
-
-  const cancelSaveStop = () => {
-    setSaveTarget(null)
-    setSaveLabel('')
-  }
-
-  const confirmSaveStop = () => {
-    if (!saveTarget) return
-    const point = saveTarget === 'origin' ? origin : destination
-    if (!point) return
-    addSavedStop(savedStopFromPoint(point, saveLabel))
-    cancelSaveStop()
-  }
-
-  const fillSavedStop = (stop: SavedStop, kind: 'origin' | 'destination') => {
-    choosePoint(kind, pointFromSavedStop(stop))
-    resetPlanResults()
-  }
-
-  const fillFromHistory = (entry: SearchHistoryEntry) => {
-    choosePoint('origin', entry.origin)
-    choosePoint('destination', entry.destination)
-    resetPlanResults()
-  }
 
   const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
     if (!from) {
@@ -650,6 +544,22 @@ function PlannerPage({
     )
   }
 
+  if (pickerFor) {
+    return (
+      <StopPickerPage
+        apiBaseUrl={apiBaseUrl}
+        kind={pickerFor}
+        savedStops={savedStops}
+        history={history}
+        profile={profile}
+        tts={tts}
+        onPick={(point, meta) => pickPoint(pickerFor, point, meta?.viaLocation)}
+        onToggleFavorite={toggleFavorite}
+        onBack={() => setPickerFor(null)}
+      />
+    )
+  }
+
   const itineraries = planResponse?.itineraries ?? []
   const selected = planResponse?.itineraries[selectedItinerary] ?? null
   const unavailable = planResponse?.source === 'unavailable'
@@ -670,49 +580,24 @@ function PlannerPage({
         <p>Masukkan asal dan tujuan, lalu pilih rute terbaik. Setelah memilih, kamu bisa mengikuti armada secara langsung.</p>
       </section>
 
-      <form className="planner-form" onSubmit={(event) => { void runPlan(event) }} role="search">
-        <label className="planner-field">
-          <span className="planner-field__label">Dari</span>
-          <input
-            value={originQuery}
-            onChange={(event) => { void searchStops(event.target.value, 'origin') }}
-            placeholder="Asal, mis. Halte Bundaran HI"
-            autoComplete="off"
-          />
-        </label>
-        <button type="button" className={`planner-locate-btn${profile === 'netra' ? ' planner-btn--netra' : ''}`} onClick={() => { if (profile === 'netra') tts?.speak('Pakai lokasi saya'); locateOrigin() }} disabled={locating}>
-          <LocateIcon size={20} />
-          {locating ? 'Mencari…' : 'Pakai lokasi saya'}
-        </button>
-        {originFromLocation && origin ? (
-          <p className="planner-locate-note">Asal: {origin.name} (dari lokasimu)</p>
-        ) : null}
-        {locateError ? (
-          <p className="planner-locate-error" role="status">{locateError}</p>
-        ) : null}
-        {originSuggestions.length ? (
-          <div className="planner-suggestions" role="listbox" aria-label="Saran halte asal">
-            {originSuggestions.map((point) => (
-              <button type="button" key={point.stop_id ?? point.name} onClick={() => choosePoint('origin', point)}>{point.name}</button>
-            ))}
-          </div>
-        ) : null}
-        <label className="planner-field">
-          <span className="planner-field__label">Ke</span>
-          <input
-            value={destinationQuery}
-            onChange={(event) => { void searchStops(event.target.value, 'destination') }}
-            placeholder="Tujuan, mis. Halte Karet"
-            autoComplete="off"
-          />
-        </label>
-        {destinationSuggestions.length ? (
-          <div className="planner-suggestions" role="listbox" aria-label="Saran halte tujuan">
-            {destinationSuggestions.map((point) => (
-              <button type="button" key={point.stop_id ?? point.name} onClick={() => choosePoint('destination', point)}>{point.name}</button>
-            ))}
-          </div>
-        ) : null}
+      <form className="planner-form" onSubmit={(event) => { void runPlan(event) }}>
+        <div className="planner-field">
+          <span className="planner-field__label" id="planner-from-label">Dari</span>
+          <button type="button" className="planner-point-btn" onClick={() => openPicker('origin')} aria-labelledby="planner-from-label">
+            <span className="planner-point-btn__value">{origin ? origin.name : 'Pilih titik asal'}</span>
+            <span className="planner-point-btn__action" aria-hidden="true"><SearchIcon size={18} /> {origin ? 'Ganti' : 'Cari'}</span>
+          </button>
+          {originFromLocation && origin ? (
+            <p className="planner-locate-note">Asal: {origin.name} (dari lokasimu)</p>
+          ) : null}
+        </div>
+        <div className="planner-field">
+          <span className="planner-field__label" id="planner-to-label">Ke</span>
+          <button type="button" className="planner-point-btn" onClick={() => openPicker('destination')} aria-labelledby="planner-to-label">
+            <span className="planner-point-btn__value">{destination ? destination.name : 'Pilih titik tujuan'}</span>
+            <span className="planner-point-btn__action" aria-hidden="true"><SearchIcon size={18} /> {destination ? 'Ganti' : 'Cari'}</span>
+          </button>
+        </div>
         <div className="planner-time-controls" role="group" aria-label="Waktu perjalanan">
           <div className="planner-field">
             <span className="planner-field__label">Berangkat jam</span>
@@ -732,113 +617,6 @@ function PlannerPage({
           {planState === 'loading' ? 'Mencari rute…' : 'Cari rute'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
         </button>
       </form>
-
-      <section className="saved-stops-section" aria-labelledby="saved-stops-heading">
-        <div>
-          <p className="eyebrow">HALTE FAVORIT</p>
-          <h3 id="saved-stops-heading">Halte favorit</h3>
-        </div>
-
-        {saveTarget !== null ? (
-          <div className="saved-stop-editor" role="group" aria-labelledby="saved-stop-editor-heading">
-            <p className="eyebrow" id="saved-stop-editor-heading">
-              Simpan {saveTarget === 'origin' ? 'asal' : 'tujuan'} · {(saveTarget === 'origin' ? origin : destination)?.name}
-            </p>
-            <label className="planner-field" htmlFor="saved-stop-name">
-              <span className="planner-field__label">Nama favorit</span>
-              <input
-                id="saved-stop-name"
-                value={saveLabel}
-                onChange={(event) => setSaveLabel(event.target.value)}
-                placeholder="Mis. kantor, rumah, sekolah"
-                autoComplete="off"
-              />
-            </label>
-            <div className="saved-stop-editor__actions">
-              <button className="primary-button" type="button" onClick={confirmSaveStop}>Simpan</button>
-              <button className="secondary-button" type="button" onClick={cancelSaveStop}>Batal</button>
-            </div>
-          </div>
-        ) : origin || destination ? (
-          <div className="saved-stop-actions">
-            {origin ? (
-              <button type="button" className="secondary-button" onClick={() => beginSaveStop('origin')}>
-                Simpan asal sebagai favorit <StarIcon size={18} />
-              </button>
-            ) : null}
-            {destination ? (
-              <button type="button" className="secondary-button" onClick={() => beginSaveStop('destination')}>
-                Simpan tujuan sebagai favorit <StarIcon size={18} />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {savedStops.length === 0 ? (
-          <div className="empty-state">
-            <StarIcon className="empty-state__mark" size={24} filled={false} />
-            <h3>Belum ada halte favorit</h3>
-            <p>Pilih asal atau tujuan, lalu simpan sebagai favorit untuk pencarian yang lebih cepat.</p>
-          </div>
-        ) : (
-          <ul className="saved-stops-list">
-            {savedStops.map((stop) => (
-              <li key={stop.id} className="saved-stop-item">
-                <span className="saved-stop-item__mark" aria-hidden="true"><StarIcon size={20} /></span>
-                <div className="saved-stop-item__body">
-                  <strong>{stop.name}</strong>
-                  {stop.stopName !== stop.name ? <span>{stop.stopName}</span> : null}
-                </div>
-                <div className="saved-stop-item__actions">
-                  <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'origin')}>Dari</button>
-                  <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'destination')}>Ke</button>
-                  <button type="button" className="saved-stop-item__delete" aria-label={`Hapus favorit ${stop.name}`} onClick={() => removeStoredStop(stop.id)}><CloseIcon size={20} /></button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="search-history-section" aria-labelledby="search-history-heading">
-        <div className="search-history-section__head">
-          <div>
-            <p className="eyebrow">RIWAYAT PENCARIAN</p>
-            <h3 id="search-history-heading">Riwayat pencarian</h3>
-          </div>
-          <button
-            type="button"
-            className="secondary-button search-history-section__toggle"
-            onClick={() => setHistoryOpen((open) => !open)}
-            aria-expanded={historyOpen}
-            aria-controls="search-history-list"
-          >
-            {historyOpen ? 'Sembunyikan' : 'Tampilkan'} <span aria-hidden="true">{historyOpen ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
-          </button>
-        </div>
-
-        {historyOpen ? (
-          history.length === 0 ? (
-            <div className="empty-state">
-              <SearchIcon className="empty-state__mark" size={24} />
-              <h3>Belum ada riwayat pencarian</h3>
-              <p>Rute yang berhasil dicari akan muncul di sini agar bisa dipakai lagi dengan cepat.</p>
-            </div>
-          ) : (
-            <ul id="search-history-list" className="history-list">
-              {history.map((entry) => (
-                <li key={entry.at} className="history-item">
-                  <button type="button" className="history-item__fill" onClick={() => fillFromHistory(entry)}>
-                    <strong>{entry.origin.name} <span aria-hidden="true"><ArrowRightIcon size={16} /></span> {entry.destination.name}</strong>
-                    <span>{formatHistoryTime(entry.at)}</span>
-                  </button>
-                  <button type="button" className="history-item__delete" aria-label={`Hapus riwayat ${entry.origin.name} ke ${entry.destination.name}`} onClick={() => removeStoredHistoryEntry(entry.at)}><CloseIcon size={20} /></button>
-                </li>
-              ))}
-            </ul>
-          )
-        ) : null}
-      </section>
 
       {planState === 'error' ? (
         <div className="notice-box notice-box--danger" role="alert"><strong>Rute belum ditemukan</strong><span>{planError}</span></div>
