@@ -4707,6 +4707,32 @@ input[aria-invalid='true'] {
   }
 }
 
+/* ---- MRT vehicle marker geometry ---- */
+.mrt-vehicle-marker {
+  width: max-content !important;
+  height: 24px !important;
+  display: block !important;
+  position: relative !important;
+  overflow: visible !important;
+}
+
+.mrt-vehicle-marker .mrt-marker-badge {
+  position: relative;
+  z-index: 1;
+  width: max-content;
+  height: 24px;
+}
+
+.mrt-vehicle-marker .mrt-marker-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
 /* ---- Reduced motion ---- */
 
 @media (prefers-reduced-motion: reduce) {
