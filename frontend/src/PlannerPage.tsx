@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import ClockField from './ClockField'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
 import JourneyTrackingPage from './JourneyTrackingPage'
@@ -108,8 +109,6 @@ const DAKSA_CHIP_FACILITIES: ReadonlyArray<{ key: keyof FacilityStop['facilities
   { key: 'lift', label: 'Lift' },
   { key: 'guiding_block', label: 'Guiding block' },
 ]
-
-/** One simulated minute in real milliseconds (demo pacing: 1 min = 3 s). */
 
 function isPlanRoute(value: unknown): value is PlanRouteInfo {
   if (!isRecord(value)) return false
@@ -352,12 +351,45 @@ function PlannerPage({
   const [walkLegs, setWalkLegs] = useState<WalkLine[]>([])
   const [phase, setPhase] = useState<PlannerPhase>('plan')
 
-  // Departure and arrival are two independent, optional clock inputs. The
+  // Departure and arrival are optional clock inputs (24-hour "HH:MM"). The
   // departure time anchors the forward plan (`time`); the arrival time is sent
   // as `arrive_by` so the backend plans a latest departure that still arrives
-  // by that clock. They never share a value.
+  // by that clock. When both are set, arrival is clamped to never be earlier
+  // than departure (same-day clocks).
   const [departureTime, setDepartureTime] = useState('')
   const [arrivalTime, setArrivalTime] = useState('')
+  const [timeConstraintNotice, setTimeConstraintNotice] = useState('')
+  const [timeClampSignal, setTimeClampSignal] = useState(0)
+  const timeNoticeTimer = useRef<number | undefined>(undefined)
+
+  // Arrival must never be earlier than departure (same-day clocks). Clamping
+  // the *changed* field keeps the form valid no matter which field the user
+  // edits; the notice explains the adjustment (spoken for the Netra profile).
+  const flashTimeNotice = () => {
+    setTimeConstraintNotice('Jam tiba tidak boleh lebih awal dari jam berangkat — jam tiba disesuaikan.')
+    window.clearTimeout(timeNoticeTimer.current)
+    timeNoticeTimer.current = window.setTimeout(() => setTimeConstraintNotice(''), 5000)
+  }
+
+  /** Set arrival, clamped to never be earlier than the current departure. */
+  const setArrivalClamped = (value: string) => {
+    const clamped = value && departureTime && value < departureTime ? departureTime : value
+    setArrivalTime(clamped)
+    if (clamped !== value) {
+      setTimeClampSignal((signal) => signal + 1)
+      flashTimeNotice()
+    }
+  }
+
+  const changeDepartureTime = (value: string) => {
+    setDepartureTime(value)
+    // Raising departure may invalidate an already-set arrival; re-clamp it.
+    if (value && arrivalTime && arrivalTime < value) {
+      setArrivalTime(value)
+      setTimeClampSignal((signal) => signal + 1)
+      flashTimeNotice()
+    }
+  }
 
   const { savedStops, addSavedStop, removeSavedStop: removeStoredStop } = useSavedStops()
   const { history, recordSearch, removeHistoryEntry: removeStoredHistoryEntry } = useSearchHistory()
@@ -555,7 +587,7 @@ function PlannerPage({
     const arrival = timeOverride?.arrival ?? arrivalTime
     if (departure) params.set('time', departure)
     if (arrival) params.set('arrive_by', arrival)
-    // Always request ETA metadata so the demo renders delay badges whenever the
+    // Always request ETA metadata so delay badges render whenever the
     // backend has them (`delay_minutes` / `live_eta_minutes` / `eta_source`).
     params.set('include_eta', '1')
 
@@ -581,20 +613,6 @@ function PlannerPage({
   const runPlan = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     await executePlan()
-  }
-
-  const runDemo = async () => {
-    const jis: PlanPoint = { stop_id: 'H00273P', name: 'Jakarta International Stadium', lat: -6.125, lng: 106.858 }
-    const blokM: PlanPoint = { stop_id: 'B02860P', name: 'Plaza Blok M', lat: -6.244, lng: 106.798 }
-    choosePoint('origin', jis)
-    choosePoint('destination', blokM)
-    // JIS is served by early-morning feeder routes (14/14A/12P); pin the demo
-    // to a departure window where those trips actually run, otherwise the plan
-    // legitimately returns zero itineraries.
-    setDepartureTime('05:00')
-    setArrivalTime('')
-    setPhase('plan')
-    await executePlan(jis, blokM, { departure: '05:00', arrival: '' })
   }
 
   useEffect(() => {
@@ -681,7 +699,7 @@ function PlannerPage({
   const unavailable = planResponse?.source === 'unavailable'
   const noRoute = planResponse?.source === 'gtfs' && itineraries.length === 0
   // MRT suitability userflow: evaluated on the FIRST (fastest) itinerary from
-  // every result set (manual search, demo, history, saved stops alike).
+  // every result set (manual search, history, saved stops alike).
   const firstItinerary = itineraries.length > 0 ? itineraries[0] : null
   const mrtSuitable = planState === 'results' && !!firstItinerary
     && firstItinerary.transfers <= MRT_SUITABILITY.MAX_TRANSFER
@@ -694,9 +712,6 @@ function PlannerPage({
         <p className="eyebrow">ANTAR AKU / PERENCANA RUTE</p>
         <h2>Cari rute TransJakarta</h2>
         <p>Masukkan asal dan tujuan, lalu pilih rute terbaik. Setelah memilih, kamu bisa mengikuti armada secara langsung.</p>
-        <button className="secondary-button demo-route-btn" type="button" onClick={() => { void runDemo() }} disabled={planState === 'loading'}>
-          Demo: JIS <ArrowRightIcon size={16} /> Blok M
-        </button>
       </section>
 
       <form className="planner-form" onSubmit={(event) => { void runPlan(event) }} role="search">
@@ -743,23 +758,28 @@ function PlannerPage({
           </div>
         ) : null}
         <div className="planner-time-controls" role="group" aria-label="Waktu perjalanan">
-          <label className="planner-field">
+          <div className="planner-field">
             <span className="planner-field__label">Berangkat jam</span>
-            <input
-              type="time"
+            <ClockField
+              label="jam berangkat"
               value={departureTime}
-              onChange={(event) => setDepartureTime(event.target.value)}
+              onChange={changeDepartureTime}
+              resetSignal={timeClampSignal}
             />
-          </label>
-          <label className="planner-field">
+          </div>
+          <div className="planner-field">
             <span className="planner-field__label">Tiba jam</span>
-            <input
-              type="time"
+            <ClockField
+              label="jam tiba"
               value={arrivalTime}
-              onChange={(event) => setArrivalTime(event.target.value)}
+              onChange={setArrivalClamped}
+              resetSignal={timeClampSignal}
             />
-          </label>
+          </div>
         </div>
+        {timeConstraintNotice ? (
+          <p className="planner-time-notice" role="status" aria-live="polite">{timeConstraintNotice}</p>
+        ) : null}
         <button
           className={`primary-button${profile === 'netra' ? ' planner-btn--netra' : ''}`}
           type="submit"
