@@ -3682,7 +3682,6 @@ input[aria-invalid='true'] {
 
 .planner-time-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--brand-space-sm);
   padding-top: var(--brand-space-sm);
   border-top: var(--brand-border-width) solid var(--brand-color-border);
@@ -3696,86 +3695,102 @@ input[aria-invalid='true'] {
 }
 
 /* ---- Clock field (24-hour HH:MM: type, wheel, or step buttons) ---- */
+/* One bordered control per field, following the .search-form idiom: a
+   container with an accent focus ring and borderless content inside. */
 
 .clock-field {
-  display: grid;
-  grid-template-columns: auto auto auto auto auto;
+  display: flex;
   align-items: center;
-  justify-content: start;
-  gap: var(--brand-space-xxs);
+  min-height: 52px;
+  border: var(--brand-border-width) solid var(--brand-color-border);
+  border-radius: var(--brand-radius-base);
+  background: var(--brand-color-bg-container);
+  transition: border-color var(--brand-motion-fast) ease;
+}
+
+.clock-field:focus-within {
+  border-color: var(--brand-color-accent);
 }
 
 .clock-field__seg {
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: 2px;
-  justify-items: center;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--brand-space-xxs);
+  min-width: 0;
 }
 
 .clock-field__step {
-  width: 44px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--brand-color-accent);
-  background: var(--brand-color-accent-bg);
-  border: var(--brand-border-width) solid var(--brand-color-accent-border);
-  border-radius: var(--brand-radius-base);
+  color: var(--brand-color-text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--brand-radius-sm);
   cursor: pointer;
   touch-action: manipulation;
+  transition: color var(--brand-motion-fast) ease, background-color var(--brand-motion-fast) ease;
 }
 
 .clock-field__step:hover,
 .clock-field__step:focus-visible {
-  color: var(--brand-color-text-on-accent);
-  background: var(--brand-color-accent);
-  border-color: var(--brand-color-accent);
+  color: var(--brand-color-accent);
+  background: var(--brand-color-accent-bg);
 }
 
 .clock-field__num {
   width: 52px;
-  min-height: 44px;
+  min-height: var(--brand-control-height-base);
+  padding: 0;
   text-align: center;
   color: var(--brand-color-text);
-  background: var(--brand-color-bg-container);
-  border: var(--brand-border-width) solid var(--brand-color-border);
-  border-radius: var(--brand-radius-base);
-  font-size: var(--brand-font-size-lg);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--brand-font-size-xl);
   font-weight: var(--brand-font-weight-strong);
   font-variant-numeric: tabular-nums;
   -moz-appearance: textfield;
   appearance: textfield;
 }
 
-.clock-field__num:focus-visible {
+.clock-field__num:focus {
   outline: 2px solid var(--brand-color-accent);
   outline-offset: 1px;
+  border-radius: var(--brand-radius-sm);
 }
 
 .clock-field__colon {
-  color: var(--brand-color-text-secondary);
-  font-size: var(--brand-font-size-lg);
+  flex: 0 0 auto;
+  color: var(--brand-color-text-tertiary);
+  font-size: var(--brand-font-size-xl);
   font-weight: var(--brand-font-weight-strong);
 }
 
 .clock-field__clear {
+  flex: 0 0 auto;
   width: 40px;
   height: 40px;
+  margin-right: var(--brand-space-xxs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--brand-color-text-secondary);
+  color: var(--brand-color-text-tertiary);
   background: transparent;
-  border: none;
+  border: 0;
   border-radius: var(--brand-radius-base);
   cursor: pointer;
+  transition: color var(--brand-motion-fast) ease, background-color var(--brand-motion-fast) ease;
 }
 
 .clock-field__clear:hover,
 .clock-field__clear:focus-visible {
   color: var(--brand-color-error);
-  background: var(--brand-color-accent-bg);
+  background: var(--brand-color-error-bg);
 }
 
 /* ---- Planner incidents banner ---- */

@@ -159,10 +159,10 @@ export default function ClockField({ value, onChange, label, resetSignal = 0 }: 
         <button
           type="button"
           className="clock-field__step"
-          aria-label={`${label} jam bertambah`}
-          onClick={() => step('hour', 1)}
+          aria-label={`${label} jam berkurang`}
+          onClick={() => step('hour', -1)}
         >
-          <ChevronUpIcon size={18} />
+          <ChevronDownIcon size={16} />
         </button>
         <input
           ref={hourRef}
@@ -182,10 +182,10 @@ export default function ClockField({ value, onChange, label, resetSignal = 0 }: 
         <button
           type="button"
           className="clock-field__step"
-          aria-label={`${label} jam berkurang`}
-          onClick={() => step('hour', -1)}
+          aria-label={`${label} jam bertambah`}
+          onClick={() => step('hour', 1)}
         >
-          <ChevronDownIcon size={18} />
+          <ChevronUpIcon size={16} />
         </button>
       </span>
       <span className="clock-field__colon" aria-hidden="true">:</span>
@@ -193,10 +193,10 @@ export default function ClockField({ value, onChange, label, resetSignal = 0 }: 
         <button
           type="button"
           className="clock-field__step"
-          aria-label={`${label} menit bertambah`}
-          onClick={() => step('minute', 1)}
+          aria-label={`${label} menit berkurang`}
+          onClick={() => step('minute', -1)}
         >
-          <ChevronUpIcon size={18} />
+          <ChevronDownIcon size={16} />
         </button>
         <input
           ref={minuteRef}
@@ -216,10 +216,10 @@ export default function ClockField({ value, onChange, label, resetSignal = 0 }: 
         <button
           type="button"
           className="clock-field__step"
-          aria-label={`${label} menit berkurang`}
-          onClick={() => step('minute', -1)}
+          aria-label={`${label} menit bertambah`}
+          onClick={() => step('minute', 1)}
         >
-          <ChevronDownIcon size={18} />
+          <ChevronUpIcon size={16} />
         </button>
       </span>
       {hasValue ? (
