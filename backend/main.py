@@ -41,8 +41,20 @@ async def lifespan(app: FastAPI):
     app.state.rail_geometry: dict[str, list[list[list[float]]]] = {}
 
     settings: Settings = app.state.settings
+    # Repo-bundled GTFS snapshot used when the remote feed is unreachable and no
+    # cache exists yet. Resolved here (not in Settings) so offline/CI tests that
+    # simulate a missing feed (environment "test") stay feed-less.
+    bundle_path = settings.gtfs_bundle_path
+    if bundle_path is None and settings.environment != "test":
+        default_bundle = Path(__file__).resolve().parent / "gtfs_bundle.zip"
+        if default_bundle.is_file():
+            bundle_path = str(default_bundle)
     try:
-        zip_path = download_gtfs(url=settings.gtfs_url, cache_path=settings.gtfs_cache_path)
+        zip_path = download_gtfs(
+            url=settings.gtfs_url,
+            cache_path=settings.gtfs_cache_path,
+            bundle_path=bundle_path,
+        )
         app.state.gtfs_feed = parse_gtfs(zip_path)
         app.state.vehicle_geometry_cache = {}
         logger.info("GTFS feed loaded: %d stops, %d routes", len(app.state.gtfs_feed.stops), len(app.state.gtfs_feed.routes))
