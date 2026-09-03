@@ -262,9 +262,20 @@ export function HomePage({
   // MRT schedule-based trains are intentionally separate from bus realtime.
   const [railVehicles, setRailVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
 
-  // When mapMode is 'bus', if selectedRoutes is empty, show all buses / shapes / stops by default
-  const filteredShapes = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length ? routeShapes : routeShapes.filter((s) => selectedRoutes.has(s.name))
-  const filteredBuses = selectedRoutes.size === 0 || selectedRoutes.size === allRoutes.length ? busPositions : busPositions.filter((b) => selectedRoutes.has(b.route_code))
+  // The default map has no displayed route, so it must not show every realtime bus.
+  // Once routes are selected, shapes and vehicle markers follow that selection.
+  const filteredShapes = selectedRoutes.size === 0
+    ? []
+    : selectedRoutes.size === allRoutes.length
+      ? routeShapes
+      : routeShapes.filter((s) => selectedRoutes.has(s.name))
+  // TJ realtime route_code uses the same short route codes as GTFS for matched
+  // routes (e.g. "1", "6A"); never render vehicles for hidden/unselected routes.
+  const filteredBuses = selectedRoutes.size === 0
+    ? []
+    : selectedRoutes.size === allRoutes.length
+      ? busPositions
+      : busPositions.filter((b) => selectedRoutes.has(b.route_code))
   // Stops follow the selected routes: if empty selection, show all GTFS stops by default
   const displayStops = useMemo(() => {
     if (allRoutes.length === 0) return gtfsStops
