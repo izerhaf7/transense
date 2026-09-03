@@ -144,7 +144,7 @@ async def journey_plan(
     # clock times, so they cannot honor a "latest departure to arrive by X".
     if arrive_by is None:
         itinerary_dicts.extend(
-            plan_standalone_rail(origin, destination, request.app, walk_graph)
+            plan_standalone_rail(origin, destination, request.app, walk_graph, departure_time=plan_time)
         )
         itinerary_dicts.extend(
             plan_intermodal(origin, destination, request.app, walk_graph, plan_date, plan_time)

@@ -79,6 +79,33 @@ def test_plan_rail_keeps_travel_direction_when_riding_backwards():
     assert rail_leg["to"]["name"] == "Stasiun Selatan"
 
 
+def test_plan_rail_with_departure_time_sets_clock_from_timetable(monkeypatch):
+    # Terminus timetable: trains leave Stasiun Selatan (idx 0) every 10 min
+    # starting 08:00 and run toward Stasiun Utara (idx 2).
+    monkeypatch.setattr(
+        rail,
+        "line_terminus_departures",
+        lambda app, operator, stations: ["08:00", "08:10", "08:20"],
+    )
+    # Origin near Stasiun Tengah (idx 1), destination Stasiun Utara (idx 2);
+    # user arrives at the platform at 08:02 -> first train at ~08:10-08:12.
+    result = rail.plan_rail(
+        {"lat": -6.245, "lng": 106.805},
+        {"lat": -6.195, "lng": 106.815},
+        make_app(),
+        None,
+        "MRTJ",
+        "M",
+        departure_time="08:00",
+    )
+    assert len(result) == 1
+    rail_leg = result[0]["legs"][1]
+    assert rail_leg["mode"] == "RAIL"
+    assert "start_time" in rail_leg and "end_time" in rail_leg
+    assert rail_leg["start_time"] >= "08:02"
+    assert result[0]["waiting_minutes"] >= 0
+
+
 def test_plan_rail_empty_when_origin_far():
     result = rail.plan_rail({"lat": -6.40, "lng": 106.90}, {"lat": -6.195, "lng": 106.815}, make_app(), None, "MRTJ", "M")
     assert result == []

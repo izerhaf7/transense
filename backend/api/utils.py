@@ -296,6 +296,40 @@ def commute_grouped_to_timetable(grouped: list[dict[str, Any]], feed: CommuteFee
     return result
 
 
+def line_terminus_departures(
+    application: FastAPI, operator: str, stations: list[dict[str, Any]]
+) -> list[str]:
+    """Departure times (``HH:MM``) from the first (terminus) station of a rail line.
+
+    Shared by the positions endpoint and the rail planner so both clocks use
+    the same timetable source.  Cached on ``app.state`` with a 5-minute TTL;
+    returns ``[]`` when the feed/API is unavailable (callers fall back to
+    duration estimates).
+    """
+    state = application.state
+    now = datetime.now(timezone.utc).timestamp()
+    cache_key = f"{operator}:{stations[0]['id'] if stations else '?'}"
+    cached = getattr(state, "transit_departures_cache", None)
+    if cached and now - cached[0] < 300 and cached[1] == cache_key:
+        return cached[2]
+    grouped: list[dict[str, Any]] = []
+    feed: CommuteFeed | None = getattr(state, "commute_feed", None)
+    if feed is not None and stations:
+        try:
+            base_url = getattr(getattr(state, "settings", None), "commute_api_base", None)
+            if base_url:
+                client = CommuteClient(base_url=base_url)
+                grouped = client.timetable_grouped(operator, stations[0].get("code") or stations[0]["id"])
+        except CommuteError:
+            grouped = []
+    times: list[str] = []
+    for entry in commute_grouped_to_timetable(grouped, feed):
+        times.extend(entry.get("times", []))
+    times = sorted({str(value).strip() for value in times})
+    state.transit_departures_cache = (now, cache_key, times)
+    return times
+
+
 # ---------------------------------------------------------------------------
 # Journey planning helpers
 # ---------------------------------------------------------------------------
