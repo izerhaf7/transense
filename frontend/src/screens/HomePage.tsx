@@ -109,7 +109,12 @@ export function HomePage({
     }
   }, [])
 
+  // Rail geometry is refetched on mount AND whenever the user switches to rail
+  // mode. The backend may have been restarted/deployed with a stitched polyline
+  // since the page opened; drawing the OLD cached geometry while polling NEW
+  // positions makes trains appear to float off the route (and shift on zoom).
   useEffect(() => {
+    if (mapMode !== 'rail') return
     const controller = new AbortController()
     fetch(`${apiBaseUrl}/api/transit/lines/geometry`, { signal: controller.signal })
       .then(async (res) => {
@@ -119,7 +124,7 @@ export function HomePage({
       })
       .catch(() => {})
     return () => controller.abort()
-  }, [])
+  }, [mapMode])
 
   useEffect(() => {
     const controller = new AbortController()
