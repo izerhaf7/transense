@@ -444,16 +444,24 @@ def _emit_edge(
 
 
 def build_walk_graph(
-    feed: GtfsFeed, radius_km: float = DEFAULT_RADIUS_KM, osm_file: str | None = None
+    feed: GtfsFeed,
+    radius_km: float = DEFAULT_RADIUS_KM,
+    osm_file: str | None = None,
+    method: str = METHOD_HAVERSINE,
 ) -> WalkGraph:
     """Deterministically build the walk graph for ``feed``.
 
     Generates every nearby stop pair (haversine < ``radius_km``) as a directed
-    edge pair.  When the optional ``osmnx`` package is importable the street
-    network is queried (offline, from ``osm_file`` when given) for real
-    distances; otherwise — or for any pair the street network cannot connect —
-    the distance is ``haversine * WALK_PENALTY_FACTOR`` and the edge is
-    labelled ``"haversine-estimate"``.
+    edge pair.  ``method`` picks the distance source:
+
+    * ``"haversine-estimate"`` (default) — great-circle distance scaled by
+      :data:`WALK_PENALTY_FACTOR`.  No street network, no external calls: this
+      is what the app builds at runtime.
+    * ``"osmnx"`` — real street-network distances from a **local** ``osm_file``
+      (offline precompute only; requires the optional osmnx + networkx stack).
+
+    Edges a street network cannot connect fall back to the haversine estimate
+    (labelled ``"haversine-estimate"``).
     """
     stops = sorted(
         (stop for stop in feed.stops.values() if _valid_coords(stop)),
@@ -466,7 +474,7 @@ def build_walk_graph(
     edges: list[WalkEdge] = []
     graph_method = METHOD_HAVERSINE
     osm_distances: dict[tuple[str, str], float] = {}
-    if _osmnx_available():
+    if method == METHOD_OSMNX:
         try:
             osm_distances = _osmnx_distances(stops, radius_km, osm_file)
             graph_method = METHOD_OSMNX

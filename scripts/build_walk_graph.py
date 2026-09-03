@@ -73,8 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--method",
         choices=("osmnx", "haversine"),
-        default=None,
-        help="Walk distance method (default: osmnx when osmnx+networkx are installed, else haversine).",
+        default="haversine",
+        help="Walk distance method (default: %(default)s — no street network; "
+        "--method osmnx requires osmnx + networkx installed and a local --osm-file).",
     )
     return parser
 
@@ -97,14 +98,16 @@ def main(argv: list[str] | None = None) -> int:
 
     feed = parse_gtfs(cache_path)
 
-    method = args.method or ("osmnx" if _osmnx_available() else "haversine")
+    method = args.method
     if method == "osmnx":
         if not _osmnx_available():
             build_parser().error("--method osmnx requires osmnx + networkx installed")
         if not args.osm_file:
             build_parser().error("--method osmnx requires --osm-file (a local .osm extract)")
 
-    graph = build_walk_graph(feed, radius_km=args.radius_km, osm_file=args.osm_file)
+    graph = build_walk_graph(
+        feed, radius_km=args.radius_km, osm_file=args.osm_file, method=method
+    )
     save_walk_graph(graph, args.output)
     print(
         f"Walk graph built: {len(graph.nodes)} nodes, {len(graph.edges)} directed "
