@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import ClockField from './ClockField'
 import MapboxMap from './MapboxMap'
 import type { WalkLine } from './MapboxMap'
 import JourneyTrackingPage from './JourneyTrackingPage'
-import { ArrowRightIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, LocateIcon, SearchIcon, StarIcon, WalkIcon } from './icons'
+import { ArrowBackIcon, ArrowRightIcon, ChevronDownIcon, SearchIcon, WalkIcon } from './icons'
 import type { Stop } from './journey'
 import type { PlanPoint, SavedStop, SearchHistoryEntry } from './plannerStorage'
 import type { ProfileType } from './profile'
 import { isFacilityStop } from './SideBySidePage'
 import type { FacilityStop } from './SideBySidePage'
+import StopPickerPage from './StopPickerPage'
 import type { TtsProvider } from './tts'
 import {
   addHistoryEntry,
@@ -16,13 +18,12 @@ import {
   isRecord,
   persistSavedStops,
   persistSearchHistory,
-  pointFromSavedStop,
   readSavedStops,
   readSearchHistory,
-  removeHistoryEntry,
   removeSavedStop,
   saveSavedStop,
   savedStopFromPoint,
+  savedStopId,
 } from './plannerStorage'
 
 interface PlannerPageProps {
@@ -55,8 +56,8 @@ export interface PlanLeg {
   delay_minutes?: number
   /** Live/estimated arrival (minutes) when the backend sends ETA data. */
   live_eta_minutes?: number
-  /** Origin of `delay_minutes`: deterministic schedule estimate or live feed. */
-  eta_source?: 'simulated' | 'realtime'
+  /** ETA origin: live TJ feed, or GTFS schedule fallback. */
+  eta_source?: 'scheduled' | 'realtime'
 }
 
 export interface PlanItinerary {
@@ -92,7 +93,7 @@ interface PlannerShape {
   coordinates: [number, number][]
 }
 
-type PlannerPhase = 'plan' | 'tracking'
+type PlannerPhase = 'plan' | 'detail' | 'tracking'
 
 
 /** MRT suitability thresholds for the destination userflow (single source of truth). */
@@ -108,8 +109,6 @@ const DAKSA_CHIP_FACILITIES: ReadonlyArray<{ key: keyof FacilityStop['facilities
   { key: 'lift', label: 'Lift' },
   { key: 'guiding_block', label: 'Guiding block' },
 ]
-
-/** One simulated minute in real milliseconds (demo pacing: 1 min = 3 s). */
 
 function isPlanRoute(value: unknown): value is PlanRouteInfo {
   if (!isRecord(value)) return false
@@ -133,7 +132,7 @@ function isPlanLeg(value: unknown): value is PlanLeg {
     && (value.end_time === undefined || typeof value.end_time === 'string')
     && (value.delay_minutes === undefined || typeof value.delay_minutes === 'number')
     && (value.live_eta_minutes === undefined || typeof value.live_eta_minutes === 'number')
-    && (value.eta_source === undefined || value.eta_source === 'simulated' || value.eta_source === 'realtime')
+    && (value.eta_source === undefined || value.eta_source === 'scheduled' || value.eta_source === 'realtime')
 }
 
 function isPlanItinerary(value: unknown): value is PlanItinerary {
@@ -184,15 +183,94 @@ function formatDistance(meters: number): string {
   return `${Math.round(meters)} m`
 }
 
-function formatHistoryTime(at: string): string {
-  const date = new Date(at)
-  if (Number.isNaN(date.getTime())) return at
-  return date.toLocaleString('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+/** Parses "HH:MM" (leading zero optional) into minutes since midnight. */
+function parseClockMinutes(clock: string | undefined): number | null {
+  if (!clock) return null
+  const match = /^(\d{1,2}):(\d{2})/.exec(clock)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes > 59) return null
+  return hours * 60 + minutes
+}
+
+function formatMinutes(minutes: number): string {
+  // Normalize into the 00:00–23:59 window so a walk that starts before
+  // midnight still renders as "23:5x" instead of a negative clock.
+  const normalized = ((Math.round(minutes) % 1440) + 1440) % 1440
+  const hours = Math.floor(normalized / 60)
+  const mins = normalized % 60
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+}
+
+/**
+ * Estimated departure clock from the journey's origin: the first leg that
+ * carries a real schedule clock, minus the estimated duration of the walk
+ * legs before it. Returns null when no leg is clocked (pure estimate plan).
+ */
+function itineraryDepartureClock(itinerary: PlanItinerary): string | null {
+  let walkMinutes = 0
+  for (const leg of itinerary.legs) {
+    const clock = parseClockMinutes(leg.start_time)
+    if (clock !== null) return formatMinutes(clock - walkMinutes)
+    if (leg.mode !== 'WALK') return null
+    walkMinutes += Math.max(0, Math.round(leg.duration_minutes || 0))
+  }
+  return null
+}
+
+/** Normalizes a GTFS color ("FFB6DB", "#ca2a51") into "#rrggbb". */
+function normalizeRouteColor(color: string | undefined): string | undefined {
+  if (!color) return undefined
+  const match = /^#?([0-9a-f]{6})$/i.exec(color.trim())
+  return match ? `#${match[1].toLowerCase()}` : undefined
+}
+
+/**
+ * Readable chip colors for a route: white text on saturated route colors,
+ * dark text on light pastels (GTFS feeds carry both).
+ */
+function routeChipColors(color: string | undefined): { background: string; foreground: string } | null {
+  const background = normalizeRouteColor(color)
+  if (!background) return null
+  const value = Number.parseInt(background.slice(1), 16)
+  const r = (value >> 16) & 0xff
+  const g = (value >> 8) & 0xff
+  const b = value & 0xff
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return { background, foreground: luminance > 0.6 ? '#1a1a1a' : '#ffffff' }
+}
+
+interface ModeChip {
+  key: string
+  kind: 'walk' | 'ride'
+  label: string
+  colors: { background: string; foreground: string } | null
+}
+
+/**
+ * Collapses an itinerary into the ordered mode chips shown on its card:
+ * one "Jalan kaki" chip per consecutive walk run, one colored route-logo
+ * chip per transit leg.
+ */
+function itineraryModeChips(itinerary: PlanItinerary): ModeChip[] {
+  const chips: ModeChip[] = []
+  for (const leg of itinerary.legs) {
+    if (leg.mode === 'WALK') {
+      const last = chips[chips.length - 1]
+      if (last && last.kind === 'walk') continue
+      chips.push({ key: `chip-walk-${chips.length}`, kind: 'walk', label: 'Jalan kaki', colors: null })
+      continue
+    }
+    const route = leg.route
+    chips.push({
+      key: `chip-ride-${chips.length}-${route?.id ?? leg.mode}`,
+      kind: 'ride',
+      label: route?.short_name ?? (leg.mode === 'RAIL' ? 'MRT' : 'Bus'),
+      colors: routeChipColors(route?.color),
+    })
+  }
+  return chips
 }
 
 function useSavedStops() {
@@ -223,14 +301,7 @@ function useSearchHistory() {
       return next
     })
   }
-  const removeStoredEntry = (at: string) => {
-    setHistory((current) => {
-      const next = removeHistoryEntry(current, at)
-      persistSearchHistory(next)
-      return next
-    })
-  }
-  return { history, recordSearch, removeHistoryEntry: removeStoredEntry }
+  return { history, recordSearch }
 }
 
 /** Facility stop lookup for the daksa accessibility chips (id → stop). */
@@ -310,18 +381,94 @@ function LegRow({
           <FacilityAccessChips stopId={leg.to.stop_id} facility={facilityIndex.get(leg.to.stop_id)} onOpenSideBySide={onOpenSideBySide} />
         ) : null}
         <p className="leg__meta">{leg.duration_minutes} menit · {formatDistance(leg.distance_m)}</p>
-        {leg.delay_minutes && leg.delay_minutes > 0 ? (
+        {leg.live_eta_minutes !== undefined ? (
           <p className="leg__delay" role="status">
-            <span className="state-badge state-badge--warning">+{leg.delay_minutes} mnt</span>
-            {leg.eta_source === 'simulated' ? <small className="leg__eta-source">simulasi</small> : null}
-            {leg.live_eta_minutes !== undefined ? <span className="leg__live-eta">ETA langsung {leg.live_eta_minutes} mnt</span> : null}
-          </p>
-        ) : leg.live_eta_minutes !== undefined ? (
-          <p className="leg__delay" role="status">
-            <span className="leg__live-eta">ETA langsung {leg.live_eta_minutes} mnt</span>
+            {leg.delay_minutes && leg.delay_minutes > 0 ? (
+              <span className="state-badge state-badge--warning">+{leg.delay_minutes} mnt</span>
+            ) : null}
+            <span className="leg__live-eta">
+              {leg.eta_source === 'realtime' ? 'Bus live tiba' : 'Bus berikutnya tiba'} {leg.live_eta_minutes} mnt
+            </span>
           </p>
         ) : null}
       </div>
+    </li>
+  )
+}
+
+/**
+ * One stacked route-option card (Pilihan N): duration on the left, the
+ * scrollable mode sequence (walk → route logos) on the top right, and the
+ * departure clock + origin place on the bottom right. Clicking selects the
+ * itinerary whose detail (summary/legs/map) renders below the list.
+ */
+function ItineraryOptionCard({
+  index,
+  itinerary,
+  selected,
+  onSelect,
+}: {
+  index: number
+  itinerary: PlanItinerary
+  selected: boolean
+  onSelect: (index: number) => void
+}) {
+  const chips = itineraryModeChips(itinerary)
+  const departureClock = itineraryDepartureClock(itinerary)
+  const originName = itinerary.legs[0]?.from.name ?? ''
+  const sequenceLabel = chips.map((chip) => chip.label).join(', ')
+  return (
+    <li>
+      <button
+        type="button"
+        className={`itinerary-card${selected ? ' itinerary-card--active' : ''}`}
+        onClick={() => onSelect(index)}
+        aria-pressed={selected}
+        aria-label={`Pilihan ${index + 1}: ${itinerary.total_minutes} menit, urutan ${sequenceLabel}. ${departureClock ? `Berangkat pukul ${departureClock}` : 'Waktu berangkat tidak diketahui'} dari ${originName}`}
+      >
+        <span className="itinerary-card__title-row">
+          <strong>Pilihan {index + 1}</strong>
+          {selected ? <span className="itinerary-card__selected-badge">Terpilih</span> : null}
+        </span>
+        <span className="itinerary-card__body">
+          <span className="itinerary-card__time">
+            <strong>{itinerary.total_minutes}</strong>
+            <span>menit</span>
+          </span>
+          <span className="itinerary-card__info">
+            <span className="itinerary-card__modes">
+              {chips.map((chip, chipIndex) => (
+                <span className="itinerary-card__mode-item" key={chip.key}>
+                  {chipIndex > 0 ? (
+                    <span className="itinerary-card__mode-arrow" aria-hidden="true"><ArrowRightIcon size={14} /></span>
+                  ) : null}
+                  {chip.kind === 'walk' ? (
+                    <span className="itinerary-card__mode itinerary-card__mode--walk">
+                      <WalkIcon size={16} />
+                      <span>{chip.label}</span>
+                    </span>
+                  ) : (
+                    <span
+                      className="itinerary-card__mode itinerary-card__mode--ride"
+                      style={{
+                        background: chip.colors?.background ?? 'var(--brand-color-accent)',
+                        color: chip.colors?.foreground ?? 'var(--brand-color-text-on-accent)',
+                      }}
+                    >
+                      {chip.label}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </span>
+            <span className="itinerary-card__departure">
+              <span>Berangkat pukul</span>
+              <strong>{departureClock ?? '—'}</strong>
+              <span className="itinerary-card__departure-from">dari {originName}</span>
+            </span>
+          </span>
+        </span>
+      </button>
     </li>
   )
 }
@@ -333,16 +480,11 @@ function PlannerPage({
   onOpenSideBySide,
   onDestinationSelected,
 }: PlannerPageProps) {
-  const [originQuery, setOriginQuery] = useState('')
+  const [pickerFor, setPickerFor] = useState<'origin' | 'destination' | null>(null)
   const [origin, setOrigin] = useState<PlanPoint | null>(null)
-  const [originSuggestions, setOriginSuggestions] = useState<PlanPoint[]>([])
-  const [locating, setLocating] = useState(false)
-  const [locateError, setLocateError] = useState('')
   const [originFromLocation, setOriginFromLocation] = useState(false)
-  const [destinationQuery, setDestinationQuery] = useState('')
   const [destination, setDestination] = useState<PlanPoint | null>(null)
   const [selectedDestination, setSelectedDestination] = useState<PlanPoint | null>(null)
-  const [destinationSuggestions, setDestinationSuggestions] = useState<PlanPoint[]>([])
   const [facilityStops, setFacilityStops] = useState<FacilityStop[]>([])
   const [planState, setPlanState] = useState<'idle' | 'loading' | 'results' | 'error'>('idle')
   const [planResponse, setPlanResponse] = useState<PlanResponse | null>(null)
@@ -351,93 +493,44 @@ function PlannerPage({
   const [planShapes, setPlanShapes] = useState<PlannerShape[]>([])
   const [walkLegs, setWalkLegs] = useState<WalkLine[]>([])
   const [phase, setPhase] = useState<PlannerPhase>('plan')
+  // Incident detail expander state (per incident, keyed by id or index).
+  const [openIncidentKeys, setOpenIncidentKeys] = useState<Set<string>>(new Set())
+  // Headings that receive programmatic focus on phase changes so keyboard /
+  // screen-reader users land on the new step instead of a removed control.
+  const optionsHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const detailHeadingRef = useRef<HTMLHeadingElement | null>(null)
 
-  // Departure and arrival are two independent, optional clock inputs. The
-  // departure time anchors the forward plan (`time`); the arrival time is sent
-  // as `arrive_by` so the backend plans a latest departure that still arrives
-  // by that clock. They never share a value.
+  // Departure is an optional clock input (24-hour "HH:MM") that anchors the
+  // forward plan (`time`); empty means "leave as soon as possible".
   const [departureTime, setDepartureTime] = useState('')
-  const [arrivalTime, setArrivalTime] = useState('')
 
   const { savedStops, addSavedStop, removeSavedStop: removeStoredStop } = useSavedStops()
-  const { history, recordSearch, removeHistoryEntry: removeStoredHistoryEntry } = useSearchHistory()
-  const [saveTarget, setSaveTarget] = useState<'origin' | 'destination' | null>(null)
-  const [saveLabel, setSaveLabel] = useState('')
-  const [historyOpen, setHistoryOpen] = useState(true)
+  const { history, recordSearch } = useSearchHistory()
 
-  const searchStops = async (query: string, kind: 'origin' | 'destination') => {
-    if (kind === 'origin') setOriginQuery(query)
-    else setDestinationQuery(query)
-    if (query.trim().length < 2) {
-      if (kind === 'origin') setOriginSuggestions([])
-      else setDestinationSuggestions([])
-      return
-    }
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/gtfs/stops/search?q=${encodeURIComponent(query.trim())}`)
-      if (!response.ok) return
-      const data = await response.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
-      const stops: PlanPoint[] = (data.stops ?? []).map((stop) => ({ stop_id: stop.id, name: stop.name, lat: stop.lat, lng: stop.lng }))
-      if (kind === 'origin') setOriginSuggestions(stops)
-      else setDestinationSuggestions(stops)
-    } catch (error: unknown) {
-      if (kind === 'origin') setOriginSuggestions([])
-      else setDestinationSuggestions([])
-      console.warn('Stop search failed.', error)
-    }
+  const openPicker = (kind: 'origin' | 'destination') => {
+    if (profile === 'netra') tts?.speak(kind === 'origin' ? 'Pilih titik asal' : 'Pilih titik tujuan')
+    setPickerFor(kind)
   }
 
-  const choosePoint = (kind: 'origin' | 'destination', point: PlanPoint) => {
+  const pickPoint = (kind: 'origin' | 'destination', point: PlanPoint, viaLocation = false) => {
     if (kind === 'origin') {
       setOrigin(point)
-      setOriginQuery(point.name)
-      setOriginSuggestions([])
-      setOriginFromLocation(false)
+      setOriginFromLocation(viaLocation)
     } else {
       setDestination(point)
       setSelectedDestination(point)
-      setDestinationQuery(point.name)
-      setDestinationSuggestions([])
     }
+    resetPlanResults()
+    setPickerFor(null)
   }
 
-  const locateOrigin = () => {
-    setLocating(true)
-    setLocateError('')
-    if (!('geolocation' in navigator)) {
-      setLocateError('Perangkat tidak mendukung lokasi.')
-      setLocating(false)
+  const toggleFavorite = (point: PlanPoint) => {
+    const id = savedStopId(point)
+    if (savedStops.some((stop) => stop.id === id)) {
+      removeStoredStop(id)
       return
     }
-    const pickNearestStop = async (position: GeolocationPosition) => {
-      try {
-        const url = `${apiBaseUrl}/api/gtfs/stops/nearby?lat=${position.coords.latitude}&lng=${position.coords.longitude}&limit=1`
-        const response = await fetch(url)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const data = await response.json() as { stops: { id: string; name: string; lat: number; lng: number }[] }
-        const nearest = (data.stops ?? [])[0]
-        if (!nearest) {
-          setLocateError('Tidak ada halte dekat lokasimu.')
-          return
-        }
-        choosePoint('origin', { stop_id: nearest.id, name: nearest.name, lat: nearest.lat, lng: nearest.lng })
-        setOriginFromLocation(true)
-        setLocateError('')
-      } catch (error: unknown) {
-        setLocateError('Tidak bisa mendapatkan lokasi.')
-        console.warn('Nearby stops lookup failed.', error)
-      } finally {
-        setLocating(false)
-      }
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => { void pickNearestStop(position) },
-      (error) => {
-        setLocateError(error.code === 1 ? 'Izin lokasi ditolak.' : 'Tidak bisa mendapatkan lokasi.')
-        setLocating(false)
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-    )
+    addSavedStop(savedStopFromPoint(point, point.name))
   }
 
   const resetPlanResults = () => {
@@ -445,6 +538,7 @@ function PlannerPage({
     setPlanResponse(null)
     setPlanError('')
     setSelectedItinerary(0)
+    setOpenIncidentKeys(new Set())
     setPlanShapes([])
     setWalkLegs([])
   }
@@ -481,42 +575,20 @@ function PlannerPage({
     onDestinationSelected?.(selectedDestination)
   }, [selectedDestination, onDestinationSelected])
 
-  const beginSaveStop = (kind: 'origin' | 'destination') => {
-    const point = kind === 'origin' ? origin : destination
-    if (!point) return
-    setSaveLabel(point.name)
-    setSaveTarget(kind)
-  }
+  // Detail/tracking are full-page steps; always open them from the top even
+  // when the results list above was long and scrolled.
+  useEffect(() => {
+    if (phase === 'detail' || phase === 'tracking') window.scrollTo({ top: 0 })
+  }, [phase])
 
-  const cancelSaveStop = () => {
-    setSaveTarget(null)
-    setSaveLabel('')
-  }
+  // Move focus with the phase transition: the detail heading when a route
+  // card is opened, the option-list heading when returning to the results.
+  useEffect(() => {
+    if (phase === 'detail') detailHeadingRef.current?.focus()
+    else if (phase === 'plan' && planState === 'results') optionsHeadingRef.current?.focus()
+  }, [phase, planState])
 
-  const confirmSaveStop = () => {
-    if (!saveTarget) return
-    const point = saveTarget === 'origin' ? origin : destination
-    if (!point) return
-    addSavedStop(savedStopFromPoint(point, saveLabel))
-    cancelSaveStop()
-  }
-
-  const fillSavedStop = (stop: SavedStop, kind: 'origin' | 'destination') => {
-    choosePoint(kind, pointFromSavedStop(stop))
-    resetPlanResults()
-  }
-
-  const fillFromHistory = (entry: SearchHistoryEntry) => {
-    choosePoint('origin', entry.origin)
-    choosePoint('destination', entry.destination)
-    resetPlanResults()
-  }
-
-  const executePlan = async (
-    from: PlanPoint | null = origin,
-    to: PlanPoint | null = destination,
-    timeOverride?: { departure?: string; arrival?: string },
-  ) => {
+  const executePlan = async (from: PlanPoint | null = origin, to: PlanPoint | null = destination) => {
     if (!from) {
       setPlanState('error')
       setPlanError('Pilih titik asal dari saran halte dulu.')
@@ -531,6 +603,7 @@ function PlannerPage({
     setPlanResponse(null)
     setPlanError('')
     setSelectedItinerary(0)
+    setOpenIncidentKeys(new Set())
     setPlanShapes([])
     setWalkLegs([])
 
@@ -548,14 +621,10 @@ function PlannerPage({
       params.set('to_lng', String(to.lng))
     }
 
-    // Departure vs arrive-by: send both as independent params. The backend uses
-    // `time` for a forward plan and `arrive_by` for a latest-departure plan;
-    // when only one is set, only that one is sent.
-    const departure = timeOverride?.departure ?? departureTime
-    const arrival = timeOverride?.arrival ?? arrivalTime
-    if (departure) params.set('time', departure)
-    if (arrival) params.set('arrive_by', arrival)
-    // Always request ETA metadata so the demo renders delay badges whenever the
+    // Optional departure clock anchors the forward plan (`time`); absent =
+    // "leave as soon as possible" (backend defaults to now).
+    if (departureTime) params.set('time', departureTime)
+    // Always request ETA metadata so delay badges render whenever the
     // backend has them (`delay_minutes` / `live_eta_minutes` / `eta_source`).
     params.set('include_eta', '1')
 
@@ -581,20 +650,6 @@ function PlannerPage({
   const runPlan = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     await executePlan()
-  }
-
-  const runDemo = async () => {
-    const jis: PlanPoint = { stop_id: 'H00273P', name: 'Jakarta International Stadium', lat: -6.125, lng: 106.858 }
-    const blokM: PlanPoint = { stop_id: 'B02860P', name: 'Plaza Blok M', lat: -6.244, lng: 106.798 }
-    choosePoint('origin', jis)
-    choosePoint('destination', blokM)
-    // JIS is served by early-morning feeder routes (14/14A/12P); pin the demo
-    // to a departure window where those trips actually run, otherwise the plan
-    // legitimately returns zero itineraries.
-    setDepartureTime('05:00')
-    setArrivalTime('')
-    setPhase('plan')
-    await executePlan(jis, blokM, { departure: '05:00', arrival: '' })
   }
 
   useEffect(() => {
@@ -659,6 +714,25 @@ function PlannerPage({
     return ids
   }, [planResponse])
 
+  const toggleIncidentKey = (key: string) => {
+    const willOpen = !openIncidentKeys.has(key)
+    if (profile === 'netra') tts?.speak(willOpen ? 'Membuka detail gangguan' : 'Menutup detail gangguan')
+    setOpenIncidentKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const chooseItinerary = (index: number) => {
+    setSelectedItinerary(index)
+    // A tap on a route card opens its dedicated detail page (summary, steps,
+    // map, and the tracking CTA at the bottom).
+    if (profile === 'netra') tts?.speak(`Detail rute Pilihan ${index + 1}`)
+    setPhase('detail')
+  }
+
   const startTrackingForChosenRoute = () => {
     const itinerary = planResponse?.itineraries[selectedItinerary]
     if (!itinerary) return
@@ -671,7 +745,23 @@ function PlannerPage({
       <JourneyTrackingPage
         apiBaseUrl={apiBaseUrl}
         itinerary={trackingItinerary}
-        onBack={() => setPhase('plan')}
+        onBack={() => setPhase('detail')}
+      />
+    )
+  }
+
+  if (pickerFor) {
+    return (
+      <StopPickerPage
+        apiBaseUrl={apiBaseUrl}
+        kind={pickerFor}
+        savedStops={savedStops}
+        history={history}
+        profile={profile}
+        tts={tts}
+        onPick={(point, meta) => pickPoint(pickerFor, point, meta?.viaLocation)}
+        onToggleFavorite={toggleFavorite}
+        onBack={() => setPickerFor(null)}
       />
     )
   }
@@ -681,12 +771,76 @@ function PlannerPage({
   const unavailable = planResponse?.source === 'unavailable'
   const noRoute = planResponse?.source === 'gtfs' && itineraries.length === 0
   // MRT suitability userflow: evaluated on the FIRST (fastest) itinerary from
-  // every result set (manual search, demo, history, saved stops alike).
+  // every result set (manual search, history, saved stops alike).
   const firstItinerary = itineraries.length > 0 ? itineraries[0] : null
   const mrtSuitable = planState === 'results' && !!firstItinerary
     && firstItinerary.transfers <= MRT_SUITABILITY.MAX_TRANSFER
     && firstItinerary.total_minutes <= MRT_SUITABILITY.MAX_MINUTES
     && (firstItinerary.walk_distance_m ?? 0) <= MRT_SUITABILITY.MAX_WALK_M
+
+  // Route detail step: reached by tapping one of the Pilihan cards. Shows the
+  // chosen itinerary's summary, step list and map, with the live-tracking CTA
+  // pinned at the very bottom.
+  if (phase === 'detail' && planState === 'results' && planResponse && itineraries.length > 0 && selected) {
+    const detailOrigin = selected.legs[0]?.from.name ?? 'Asal'
+    const detailDestination = selected.legs[selected.legs.length - 1]?.to.name ?? 'Tujuan'
+    return (
+      <main className="page-content inner-page planner-page">
+        <div className="page-intro">
+          <button type="button" className="schedule-detail__back" onClick={() => setPhase('plan')}>
+            <ArrowBackIcon size={18} /> Kembali ke pilihan rute
+          </button>
+          <p className="eyebrow">ANTAR AKU · DETAIL RUTE</p>
+          <h2 tabIndex={-1} ref={detailHeadingRef}>Rute Pilihan {selectedItinerary + 1}</h2>
+          <p>{detailOrigin} <span aria-hidden="true">→</span> {detailDestination}</p>
+        </div>
+
+        <section className="planner-summary" aria-labelledby="planner-summary-heading">
+          <p className="eyebrow">RINGKASAN PERJALANAN</p>
+          {departureTime && selected.legs[0] ? (
+            <p className="planner-summary__departure" role="status">
+              <span>Berangkat pukul</span>
+              <strong>{formatClock(selected.legs[0].start_time)}</strong>
+              <span>dari {selected.legs[0].from.name}</span>
+            </p>
+          ) : null}
+          <div className="planner-summary__numbers">
+            <div><strong>{selected.total_minutes}</strong><span>menit total</span></div>
+            <div><strong>{selected.transfers}</strong><span>transfer</span></div>
+            <div><strong>{Math.round(selected.walk_distance_m / 10) / 100}</strong><span>km jalan kaki</span></div>
+          </div>
+          <p className="planner-summary__note">Estimasi jadwal statis · {planResponse.source === 'gtfs' ? 'sumber GTFS' : 'sumber tidak tersedia'}</p>
+        </section>
+
+        <section className="planner-legs" aria-label="Daftar langkah perjalanan">
+          <ol className="leg-list">
+            {selected.legs.map((leg, index) => (
+              <LegRow
+                key={`leg-${index}`}
+                leg={leg}
+                index={index}
+                affected={leg.mode === 'BUS' && !!leg.route && (affectedRouteIds.has(leg.route.id) || affectedRouteIds.has(leg.route.short_name))}
+                facilityIndex={facilityIndex}
+                onOpenSideBySide={onOpenSideBySide}
+              />
+            ))}
+          </ol>
+        </section>
+
+        <div className="planner-map">
+          <MapboxMap stops={plannerStops} routeShapes={planShapes} walkLegs={walkLegs} />
+        </div>
+
+        <button
+          className={`primary-button planner-track-button${mrtSuitable ? ' planner-track-button--highlight' : ' planner-track-button--deemphasized'}${profile === 'netra' ? ' planner-btn--netra' : ''}`}
+          type="button"
+          onClick={() => { if (profile === 'netra') tts?.speak('Lanjut ke tracking rute ini'); startTrackingForChosenRoute() }}
+        >
+          Lanjut ke tracking rute ini <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
+        </button>
+      </main>
+    )
+  }
 
   return (
     <main className="page-content inner-page planner-page">
@@ -694,71 +848,35 @@ function PlannerPage({
         <p className="eyebrow">ANTAR AKU / PERENCANA RUTE</p>
         <h2>Cari rute TransJakarta</h2>
         <p>Masukkan asal dan tujuan, lalu pilih rute terbaik. Setelah memilih, kamu bisa mengikuti armada secara langsung.</p>
-        <button className="secondary-button demo-route-btn" type="button" onClick={() => { void runDemo() }} disabled={planState === 'loading'}>
-          Demo: JIS <ArrowRightIcon size={16} /> Blok M
-        </button>
       </section>
 
-      <form className="planner-form" onSubmit={(event) => { void runPlan(event) }} role="search">
-        <label className="planner-field">
-          <span className="planner-field__label">Dari</span>
-          <input
-            value={originQuery}
-            onChange={(event) => { void searchStops(event.target.value, 'origin') }}
-            placeholder="Asal, mis. Halte Bundaran HI"
-            autoComplete="off"
-          />
-        </label>
-        <button type="button" className={`planner-locate-btn${profile === 'netra' ? ' planner-btn--netra' : ''}`} onClick={() => { if (profile === 'netra') tts?.speak('Pakai lokasi saya'); locateOrigin() }} disabled={locating}>
-          <LocateIcon size={20} />
-          {locating ? 'Mencari…' : 'Pakai lokasi saya'}
-        </button>
-        {originFromLocation && origin ? (
-          <p className="planner-locate-note">Asal: {origin.name} (dari lokasimu)</p>
-        ) : null}
-        {locateError ? (
-          <p className="planner-locate-error" role="status">{locateError}</p>
-        ) : null}
-        {originSuggestions.length ? (
-          <div className="planner-suggestions" role="listbox" aria-label="Saran halte asal">
-            {originSuggestions.map((point) => (
-              <button type="button" key={point.stop_id ?? point.name} onClick={() => choosePoint('origin', point)}>{point.name}</button>
-            ))}
-          </div>
-        ) : null}
-        <label className="planner-field">
-          <span className="planner-field__label">Ke</span>
-          <input
-            value={destinationQuery}
-            onChange={(event) => { void searchStops(event.target.value, 'destination') }}
-            placeholder="Tujuan, mis. Halte Karet"
-            autoComplete="off"
-          />
-        </label>
-        {destinationSuggestions.length ? (
-          <div className="planner-suggestions" role="listbox" aria-label="Saran halte tujuan">
-            {destinationSuggestions.map((point) => (
-              <button type="button" key={point.stop_id ?? point.name} onClick={() => choosePoint('destination', point)}>{point.name}</button>
-            ))}
-          </div>
-        ) : null}
+      <form className="planner-form" onSubmit={(event) => { void runPlan(event) }}>
+        <div className="planner-field">
+          <span className="planner-field__label" id="planner-from-label">Dari</span>
+          <button type="button" className="planner-point-btn" onClick={() => openPicker('origin')} aria-labelledby="planner-from-label">
+            <span className="planner-point-btn__value">{origin ? origin.name : 'Pilih titik asal'}</span>
+            <span className="planner-point-btn__action" aria-hidden="true"><SearchIcon size={18} /> {origin ? 'Ganti' : 'Cari'}</span>
+          </button>
+          {originFromLocation && origin ? (
+            <p className="planner-locate-note">Asal: {origin.name} (dari lokasimu)</p>
+          ) : null}
+        </div>
+        <div className="planner-field">
+          <span className="planner-field__label" id="planner-to-label">Ke</span>
+          <button type="button" className="planner-point-btn" onClick={() => openPicker('destination')} aria-labelledby="planner-to-label">
+            <span className="planner-point-btn__value">{destination ? destination.name : 'Pilih titik tujuan'}</span>
+            <span className="planner-point-btn__action" aria-hidden="true"><SearchIcon size={18} /> {destination ? 'Ganti' : 'Cari'}</span>
+          </button>
+        </div>
         <div className="planner-time-controls" role="group" aria-label="Waktu perjalanan">
-          <label className="planner-field">
+          <div className="planner-field">
             <span className="planner-field__label">Berangkat jam</span>
-            <input
-              type="time"
+            <ClockField
+              label="jam berangkat"
               value={departureTime}
-              onChange={(event) => setDepartureTime(event.target.value)}
+              onChange={setDepartureTime}
             />
-          </label>
-          <label className="planner-field">
-            <span className="planner-field__label">Tiba jam</span>
-            <input
-              type="time"
-              value={arrivalTime}
-              onChange={(event) => setArrivalTime(event.target.value)}
-            />
-          </label>
+          </div>
         </div>
         <button
           className={`primary-button${profile === 'netra' ? ' planner-btn--netra' : ''}`}
@@ -769,113 +887,6 @@ function PlannerPage({
           {planState === 'loading' ? 'Mencari rute…' : 'Cari rute'} <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
         </button>
       </form>
-
-      <section className="saved-stops-section" aria-labelledby="saved-stops-heading">
-        <div>
-          <p className="eyebrow">HALTE FAVORIT</p>
-          <h3 id="saved-stops-heading">Halte favorit</h3>
-        </div>
-
-        {saveTarget !== null ? (
-          <div className="saved-stop-editor" role="group" aria-labelledby="saved-stop-editor-heading">
-            <p className="eyebrow" id="saved-stop-editor-heading">
-              Simpan {saveTarget === 'origin' ? 'asal' : 'tujuan'} · {(saveTarget === 'origin' ? origin : destination)?.name}
-            </p>
-            <label className="planner-field" htmlFor="saved-stop-name">
-              <span className="planner-field__label">Nama favorit</span>
-              <input
-                id="saved-stop-name"
-                value={saveLabel}
-                onChange={(event) => setSaveLabel(event.target.value)}
-                placeholder="Mis. kantor, rumah, sekolah"
-                autoComplete="off"
-              />
-            </label>
-            <div className="saved-stop-editor__actions">
-              <button className="primary-button" type="button" onClick={confirmSaveStop}>Simpan</button>
-              <button className="secondary-button" type="button" onClick={cancelSaveStop}>Batal</button>
-            </div>
-          </div>
-        ) : origin || destination ? (
-          <div className="saved-stop-actions">
-            {origin ? (
-              <button type="button" className="secondary-button" onClick={() => beginSaveStop('origin')}>
-                Simpan asal sebagai favorit <StarIcon size={18} />
-              </button>
-            ) : null}
-            {destination ? (
-              <button type="button" className="secondary-button" onClick={() => beginSaveStop('destination')}>
-                Simpan tujuan sebagai favorit <StarIcon size={18} />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {savedStops.length === 0 ? (
-          <div className="empty-state">
-            <StarIcon className="empty-state__mark" size={24} filled={false} />
-            <h3>Belum ada halte favorit</h3>
-            <p>Pilih asal atau tujuan, lalu simpan sebagai favorit untuk pencarian yang lebih cepat.</p>
-          </div>
-        ) : (
-          <ul className="saved-stops-list">
-            {savedStops.map((stop) => (
-              <li key={stop.id} className="saved-stop-item">
-                <span className="saved-stop-item__mark" aria-hidden="true"><StarIcon size={20} /></span>
-                <div className="saved-stop-item__body">
-                  <strong>{stop.name}</strong>
-                  {stop.stopName !== stop.name ? <span>{stop.stopName}</span> : null}
-                </div>
-                <div className="saved-stop-item__actions">
-                  <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'origin')}>Dari</button>
-                  <button type="button" className="saved-stop-item__target" onClick={() => fillSavedStop(stop, 'destination')}>Ke</button>
-                  <button type="button" className="saved-stop-item__delete" aria-label={`Hapus favorit ${stop.name}`} onClick={() => removeStoredStop(stop.id)}><CloseIcon size={20} /></button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="search-history-section" aria-labelledby="search-history-heading">
-        <div className="search-history-section__head">
-          <div>
-            <p className="eyebrow">RIWAYAT PENCARIAN</p>
-            <h3 id="search-history-heading">Riwayat pencarian</h3>
-          </div>
-          <button
-            type="button"
-            className="secondary-button search-history-section__toggle"
-            onClick={() => setHistoryOpen((open) => !open)}
-            aria-expanded={historyOpen}
-            aria-controls="search-history-list"
-          >
-            {historyOpen ? 'Sembunyikan' : 'Tampilkan'} <span aria-hidden="true">{historyOpen ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
-          </button>
-        </div>
-
-        {historyOpen ? (
-          history.length === 0 ? (
-            <div className="empty-state">
-              <SearchIcon className="empty-state__mark" size={24} />
-              <h3>Belum ada riwayat pencarian</h3>
-              <p>Rute yang berhasil dicari akan muncul di sini agar bisa dipakai lagi dengan cepat.</p>
-            </div>
-          ) : (
-            <ul id="search-history-list" className="history-list">
-              {history.map((entry) => (
-                <li key={entry.at} className="history-item">
-                  <button type="button" className="history-item__fill" onClick={() => fillFromHistory(entry)}>
-                    <strong>{entry.origin.name} <span aria-hidden="true"><ArrowRightIcon size={16} /></span> {entry.destination.name}</strong>
-                    <span>{formatHistoryTime(entry.at)}</span>
-                  </button>
-                  <button type="button" className="history-item__delete" aria-label={`Hapus riwayat ${entry.origin.name} ke ${entry.destination.name}`} onClick={() => removeStoredHistoryEntry(entry.at)}><CloseIcon size={20} /></button>
-                </li>
-              ))}
-            </ul>
-          )
-        ) : null}
-      </section>
 
       {planState === 'error' ? (
         <div className="notice-box notice-box--danger" role="alert"><strong>Rute belum ditemukan</strong><span>{planError}</span></div>
@@ -909,41 +920,62 @@ function PlannerPage({
             <h3 id="planner-incidents-heading">Ada gangguan di perjalananmu</h3>
           </div>
           <ul className="incident-list">
-            {planResponse.incidents.map((incident, index) => (
-              <li key={incident.id ?? `planner-incident-${index}`}>
-                <article className="incident-card">
-                  <div className="incident-card__header">
-                    <span className="state-badge state-badge--danger">GANGGUAN</span>
-                    <span>{incident.route_id ? `Koridor ${incident.route_id}` : 'Rute terpengaruh'}</span>
-                  </div>
-                  <h3>{incidentStatusLabel(incident.status)}</h3>
-                  <dl className="incident-details">
-                    {incident.cause ? <div><dt>Penyebab</dt><dd>{incident.cause}</dd></div> : null}
-                    {incident.action ? <div><dt>Tindakan</dt><dd>{incident.action}</dd></div> : null}
-                    {incident.instruction ? <div><dt>Instruksi</dt><dd>{incident.instruction}</dd></div> : null}
-                  </dl>
-                </article>
-              </li>
-            ))}
+            {planResponse.incidents.map((incident, index) => {
+              const key = incident.id ?? `planner-incident-${index}`
+              const expanded = openIncidentKeys.has(key)
+              return (
+                <li key={key}>
+                  <article className="incident-card incident-card--planner">
+                    <div className="incident-card__row">
+                      <div className="incident-card__text">
+                        <p className="incident-card__route">
+                          <span className="state-badge state-badge--danger">GANGGUAN</span>
+                          <span>{incident.route_id ? `Koridor ${incident.route_id}` : 'Rute terpengaruh'}</span>
+                        </p>
+                        <h3>{incidentStatusLabel(incident.status)}</h3>
+                      </div>
+                      <button
+                        type="button"
+                        className="incident-card__toggle"
+                        aria-expanded={expanded}
+                        aria-controls={`planner-incident-details-${key}`}
+                        onClick={() => toggleIncidentKey(key)}
+                      >
+                        <span>{expanded ? 'Tutup detail' : 'Cek detail'}</span>
+                        <ChevronDownIcon size={18} className={`incident-card__chevron${expanded ? ' incident-card__chevron--open' : ''}`} />
+                      </button>
+                    </div>
+                    <dl className="incident-details" id={`planner-incident-details-${key}`} hidden={!expanded}>
+                      {incident.cause ? <div><dt>Penyebab</dt><dd>{incident.cause}</dd></div> : null}
+                      {incident.action ? <div><dt>Tindakan</dt><dd>{incident.action}</dd></div> : null}
+                      {incident.instruction ? <div><dt>Instruksi</dt><dd>{incident.instruction}</dd></div> : null}
+                    </dl>
+                  </article>
+                </li>
+              )
+            })}
           </ul>
         </section>
       ) : null}
 
       {planState === 'results' && planResponse && itineraries.length > 0 && selected ? (
         <>
-          <section className="itinerary-tabs" aria-label="Pilih alternatif rute">
-            {itineraries.map((itinerary, index) => (
-              <button
-                type="button"
-                key={`itinerary-${index}`}
-                className={`itinerary-tab${index === selectedItinerary ? ' itinerary-tab--active' : ''}`}
-                onClick={() => setSelectedItinerary(index)}
-                aria-pressed={index === selectedItinerary}
-              >
-                <strong>Pilihan {index + 1}</strong>
-                <span>{itinerary.total_minutes} mnt · jalan {formatDistance(itinerary.walk_distance_m)}</span>
-              </button>
-            ))}
+          <section className="itinerary-options" aria-labelledby="itinerary-options-heading">
+            <div className="itinerary-options__head">
+              <p className="eyebrow">ALTERNATIF RUTE</p>
+              <h3 id="itinerary-options-heading" tabIndex={-1} ref={optionsHeadingRef}>Pilih rute perjalanan</h3>
+            </div>
+            <ul className="itinerary-card-list">
+              {itineraries.map((itinerary, index) => (
+                <ItineraryOptionCard
+                  key={`itinerary-${index}`}
+                  index={index}
+                  itinerary={itinerary}
+                  selected={index === selectedItinerary}
+                  onSelect={chooseItinerary}
+                />
+              ))}
+            </ul>
           </section>
 
           {mrtSuitable ? (
@@ -957,50 +989,6 @@ function PlannerPage({
               <span>Kami sarankan menggunakan transportasi darat lain. Rute di bawah tetap tersedia sebagai informasi.</span>
             </div>
           )}
-
-          <section className="planner-summary" aria-labelledby="planner-summary-heading">
-            <p className="eyebrow">RINGKASAN PERJALANAN</p>
-            {arrivalTime && selected.legs[0] ? (
-              <p className="planner-summary__departure" role="status">
-                <span>Berangkat pukul</span>
-                <strong>{formatClock(selected.legs[0].start_time)}</strong>
-                <span>dari {selected.legs[0].from.name}</span>
-              </p>
-            ) : null}
-            <div className="planner-summary__numbers">
-              <div><strong>{selected.total_minutes}</strong><span>menit total</span></div>
-              <div><strong>{selected.transfers}</strong><span>transfer</span></div>
-              <div><strong>{Math.round(selected.walk_distance_m / 10) / 100}</strong><span>km jalan kaki</span></div>
-            </div>
-            <p className="planner-summary__note">Estimasi jadwal statis · {planResponse.source === 'gtfs' ? 'sumber GTFS' : 'sumber tidak tersedia'}</p>
-          </section>
-
-          <section className="planner-legs" aria-label="Daftar langkah perjalanan">
-            <ol className="leg-list">
-              {selected.legs.map((leg, index) => (
-                <LegRow
-                  key={`leg-${index}`}
-                  leg={leg}
-                  index={index}
-                  affected={leg.mode === 'BUS' && !!leg.route && (affectedRouteIds.has(leg.route.id) || affectedRouteIds.has(leg.route.short_name))}
-                  facilityIndex={facilityIndex}
-                  onOpenSideBySide={onOpenSideBySide}
-                />
-              ))}
-            </ol>
-          </section>
-
-          <div className="planner-map">
-            <MapboxMap stops={plannerStops} routeShapes={planShapes} walkLegs={walkLegs} />
-          </div>
-
-          <button
-            className={`primary-button planner-track-button${mrtSuitable ? ' planner-track-button--highlight' : ' planner-track-button--deemphasized'}${profile === 'netra' ? ' planner-btn--netra' : ''}`}
-            type="button"
-            onClick={() => { if (profile === 'netra') tts?.speak('Lanjut ke tracking rute ini'); startTrackingForChosenRoute() }}
-          >
-            Lanjut ke tracking rute ini <span aria-hidden="true"><ArrowRightIcon size={20} /></span>
-          </button>
         </>
       ) : null}
     </main>

@@ -264,6 +264,27 @@ def test_walk_access_and_egress_legs():
     assert itinerary.walk_distance_m == pytest.approx(access.distance_m + egress.distance_m)
 
 
+def test_walk_access_and_egress_keep_caller_point_name():
+    feed = synthetic_feed()
+    # Rail stations are not GTFS stops: the caller passes coordinates with a
+    # real name (e.g. "St. MRT Bundaran HI"), which must survive the snap.
+    origin = {"name": "St. MRT Bundaran HI", "lat": -6.1985, "lng": 106.8010}
+    destination = {"name": "St. MRT Blok M", "lat": -6.1985, "lng": 106.8090}
+    itineraries = plan_trip(
+        feed,
+        None,
+        origin,
+        destination,
+        MONDAY,
+        departure_time="07:50",
+    )
+    assert len(itineraries) == 1
+    access, bus, egress = itineraries[0].legs
+    assert access.mode == "WALK" and egress.mode == "WALK"
+    assert access.from_point.name == "St. MRT Bundaran HI"
+    assert egress.to_point.name == "St. MRT Blok M"
+
+
 # ---------------------------------------------------------------------------
 # walk transfer between stops (walk graph edge, not just access/egress)
 # ---------------------------------------------------------------------------

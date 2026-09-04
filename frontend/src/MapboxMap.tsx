@@ -610,8 +610,10 @@ function MapboxMap({
       if (!isRailMode) return { lng: vehicle.lng, lat: vehicle.lat }
       const key = `${vehicle.operator ?? 'MRT'}:${vehicle.line_code ?? vehicle.route_code ?? 'MRT'}`
       const paths = railPaths.get(key)
-      const distance = vehicle.distance_m ?? vehicle.route_distance_m
-      return paths && typeof distance === 'number' ? (pointAtRailDistance(paths, distance) ?? nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])) : nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])
+       const distance = vehicle.distance_m ?? vehicle.route_distance_m
+       return paths && typeof distance === 'number' && Number.isFinite(distance)
+         ? (pointAtRailDistance(paths, distance) ?? nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? []))
+         : nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])
     }
     const seen = new Set<string>()
     const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
@@ -654,11 +656,15 @@ function MapboxMap({
       seen.add(vehicle.id)
       const existing = scheduledMarkersRef.current.get(vehicle.id)
       const position = snap(vehicle)
-      const distance = vehicle.distance_m ?? vehicle.route_distance_m
-      const key = `${vehicle.operator ?? 'MRT'}:${vehicle.line_code ?? vehicle.route_code ?? 'MRT'}`
-      const paths = isRailMode ? railPaths.get(key) : undefined
-      if (existing) {
-        animateTo(vehicle.id, existing, position, paths && typeof distance === 'number' ? { distance: Math.max(0, Math.min(distance, Math.max(...paths.map((path) => path.total)))) , paths } : undefined)
+       const distance = vehicle.distance_m ?? vehicle.route_distance_m
+       const key = `${vehicle.operator ?? 'MRT'}:${vehicle.line_code ?? vehicle.route_code ?? 'MRT'}`
+       const paths = isRailMode ? railPaths.get(key) : undefined
+       const validDistance = typeof distance === 'number' && Number.isFinite(distance)
+       const boundedDistance = validDistance && paths?.length
+         ? Math.max(0, Math.min(distance, Math.max(...paths.map((path) => path.total))))
+         : undefined
+       if (existing) {
+         animateTo(vehicle.id, existing, position, paths && boundedDistance !== undefined ? { distance: boundedDistance, paths } : undefined)
       } else {
         const isMRT = vehicle.route_code === 'MRT' || vehicle.id.startsWith('mrt-')
         const el = document.createElement('div')

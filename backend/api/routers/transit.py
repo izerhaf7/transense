@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from ...commute import CommuteClient, CommuteError, CommuteFeed, amenity_label, mode_label
 from ...rail_positions import mrt_positions
 from ..deps import get_commute_feed, get_settings
-from ..utils import commute_grouped_to_timetable, commute_line_stations
+from ..utils import commute_grouped_to_timetable, commute_line_stations, line_terminus_departures
 
 router = APIRouter(prefix="/api/transit", tags=["transit"])
 
@@ -168,26 +168,8 @@ async def transit_lines_geometry(request: Request) -> dict[str, Any]:
 
 
 def _cached_departures(request: Request, operator: str, stations: list[dict[str, Any]]) -> list[str]:
-    """Departure times from the line terminus station, cached with a 5-minute TTL."""
-    state = request.app.state
-    now = datetime.now(timezone.utc).timestamp()
-    cache_key = f"{operator}:{stations[0]['id']}"
-    cached = getattr(state, "transit_departures_cache", None)
-    if cached and now - cached[0] < 300 and cached[1] == cache_key:
-        return cached[2]
-    try:
-        client = CommuteClient(base_url=get_settings(request).commute_api_base)
-        grouped = client.timetable_grouped(operator, stations[0].get("code") or stations[0]["id"])
-    except CommuteError:
-        grouped = []
-    feed = get_commute_feed(request)
-    times: list[str] = []
-    if grouped and feed is not None:
-        for entry in commute_grouped_to_timetable(grouped, feed):
-            times.extend(entry.get("times", []))
-    times = sorted({str(value).strip() for value in times})
-    state.transit_departures_cache = (now, cache_key, times)
-    return times
+    """Departure times from the line terminus station (shared util + cache)."""
+    return line_terminus_departures(request.app, operator, stations)
 
 
 @router.get("/positions", response_model=None)

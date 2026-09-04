@@ -74,9 +74,16 @@ export default function JourneyTrackingPage({ apiBaseUrl, itinerary, onBack }: J
   const [arrivalUnavailable, setArrivalUnavailable] = useState(false)
   const approachingNotified = useRef(false)
   const etaNotified = useRef(false)
+  const headingRef = useRef<HTMLHeadingElement | null>(null)
 
   const leg: PlanLeg | undefined = itinerary.legs[legIndex]
   const isLast = legIndex >= itinerary.legs.length - 1
+
+  // Keyboard / screen-reader users land on the step heading when tracking
+  // opens instead of losing focus to the removed detail page button.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
 
   // Track the user's GPS position.
   useEffect(() => {
@@ -269,7 +276,7 @@ export default function JourneyTrackingPage({ apiBaseUrl, itinerary, onBack }: J
       <section className="planner-simulation__header">
         <button type="button" className="schedule-detail__back" onClick={onBack}><ArrowBackIcon size={18} /> Kembali ke rute</button>
         <p className="eyebrow">ANTAR AKU · TRACKING REAL</p>
-        <h2>Perjalanan {legIndex + 1}/{itinerary.legs.length}</h2>
+        <h2 ref={headingRef} tabIndex={-1}>Perjalanan {legIndex + 1}/{itinerary.legs.length}</h2>
       </section>
 
       {isApproaching || isArrived ? <div className={`edge-flash ${isArrived ? 'edge-flash--safe' : 'edge-flash--danger'}`} aria-hidden="true" /> : null}

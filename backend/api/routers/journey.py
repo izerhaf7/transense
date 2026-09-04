@@ -144,7 +144,7 @@ async def journey_plan(
     # clock times, so they cannot honor a "latest departure to arrive by X".
     if arrive_by is None:
         itinerary_dicts.extend(
-            plan_standalone_rail(origin, destination, request.app, walk_graph)
+            plan_standalone_rail(origin, destination, request.app, walk_graph, departure_time=plan_time)
         )
         itinerary_dicts.extend(
             plan_intermodal(origin, destination, request.app, walk_graph, plan_date, plan_time)
@@ -161,6 +161,7 @@ async def journey_plan(
         enrich_bus_legs_eta(
             itinerary_dicts,
             realtime_available=get_realtime_client(request) is not None,
+            buses=getattr(request.app.state, "realtime_buses", None) or [],
         )
     return {
         "itineraries": itinerary_dicts,
