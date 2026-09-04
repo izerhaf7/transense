@@ -260,7 +260,7 @@ export function HomePage({
   }
 
   // MRT schedule-based trains are intentionally separate from bus realtime.
-  const [railVehicles, setRailVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string }[]>([])
+  const [railVehicles, setRailVehicles] = useState<{ id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string; operator?: string; line_code?: string; distance_m?: number; route_distance_m?: number }[]>([])
 
   // The default map has no displayed route, so it must not show every realtime bus.
   // Once routes are selected, shapes and vehicle markers follow that selection.
@@ -333,13 +333,13 @@ export function HomePage({
     }
     let cancelled = false
     const fetchRailVehicles = async () => {
-      const collected: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string; direction?: string; next_station?: string | null; progress_pct?: number }[] = []
+      const collected: { id: string; trip_id: string; lat: number; lng: number; bearing: number; status: string; route_code?: string; operator?: string; line_code?: string; distance_m?: number; route_distance_m?: number; direction?: string; next_station?: string | null; progress_pct?: number }[] = []
       await Promise.all(
         filteredRailLines.map(async (line) => {
           try {
             const res = await fetch(`${apiBaseUrl}/api/transit/positions?operator=${encodeURIComponent(line.operator)}&code=${encodeURIComponent(line.code)}`)
             if (!res.ok) return
-            const data = await res.json() as { source: string; trains?: { id: string; direction: string; lat: number; lng: number; next_station: string | null; progress_pct: number }[] }
+            const data = await res.json() as { source: string; trains?: { id: string; direction: string; lat: number; lng: number; next_station: string | null; progress_pct: number; operator?: string; line_code?: string; distance_m?: number; route_distance_m?: number }[] }
             if (data.source !== 'scheduled') {
               setRailVehicles([])
               return
@@ -354,8 +354,12 @@ export function HomePage({
                 lng: train.lng,
                 bearing: 0,
                 status: 'en_route',
-                route_code: routeCode,
-                direction: train.direction,
+                 route_code: routeCode,
+                 operator: train.operator ?? line.operator,
+                 line_code: train.line_code ?? line.code,
+                 distance_m: train.distance_m,
+                 route_distance_m: train.route_distance_m,
+                 direction: train.direction,
                 next_station: train.next_station,
                 progress_pct: train.progress_pct,
               })

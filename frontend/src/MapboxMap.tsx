@@ -49,6 +49,10 @@ export interface ScheduledVehicle {
   direction?: string
   next_station?: string | null
   progress_pct?: number
+  operator?: string
+  line_code?: string
+  distance_m?: number
+  route_distance_m?: number
 }
 
 export interface StopPopupData {
@@ -103,6 +107,70 @@ function relativeTime(iso: string): string {
   if (diff < 1) return 'Baru saja'
   if (diff < 60) return `${Math.floor(diff)} menit lalu`
   return `${Math.floor(diff / 60)} jam lalu`
+}
+
+interface RailPath {
+  points: { lng: number; lat: number }[]
+  cumulative: number[]
+  total: number
+}
+
+function haversineMeters(a: { lng: number; lat: number }, b: { lng: number; lat: number }): number {
+  const earthRadiusMeters = 6_371_000
+  const toRadians = (degrees: number) => degrees * Math.PI / 180
+  const latitudeDelta = toRadians(b.lat - a.lat)
+  const longitudeDelta = toRadians(b.lng - a.lng)
+  const latitudeA = toRadians(a.lat)
+  const latitudeB = toRadians(b.lat)
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(longitudeDelta / 2) ** 2
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
+function buildRailPaths(lines: RailLine[]): Map<string, RailPath[]> {
+  const paths = new Map<string, RailPath[]>()
+  for (const line of lines) {
+    const linePaths: RailPath[] = []
+    let offset = 0
+    for (const segment of line.segments) {
+      const points: { lng: number; lat: number }[] = []
+      for (const coordinate of segment) {
+        const point = { lng: coordinate[0], lat: coordinate[1] }
+        const previous = points[points.length - 1]
+        if (!previous || previous.lng !== point.lng || previous.lat !== point.lat) points.push(point)
+      }
+      if (points.length < 2) continue
+      const cumulative = [offset]
+      for (let index = 1; index < points.length; index += 1) {
+        cumulative.push(cumulative[index - 1] + haversineMeters(points[index - 1], points[index]))
+      }
+      const total = cumulative[cumulative.length - 1]
+      if (total > offset) {
+        linePaths.push({ points, cumulative, total })
+        offset = total
+      }
+    }
+    paths.set(`${line.operator}:${line.code}`, linePaths)
+  }
+  return paths
+}
+
+function pointAtRailDistance(paths: RailPath[], distance: number): { lng: number; lat: number } | null {
+  const lastPath = paths[paths.length - 1]
+  if (!lastPath) return null
+  const target = Math.max(0, Math.min(distance, lastPath.total))
+  const path = paths.find((candidate) => target <= candidate.total) ?? lastPath
+  const pathStart = path.cumulative[0]
+  const localTarget = Math.max(pathStart, target)
+  let index = 1
+  while (index < path.cumulative.length - 1 && path.cumulative[index] < localTarget) index += 1
+  const start = path.cumulative[index - 1]
+  const span = path.cumulative[index] - start
+  const ratio = span === 0 ? 0 : (localTarget - start) / span
+  return {
+    lng: path.points[index - 1].lng + (path.points[index].lng - path.points[index - 1].lng) * ratio,
+    lat: path.points[index - 1].lat + (path.points[index].lat - path.points[index - 1].lat) * ratio,
+  }
 }
 
 function nearestRailPoint(point: { lng: number; lat: number }, lines: RailLine[]): { lng: number; lat: number } {
@@ -178,7 +246,8 @@ function MapboxMap({
   const railStationMarkersRef = useRef<mapboxgl.Marker[]>([])
   const busMarkersRef = useRef<mapboxgl.Marker[]>([])
   const scheduledMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map())
-  const scheduledAnimsRef = useRef<Map<string, { raf: number; start: number; from: { lng: number; lat: number }; to: { lng: number; lat: number }}>>(new Map())
+  const scheduledAnimsRef = useRef<Map<string, { raf: number; start: number; from: { lng: number; lat: number }; to: { lng: number; lat: number }; rail?: { from: number; to: number; paths: RailPath[] } }>>(new Map())
+  const scheduledDistancesRef = useRef<Map<string, number>>(new Map())
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const stopPopupRef = useRef<mapboxgl.Popup | null>(null)
   const railStationPopupRef = useRef<mapboxgl.Popup | null>(null)
@@ -280,6 +349,7 @@ function MapboxMap({
       busMarkersRef.current = []
       scheduledAnimsRef.current.forEach((a) => window.cancelAnimationFrame(a.raf))
       scheduledAnimsRef.current.clear()
+      scheduledDistancesRef.current.clear()
       scheduledMarkersRef.current.forEach((m) => m.remove())
       scheduledMarkersRef.current.clear()
       railStationMarkersRef.current.forEach((m) => m.remove())
@@ -535,30 +605,41 @@ function MapboxMap({
 
     const vehicles = railVehicles ?? scheduledVehicles ?? []
     const isRailMode = railVehicles !== undefined
-    const snap = (vehicle: ScheduledVehicle) => isRailMode
-      ? nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])
-      : { lng: vehicle.lng, lat: vehicle.lat }
+    const railPaths = buildRailPaths(railLines ?? [])
+    const snap = (vehicle: ScheduledVehicle) => {
+      if (!isRailMode) return { lng: vehicle.lng, lat: vehicle.lat }
+      const key = `${vehicle.operator ?? 'MRT'}:${vehicle.line_code ?? vehicle.route_code ?? 'MRT'}`
+      const paths = railPaths.get(key)
+      const distance = vehicle.distance_m ?? vehicle.route_distance_m
+      return paths && typeof distance === 'number' ? (pointAtRailDistance(paths, distance) ?? nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])) : nearestRailPoint({ lng: vehicle.lng, lat: vehicle.lat }, railLines ?? [])
+    }
     const seen = new Set<string>()
     const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
     const DURATION_MS = 900
 
-    const animateTo = (id: string, marker: mapboxgl.Marker, to: { lng: number; lat: number }) => {
+    const animateTo = (id: string, marker: mapboxgl.Marker, to: { lng: number; lat: number }, railTarget?: { distance: number; paths: RailPath[] }) => {
       const prev = scheduledAnimsRef.current.get(id)
       if (prev) window.cancelAnimationFrame(prev.raf)
       const from = marker.getLngLat()
       // Skip animation when the delta is invisible at map scale.
       if (Math.abs(from.lng - to.lng) < 1e-7 && Math.abs(from.lat - to.lat) < 1e-7) return
-      const anim = { raf: 0, start: performance.now(), from: { lng: from.lng, lat: from.lat }, to }
+       const previousDistance = scheduledDistancesRef.current.get(id)
+       const anim = { raf: 0, start: performance.now(), from: { lng: from.lng, lat: from.lat }, to, rail: railTarget && typeof previousDistance === 'number' ? { from: previousDistance, to: railTarget.distance, paths: railTarget.paths } : undefined }
+       if (railTarget) scheduledDistancesRef.current.set(id, railTarget.distance)
+
       scheduledAnimsRef.current.set(id, anim)
       const step = (now: number) => {
         const current = scheduledAnimsRef.current.get(id)
         if (current !== anim) return // superseded by a newer target
         const t = Math.min(1, (now - anim.start) / DURATION_MS)
         const eased = easeOutCubic(t)
-        marker.setLngLat([
-          anim.from.lng + (anim.to.lng - anim.from.lng) * eased,
-          anim.from.lat + (anim.to.lat - anim.from.lat) * eased,
-        ])
+         const position = anim.rail
+           ? pointAtRailDistance(anim.rail.paths, anim.rail.from + (anim.rail.to - anim.rail.from) * eased) ?? anim.to
+           : {
+               lng: anim.from.lng + (anim.to.lng - anim.from.lng) * eased,
+               lat: anim.from.lat + (anim.to.lat - anim.from.lat) * eased,
+             }
+         marker.setLngLat([position.lng, position.lat])
         if (t < 1) {
           anim.raf = window.requestAnimationFrame(step)
         } else {
@@ -572,9 +653,12 @@ function MapboxMap({
       if (typeof vehicle.lng !== 'number' || typeof vehicle.lat !== 'number') continue
       seen.add(vehicle.id)
       const existing = scheduledMarkersRef.current.get(vehicle.id)
-        const position = snap(vehicle)
-        if (existing) {
-        animateTo(vehicle.id, existing, position)
+      const position = snap(vehicle)
+      const distance = vehicle.distance_m ?? vehicle.route_distance_m
+      const key = `${vehicle.operator ?? 'MRT'}:${vehicle.line_code ?? vehicle.route_code ?? 'MRT'}`
+      const paths = isRailMode ? railPaths.get(key) : undefined
+      if (existing) {
+        animateTo(vehicle.id, existing, position, paths && typeof distance === 'number' ? { distance: Math.max(0, Math.min(distance, Math.max(...paths.map((path) => path.total)))) , paths } : undefined)
       } else {
         const isMRT = vehicle.route_code === 'MRT' || vehicle.id.startsWith('mrt-')
         const el = document.createElement('div')
@@ -651,8 +735,12 @@ function MapboxMap({
             .addTo(map)
         }
 
-        scheduledMarkersRef.current.set(vehicle.id, marker)
-      }
+         scheduledMarkersRef.current.set(vehicle.id, marker)
+         if (paths && typeof distance === 'number') {
+           scheduledDistancesRef.current.set(vehicle.id, Math.max(0, Math.min(distance, Math.max(...paths.map((path) => path.total)))))
+         }
+       }
+
     }
 
     for (const [id, marker] of scheduledMarkersRef.current) {
