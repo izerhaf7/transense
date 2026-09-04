@@ -158,3 +158,65 @@ def test_plan_intermodal_empty_when_stations_too_far():
     app = make_app()
     result = rail.plan_intermodal({"lat": -6.40, "lng": 106.90}, {"lat": -6.195, "lng": 106.815}, app, None, MONDAY, "08:00")
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Integration regression guards — added for merge of MRT + Antar Aku
+# ---------------------------------------------------------------------------
+
+
+def test_plan_rail_empty_with_nan_origin_coordinates():
+    """NaN coordinates must produce empty result, not crash."""
+    result = rail.plan_rail({"lat": float("nan"), "lng": 106.80}, {"lat": -6.19, "lng": 106.82}, make_app(), None, "MRTJ", "M")
+    assert result == []
+
+
+def test_plan_rail_empty_with_nan_destination_coordinates():
+    """NaN destination must produce empty result, not crash."""
+    result = rail.plan_rail({"lat": -6.24, "lng": 106.80}, {"lat": float("nan"), "lng": float("nan")}, make_app(), None, "MRTJ", "M")
+    assert result == []
+
+
+def test_plan_rail_empty_with_single_station_line():
+    """A line with only one station cannot form a rail leg."""
+    single = make_app(stations=[{"id": "m1", "code": "M01", "name": "Only Station", "lat": -6.24, "lng": 106.80}])
+    result = rail.plan_rail({"lat": -6.24, "lng": 106.80}, {"lat": -6.19, "lng": 106.82}, single, None, "MRTJ", "M")
+    assert result == []
+
+
+def test_plan_rail_leg_contract_keys():
+    """Every RAIL leg must carry route.id, short_name, and color."""
+    result = rail.plan_rail({"lat": -6.245, "lng": 106.805}, {"lat": -6.195, "lng": 106.815}, make_app(), None, "MRTJ", "M")
+    assert len(result) == 1
+    rail_leg = result[0]["legs"][1]
+    assert rail_leg["mode"] == "RAIL"
+    assert rail_leg["route"]["id"] == "MRTJ:M"
+    assert rail_leg["route"]["short_name"] == "MRT"
+    assert isinstance(rail_leg["route"]["color"], str)
+    assert "from" in rail_leg and "to" in rail_leg
+    assert rail_leg["distance_m"] >= 0
+    assert rail_leg["duration_minutes"] >= 0
+
+
+def test_plan_intermodal_includes_rail_leg_between_bus_legs(monkeypatch):
+    """Intermodal must sandwich a RAIL leg between BUS legs."""
+    app = make_app()
+    monkeypatch.setattr(
+        rail,
+        "plan_trip",
+        lambda feed, walk_graph, origin, destination, plan_date, departure_time=None, arrive_by=None, max_itineraries=3: _stub_segment(origin, destination),
+    )
+    result = rail.plan_intermodal(
+        {"lat": -6.245, "lng": 106.805},
+        {"lat": -6.195, "lng": 106.815},
+        app,
+        None,
+        MONDAY,
+        "08:00",
+    )
+    assert len(result) >= 1
+    for it in result:
+        modes = [leg["mode"] for leg in it["legs"]]
+        assert modes[0] in ("BUS", "WALK")
+        assert "RAIL" in modes
+        assert modes[-1] in ("BUS", "WALK")
